@@ -64,7 +64,7 @@ kann `mc` ein CNAME auf deinen DynDNS-Namen sein, `*.mc` ebenfalls.
 Im LXC:
 
 ```bash
-git clone https://github.com/Tobias-Auer/MCConnect.git /opt/mcconnect
+git clone https://github.com/faolan-exe/MCConnect.git /opt/mcconnect
 cd /opt/mcconnect/deploy
 cp .env.example .env
 chmod 600 .env
