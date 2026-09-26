@@ -311,6 +311,6 @@ def test_web_prefix_reaches_plugin(db, server, plugin, web_client):
     web_client.post("/api/login", json={"username": "_Tobias4444", "pin": None}, base_url="http://testdomain.mc.test")
     pin = client.recv().split("~")[2]
     web_client.post("/api/login", json={"username": None, "pin": pin}, base_url="http://testdomain.mc.test")
-    web_client.post("/api/prefix/save", json={"text": "Bauteam", "color": "gold"}, base_url="http://testdomain.mc.test")
-    assert client.recv_prefix() == f"!prefix~{PLAYER_UUID}|gold|Bauteam"
+    web_client.post("/api/prefix/save", json={"text": "Bauteam", "color": "aqua"}, base_url="http://testdomain.mc.test")
+    assert client.recv_prefix() == f"!prefix~{PLAYER_UUID}|aqua|Bauteam"
     assert db.get_player_prefix(player_id)["text"] == "Bauteam"

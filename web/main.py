@@ -47,6 +47,8 @@ PREFIX_COLORS = {
     "dark_gray": "#555555", "blue": "#5555FF", "green": "#55FF55", "aqua": "#55FFFF",
     "red": "#FF5555", "light_purple": "#FF55FF", "yellow": "#FFFF55", "white": "#FFFFFF",
 }
+# Colors only moderators may use for their own prefix.
+MODERATOR_PREFIX_COLORS = {"gold"}
 # No formatting characters (§ &), no protocol separators (~ |), no % (chat format).
 PREFIX_TEXT_RE = re.compile(r"^[A-Za-z0-9ÄÖÜäöüß _.!?+*#-]{1,16}$")
 SSE_INTERVAL_SECONDS = 2
@@ -214,8 +216,12 @@ def moderator_required(view):
 @player_required
 def prefix_edit_page():
     player_id = logged_in_player_id()
+    is_moderator = db().is_moderator(player_id)
+    colors = {name: hex_color for name, hex_color in PREFIX_COLORS.items()
+              if is_moderator or name not in MODERATOR_PREFIX_COLORS}
     return render_template("prefix_edit.html", own_prefix=db().get_owned_prefix(player_id),
-                           current_prefix=db().get_player_prefix(player_id))
+                           current_prefix=db().get_player_prefix(player_id), selectable_colors=colors,
+                           is_moderator=is_moderator)
 
 
 @server_bp.route("/join_pref")
@@ -244,6 +250,8 @@ def prefix_save_api():
         return {"error": "Der Prefix muss 1-16 Zeichen lang sein (Buchstaben, Zahlen, Leerzeichen und _ . ! ? + * # -)."}, 400
     if color not in PREFIX_COLORS:
         return {"error": "Unbekannte Farbe."}, 400
+    if color in MODERATOR_PREFIX_COLORS and not db().is_moderator(logged_in_player_id()):
+        return {"error": "Diese Farbe ist Moderatoren vorbehalten."}, 403
     if password and len(password) < 4:
         return {"error": "Das Passwort muss mindestens 4 Zeichen lang sein."}, 400
     try:

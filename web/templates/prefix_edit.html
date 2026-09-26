@@ -19,10 +19,10 @@
   <label for="text">Text <span class="mcc-hint">(1–16 Zeichen)</span></label>
   <input class="mcc-input" id="text" maxlength="16" required value="{{ own_prefix.text if own_prefix else '' }}" />
 
-  <label>Farbe</label>
+  <label>Farbe {% if not is_moderator %}<span class="mcc-hint">(Gold ist Moderatoren vorbehalten)</span>{% endif %}</label>
   <div class="mcc-colors">
-    {% set selected = own_prefix.color if own_prefix else "gold" %}
-    {% for color, hex in prefix_colors.items() %}
+    {% set selected = own_prefix.color if own_prefix and own_prefix.color in selectable_colors else "aqua" %}
+    {% for color, hex in selectable_colors.items() %}
     <label title="{{ color }}"><input type="radio" name="color" value="{{ color }}" {% if color == selected %}checked{% endif %} />
       <span style="--swatch: {{ hex }}"></span></label>
     {% endfor %}

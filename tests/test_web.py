@@ -689,7 +689,7 @@ def test_prefix_pages_require_login(client, server):
 
 def test_create_prefix_and_show_it(player_client, db, server, online_player):
     assert player_client.get("/add_pref", **on("testdomain")).status_code == 200
-    response = player_client.post("/api/prefix/save", json={"text": "Bauteam", "color": "gold"}, **on("testdomain"))
+    response = player_client.post("/api/prefix/save", json={"text": "Bauteam", "color": "aqua"}, **on("testdomain"))
     assert response.status_code == 200
     assert db.get_player_prefix(online_player)["text"] == "Bauteam"
     assert "[Bauteam]" in player_client.get("/spieler", **on("testdomain")).data.decode()
@@ -698,16 +698,16 @@ def test_create_prefix_and_show_it(player_client, db, server, online_player):
 
 
 @pytest.mark.parametrize("body", [
-    {"text": "", "color": "gold"}, {"text": "x" * 17, "color": "gold"}, {"text": "§cRot", "color": "gold"},
-    {"text": "a|b", "color": "gold"}, {"text": "100%", "color": "gold"}, {"text": "ok", "color": "pink"},
-    {"text": "ok", "color": "gold", "password": "abc"},
+    {"text": "", "color": "aqua"}, {"text": "x" * 17, "color": "aqua"}, {"text": "§cRot", "color": "aqua"},
+    {"text": "a|b", "color": "aqua"}, {"text": "100%", "color": "aqua"}, {"text": "ok", "color": "pink"},
+    {"text": "ok", "color": "aqua", "password": "abc"},
 ])
 def test_prefix_validation(player_client, body):
     assert player_client.post("/api/prefix/save", json=body, **on("testdomain")).status_code == 400
 
 
 def test_prefix_requires_json(player_client):
-    assert player_client.post("/api/prefix/save", data={"text": "x", "color": "gold"},
+    assert player_client.post("/api/prefix/save", data={"text": "x", "color": "aqua"},
                               **on("testdomain")).status_code == 415
 
 
@@ -728,7 +728,7 @@ def test_join_and_leave_prefix(player_client, db, server):
 def test_duplicate_prefix_text(player_client, db, server):
     owner = db.ensure_player_on_server(server["id"], OTHER_UUID)
     db.save_own_prefix(owner, "Clan", "red")
-    response = player_client.post("/api/prefix/save", json={"text": "clan", "color": "gold"}, **on("testdomain"))
+    response = player_client.post("/api/prefix/save", json={"text": "clan", "color": "aqua"}, **on("testdomain"))
     assert response.status_code == 409
 
 
@@ -824,3 +824,16 @@ def test_ban_dropdown_groups_online_and_offline(player_client, db, server):
     body = player_client.get("/users", **on("testdomain")).data.decode()
     online, offline = body.index('label="Online (1)"'), body.index('label="Offline (2)"')
     assert online < body.index('value="_Tobias4444"') < offline < body.index('value="alex"') < body.index('value="Notch"')
+
+
+def test_gold_prefix_only_for_moderators(player_client, db, server, online_player):
+    body = {"text": "Gold", "color": "gold"}
+    response = player_client.post("/api/prefix/save", json=body, **on("testdomain"))
+    assert response.status_code == 403 and "Moderatoren" in response.json["error"]
+    page = player_client.get("/add_pref", **on("testdomain")).data.decode()
+    assert 'value="gold"' not in page and 'value="aqua" checked' in page
+
+    db.set_moderator(server["id"], "_Tobias4444", True)
+    assert 'value="gold"' in player_client.get("/add_pref", **on("testdomain")).data.decode()
+    assert player_client.post("/api/prefix/save", json=body, **on("testdomain")).status_code == 200
+    assert db.get_player_prefix(online_player)["color"] == "gold"
