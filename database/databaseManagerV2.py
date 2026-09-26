@@ -32,6 +32,11 @@ MIGRATIONS = {
         # Sessions started before this time are invalid (set on password change).
         "ALTER TABLE server_admins ADD COLUMN password_changed_at timestamptz NOT NULL DEFAULT now()",
     ],
+    4: [
+        # Whitelist-only servers do not publish an address.
+        "ALTER TABLE servers ADD COLUMN whitelist boolean NOT NULL DEFAULT false",
+        "ALTER TABLE servers ALTER COLUMN mc_server_domain DROP NOT NULL",
+    ],
 }
 SCHEMA_VERSION = max(MIGRATIONS, default=1)
 # A plugin counts as online if it was seen within this time (it sends a heartbeat every 5 seconds).
@@ -266,15 +271,18 @@ class DatabaseManager:
 
     def add_server(self, owner_id, subdomain, mc_server_domain, server_name, server_key=None,
                    server_description_short="SHORT DESCR", server_description_long="LONG DESCR",
-                   discord_url=None):
-        """Add a server and return its id. A server key is generated if none is given."""
+                   discord_url=None, whitelist=False):
+        """
+        Add a server and return its id. A server key is generated if none is given.
+        mc_server_domain may be None for whitelist-only servers.
+        """
         server_key = server_key or generate_secure_token(64)
         return self._fetchvalue("""
             INSERT INTO servers (owner_id, subdomain, mc_server_domain, server_name, server_key,
-                                 server_description_short, server_description_long, discord_url)
-            VALUES (%s, lower(%s), %s, %s, %s, %s, %s, %s) RETURNING id""",
+                                 server_description_short, server_description_long, discord_url, whitelist)
+            VALUES (%s, lower(%s), %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
             (owner_id, subdomain, mc_server_domain, server_name, server_key,
-             server_description_short, server_description_long, discord_url))
+             server_description_short, server_description_long, discord_url, whitelist))
 
     def add_prefix(self, player_id, prefix_text, password=None):
         return self._fetchvalue("""INSERT INTO prefixes (prefix_owner_id, prefix_text, password)
@@ -648,7 +656,7 @@ class DatabaseManager:
 
     def update_server(self, server_id, owner_id, **fields):
         """Update editable server fields; only succeeds for the owner. Returns True if updated."""
-        allowed = {"server_name", "mc_server_domain", "discord_url",
+        allowed = {"server_name", "mc_server_domain", "discord_url", "whitelist",
                    "server_description_short", "server_description_long"}
         fields = {k: v for k, v in fields.items() if k in allowed}
         if not fields:

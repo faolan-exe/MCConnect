@@ -284,6 +284,8 @@ def test_prefixes(db, player_id):
 def test_migration_from_version_1(db):
     with db._cursor() as cur:
         # back to schema version 1
+        cur.execute("ALTER TABLE servers DROP COLUMN whitelist")
+        cur.execute("ALTER TABLE servers ALTER COLUMN mc_server_domain SET NOT NULL")
         cur.execute("DROP TABLE password_reset")
         cur.execute("ALTER TABLE server_admins DROP COLUMN password_changed_at")
         cur.execute("ALTER TABLE servers DROP COLUMN plugin_connected, DROP COLUMN plugin_last_seen")
@@ -479,3 +481,12 @@ def test_admin_login_with_username_or_email(db, admin_id):
     assert db.authenticate_admin("tobi@example.com", "wrong") is None
     assert db.authenticate_admin("Tobi", "testPassword") is None  # usernames are exact
     assert db.authenticate_admin("nobody@example.com", "testPassword") is None
+
+
+
+def test_whitelist_server_without_address(db, admin_id):
+    server_id = db.add_server(admin_id, "private", None, "Private", whitelist=True)
+    info = db.get_server_information_dict("private")
+    assert info["id"] == server_id and info["whitelist"] is True and info["mc_server_domain"] is None
+    assert db.update_server(server_id, admin_id, whitelist=False, mc_server_domain="play.example.com") is True
+    assert db.get_server_information_dict("private")["whitelist"] is False

@@ -24,6 +24,7 @@
     <div>
       <h2>{{ server.server_name }}</h2>
       <p class="meta"><a href="{{ url }}" target="_blank">{{ server.subdomain }}.{{ base_domain }}</a>
+        · {{ "Nur Whitelist" if server.whitelist else "Öffentlich" }}
         · <span id="player-count-{{ server.id }}">{{ server.player_count }}</span> Spieler bekannt</p>
     </div>
     <span id="plugin-badge-{{ server.id }}" data-online="{{ 'true' if server.plugin_online else 'false' }}"
@@ -61,8 +62,20 @@ port: {{ plugin_port }}</pre>
     <form onsubmit="updateServer(event, {{ server.id }})">
       <label>Name des Servers</label>
       <input name="server_name" required maxlength="64" value="{{ server.server_name }}" />
-      <label>Adresse zum Verbinden</label>
-      <input name="mc_server_domain" required maxlength="253" value="{{ server.mc_server_domain }}" />
+      <fieldset class="choice">
+        <legend>Zugang</legend>
+        <label><input type="radio" name="whitelist" value="false" {% if not server.whitelist %}checked{% endif %}
+                      onchange="updateAddressField(this.form)" /> Öffentlich
+          <span class="hint">– die Adresse wird auf der Serverseite angezeigt</span></label>
+        <label><input type="radio" name="whitelist" value="true" {% if server.whitelist %}checked{% endif %}
+                      onchange="updateAddressField(this.form)" /> Nur Whitelist
+          <span class="hint">– die Adresse wird nicht veröffentlicht</span></label>
+      </fieldset>
+      <div class="address-field" {% if server.whitelist %}hidden{% endif %}>
+        <label>Adresse zum Verbinden</label>
+        <input name="mc_server_domain" maxlength="253" value="{{ server.mc_server_domain or '' }}"
+               {% if not server.whitelist %}required{% endif %} />
+      </div>
       <label>Kurzbeschreibung</label>
       <input name="server_description_short" required maxlength="200" value="{{ server.server_description_short }}" />
       <label>Beschreibung</label>
@@ -130,10 +143,17 @@ port: {{ plugin_port }}</pre>
     setTimeout(() => (button.textContent = "Kopieren"), 2000);
   }
 
+  function updateAddressField(form) {
+    const whitelist = form.querySelector('input[name="whitelist"]:checked').value === "true";
+    form.querySelector(".address-field").hidden = whitelist;
+    form.querySelector('input[name="mc_server_domain"]').required = !whitelist;
+  }
+
   async function updateServer(event, id) {
     event.preventDefault();
     const form = event.target;
     const body = Object.fromEntries(new FormData(form).entries());
+    body.whitelist = body.whitelist === "true";
     const result = await postJson(`/api/servers/${id}/update`, body);
     showMessage(form.querySelector(".message"),
                 result.ok ? "Gespeichert." : (result.data.error || "Speichern fehlgeschlagen."),

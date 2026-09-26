@@ -1,0 +1,32 @@
+/* Self-hosted fonts (SIL Open Font License, see ../fonts/OFL-*.txt).
+   Not loaded from Google, so no visitor IPs are sent to third parties. */
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("../fonts/atkinson-hyperlegible-400.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("../fonts/atkinson-hyperlegible-400-italic.woff2") format("woff2");
+  font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("../fonts/atkinson-hyperlegible-700.woff2") format("woff2");
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Pixelify Sans";
+  src: url("../fonts/pixelify-sans.woff2") format("woff2");
+  font-weight: 400 700; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../fonts/jetbrains-mono-400.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+:root {
+  --font-body: "Atkinson Hyperlegible", "Verdana", sans-serif;
+  --font-display: "Pixelify Sans", "Atkinson Hyperlegible", sans-serif;
+  --font-mono: "JetBrains Mono", "Menlo", monospace;
+}

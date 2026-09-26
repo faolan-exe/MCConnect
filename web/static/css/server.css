@@ -1,0 +1,113 @@
+/* Server start page (<subdomain>.mc...). Needs fonts.css. Classes are prefixed with
+   srv- so they do not collide with header.css. */
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #f2f3f5;
+  color: #1d2127;
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.55;
+}
+
+/* header.css makes the header position: fixed; same offset as .content there */
+.srv {
+  flex: 1 0 auto;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 130px 20px 56px;
+}
+
+.srv h1, .srv h2 {
+  font-family: var(--font-display);
+  letter-spacing: 0.01em;
+  color: #1d2127;
+}
+.srv h1 { font-size: 44px; font-weight: 700; margin: 0 0 6px; line-height: 1.15; }
+.srv h2 { font-size: 24px; font-weight: 500; margin: 0 0 12px; }
+
+.srv-tagline { color: #5f6b7a; font-size: 19px; margin: 0 0 28px; }
+
+.srv-panel {
+  background: #fff;
+  border: 1px solid #dde1e6;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 20px;
+}
+
+.srv-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px 48px;
+  margin: 0;
+}
+.srv-facts dt {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #5f6b7a;
+  margin-bottom: 4px;
+}
+.srv-facts dd { margin: 0; font-size: 19px; }
+
+.srv-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 16px;
+}
+.srv-tag-public { background: #e7f8ee; color: #135f31; }
+.srv-tag-whitelist { background: #fff3d6; color: #7a5200; }
+
+.srv-address { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.srv-address code {
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  background: #f2f3f5;
+  border: 1px solid #dde1e6;
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+
+.srv-btn {
+  display: inline-block;
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid #dde1e6;
+  background: #fff;
+  color: #1d2127;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+.srv-btn:hover { background: #f2f3f5; }
+.srv-btn-small { padding: 3px 10px; font-size: 14px; }
+.srv-btn-primary { background: #1fbf5b; border-color: #1fbf5b; color: #fff; }
+.srv-btn-primary:hover { background: #179a49; }
+
+.srv a { color: #179a49; }
+.srv a.srv-btn-primary { color: #fff; }
+
+.srv-note {
+  margin: 20px 0 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #fff8e6;
+  border: 1px solid #f0d27a;
+}
+
+.srv-description { white-space: pre-line; margin: 0; }
+
+@media (max-width: 640px) {
+  .srv h1 { font-size: 34px; }
+}

@@ -107,6 +107,7 @@ def inject_server_context():
                 discord_url=server["discord_url"],
                 license_type=server["license_type"],
                 mc_server_domain=server["mc_server_domain"],
+                whitelist=server["whitelist"],
                 server_name=server["server_name"])
 
 
@@ -517,26 +518,36 @@ def verify_email(username, token):
                            "Der Link ist ungültig oder abgelaufen. Registriere dich bitte erneut."), 200 if ok else 400
 
 
-def _validate_server_fields(data, creating):
-    """Return (fields, error). Only fields present in data are validated (all are required when creating)."""
+def _validate_server_fields(data, current=None):
+    """
+    Return (fields, error). When creating (current is None) all fields are required;
+    when updating only the fields present in data are validated, merged with the
+    current values for the checks that depend on each other.
+    """
     fields, specs = {}, {
-        "server_name": (1, 64), "mc_server_domain": (1, 253),
+        "server_name": (1, 64), "mc_server_domain": (0, 253),
         "server_description_short": (1, 200), "server_description_long": (1, 5000), "discord_url": (0, 300),
     }
     for key, (min_len, max_len) in specs.items():
-        if key not in data and not creating:
+        if key not in data and current is not None:
             continue
         value = str(data.get(key) or "").strip()
         if not min_len <= len(value) <= max_len:
             return None, f"Feld '{key}' muss {min_len}-{max_len} Zeichen lang sein."
-        fields[key] = value
-    if " " in fields.get("mc_server_domain", ""):
+        optional = key in ("mc_server_domain", "discord_url")
+        fields[key] = (value or None) if optional else value
+    if "whitelist" in data or current is None:
+        fields["whitelist"] = data.get("whitelist") in (True, "true", "on", "1", 1)
+
+    merged = dict(current or {}, **fields)
+    domain = merged.get("mc_server_domain")
+    if not merged.get("whitelist") and not domain:
+        return None, "Öffentliche Server brauchen eine Adresse zum Verbinden."
+    if domain and " " in domain:
         return None, "Die Server-Adresse darf keine Leerzeichen enthalten."
     discord = fields.get("discord_url")
     if discord and not re.match(r"^https://(discord\.gg|discord\.com|www\.discord\.com)/\S+$", discord):
         return None, "Der Discord-Link muss mit https://discord.gg/ oder https://discord.com/ beginnen."
-    if "discord_url" in fields and not discord:
-        fields["discord_url"] = None
     return fields, None
 
 
@@ -549,14 +560,14 @@ def create_server_api():
         return {"error": "Die Subdomain muss 3-32 Zeichen lang sein (a-z, 0-9, -)."}, 400
     if subdomain in RESERVED_SUBDOMAINS:
         return {"error": "Diese Subdomain ist reserviert."}, 400
-    fields, error = _validate_server_fields(data, creating=True)
+    fields, error = _validate_server_fields(data)
     if error:
         return {"error": error}, 400
     try:
         server_id = db().add_server(session["admin_id"], subdomain, fields["mc_server_domain"], fields["server_name"],
                                     server_description_short=fields["server_description_short"],
                                     server_description_long=fields["server_description_long"],
-                                    discord_url=fields["discord_url"])
+                                    discord_url=fields["discord_url"], whitelist=fields["whitelist"])
     except psycopg2.errors.UniqueViolation:
         return {"error": "Diese Subdomain ist bereits vergeben."}, 409
     return {"id": server_id, "subdomain": subdomain}, 201
@@ -573,7 +584,10 @@ def servers_status_api():
 @main_bp.route("/api/servers/<int:server_id>/update", methods=["POST"])
 @admin_required
 def update_server_api(server_id):
-    fields, error = _validate_server_fields(request.get_json(silent=True) or {}, creating=False)
+    current = {s["id"]: s for s in db().get_servers_by_owner(session["admin_id"])}.get(server_id)
+    if current is None:
+        abort(404)
+    fields, error = _validate_server_fields(request.get_json(silent=True) or {}, current)
     if error:
         return {"error": error}, 400
     if not db().update_server(server_id, session["admin_id"], **fields):

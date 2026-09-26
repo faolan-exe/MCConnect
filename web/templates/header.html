@@ -23,7 +23,7 @@
         <span
           id="loginVar2"
           style="display: flex; width: 84%; justify-content: center"
-          >{{ mc_server_domain }}</span
+          >{{ mc_server_domain if (mc_server_domain and not whitelist) else server_name }}</span
         >
 
         <span style="display: flex; width: 8%; justify-content: end">

@@ -173,7 +173,7 @@ def test_login_success(client, db, online_player):
     response = login_player(client, db, online_player)
     assert response.json["status"] == "success"
     # logged in: the header shows the name, the login page offers logout
-    assert b"Statistiken" in client.get("/", **on("testdomain")).data
+    assert b"href=\"/spieler?player=" in client.get("/", **on("testdomain")).data
     assert client.get("/login?next=/", **on("testdomain")).status_code == 200
 
 
@@ -194,14 +194,14 @@ def test_login_is_scoped_to_server(client, db, server, other_server, online_play
     login_player(client, db, online_player)
     # the session of testdomain must not log the player in on another server
     response = client.get("/", **on("other"))
-    assert b"Statistiken" not in response.data
+    assert b"href=\"/spieler?player=" not in response.data
 
 
 def test_player_logout(client, db, online_player):
     login_player(client, db, online_player)
     response = client.post("/login", data={"text_input": "logout"}, **on("testdomain"))
     assert response.status_code == 302
-    assert b"Statistiken" not in client.get("/", **on("testdomain")).data
+    assert b"href=\"/spieler?player=" not in client.get("/", **on("testdomain")).data
 
 
 # ------------------------------------------------------------------ server admins
@@ -512,3 +512,45 @@ def test_player_info_without_deaths_shows_dash(client, db, server):
     db.update_player_stats(player_id, {"stats": {"minecraft:custom": {"minecraft:time_since_death": 72000}}})
     data = first_event(client.get("/api/player_info/_Tobias4444", buffered=False, **on("testdomain")))
     assert data[2] == 0 and data[5] == "-"
+
+
+# ------------------------------------------------------------------ public / whitelist servers
+
+def test_create_whitelist_server_without_address(admin_client, db):
+    body = dict(NEW_SERVER, whitelist=True, mc_server_domain="")
+    assert admin_client.post("/api/servers", json=body, **on(None)).status_code == 201
+    info = db.get_server_information_dict("survival")
+    assert info["whitelist"] is True and info["mc_server_domain"] is None
+
+
+def test_public_server_needs_address(admin_client):
+    body = dict(NEW_SERVER, whitelist=False, mc_server_domain="")
+    response = admin_client.post("/api/servers", json=body, **on(None))
+    assert response.status_code == 400 and "Adresse" in response.json["error"]
+
+
+def test_switch_server_to_whitelist_and_back(admin_client, db, server):
+    url = f"/api/servers/{server['id']}/update"
+    assert admin_client.post(url, json={"whitelist": True, "mc_server_domain": ""}, **on(None)).status_code == 200
+    assert db.get_server_information_dict("testdomain")["whitelist"] is True
+    # back to public without an address is refused, with one it works
+    assert admin_client.post(url, json={"whitelist": False}, **on(None)).status_code == 400
+    assert admin_client.post(url, json={"whitelist": False, "mc_server_domain": "play.example.com"},
+                             **on(None)).status_code == 200
+    # updating other fields keeps the access mode
+    assert admin_client.post(url, json={"server_name": "Renamed"}, **on(None)).status_code == 200
+    assert db.get_server_information_dict("testdomain")["whitelist"] is False
+
+
+def test_public_server_page_shows_address(client, server):
+    body = client.get("/", **on("testdomain")).data.decode()
+    assert "Öffentlich" in body and "mc.example.com" in body and "Willkommen" not in body
+
+
+def test_whitelist_server_page_hides_address(client, db, admin_id):
+    db.add_server(admin_id, "private", "secret.example.com", "Private", whitelist=True,
+                  server_description_short="short", server_description_long="long")
+    for path in ["/", "/spieler"]:
+        body = client.get(path, **on("private")).data.decode()
+        assert "secret.example.com" not in body
+    assert "Whitelist" in client.get("/", **on("private")).data.decode()

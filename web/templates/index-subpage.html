@@ -1,114 +1,96 @@
 <!DOCTYPE html>
-<html id="top" lang="en">
+<html id="top" lang="de">
 
 <head>
     <meta charset="UTF-8"/>
-    <meta content="IE=edge" http-equiv="X-UA-Compatible"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-    <title>Startseite</title>
+    <title>{{ server_name }}</title>
 
     <link href="{{ url_for('static', filename='css/header.css') }}" rel="stylesheet"/>
-    <link href="{{ url_for('static', filename='css/card.css') }}" rel="stylesheet"/>
-    <link href="{{ url_for('static', filename='css/index.css') }}" rel="stylesheet"/>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsiveIndex.css') }}">
+    <link href="{{ url_for('static', filename='css/fonts.css') }}" rel="stylesheet"/>
+    <link href="{{ url_for('static', filename='css/server.css') }}" rel="stylesheet"/>
     <link href="{{ url_for('static', filename='images/favicon.ico') }}" rel="icon" type="image/vnd.microsoft.icon"/>
-
-    <style>
-        body {
-          font-family: 'Arial', sans-serif;
-          background-color: #d0d0d0 !important;
-          color: #333;
-          text-align: center;
-        }
-
-        header {
-          text-align: left;
-        }
-
-        h1 {
-          color: #004080;
-        }
-
-        #server-info {
-          background-color: #fff;
-          border: 1px solid #ddd;
-          padding: 20px;
-          margin-top: 20px;
-          border-radius: 12px;
-        }
-
-        a {
-          color: #0066cc;
-          text-decoration: none;
-        }
-
-        a:hover {
-          text-decoration: underline;
-        }
-    </style>
 </head>
 
 <body>
     {% include 'header.html' %}
 
-<div class="content">
-  <div class="container-util">
-    <div class="text">
-        <h1>Willkommen auf meinem Minecraft-Server!</h1>
+    <main class="srv">
+        <h1>{{ server_name }}</h1>
+        <p class="srv-tagline">{{ server_description_short }}</p>
 
-        <div id="server-info">
-            <p style="white-space: pre-line">{{ server_description_long }}</p>
-        </div>
-    </div>
-    <div class="nft">
-    <div class='main'>
-      <img class='tokenImage' src="https://images.unsplash.com/photo-1621075160523-b936ad96132a?ixlib=rb-1.2.1&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=1170&q=80" alt="NFT" />
-      <h2 style="color: white;">{{server_name}}</h2>
-      <p class='description'>{{server_description_short}}<br>Ip: {{mc_server_domain}}</p>
-      <div class='tokenInfo'>
-        <div class="price">
-          <ins>🔓</ins>
-          <p>Offen</p>
-        </div>
-        <div class="duration">
-          <ins>👤</ins>
-          <p><span id="player-count">X</span> Online</p>
-        </div>
-      </div>
-      <hr />
-      {% if discord_url %}
-      <div class='creator'>
-        <div class='wrapper'>
-          <img src="https://cdn-icons-png.flaticon.com/512/3670/3670157.png" alt="Discord" />
-        </div>
-        <p><ins>Discord:</ins> <a style="color:white" target="_blank" href="{{discord_url}}" rel="noopener noreferrer">Join Server</a> </p>
-      </div>
-      {% endif %}
-    </div>
-  </div>
-  </div>
-  
-    
+        <section class="srv-panel">
+            <dl class="srv-facts">
+                <div>
+                    <dt>Zugang</dt>
+                    <dd>
+                        {% if whitelist %}
+                        <span class="srv-tag srv-tag-whitelist">Whitelist</span>
+                        {% else %}
+                        <span class="srv-tag srv-tag-public">Öffentlich</span>
+                        {% endif %}
+                    </dd>
+                </div>
+                {% if not whitelist and mc_server_domain %}
+                <div>
+                    <dt>Adresse</dt>
+                    <dd class="srv-address">
+                        <code id="server-address">{{ mc_server_domain }}</code>
+                        <button class="srv-btn srv-btn-small" type="button" id="copy-address">Kopieren</button>
+                    </dd>
+                </div>
+                {% endif %}
+                <div>
+                    <dt>Gerade online</dt>
+                    <dd><span id="player-count">–</span> Spieler</dd>
+                </div>
+                {% if discord_url %}
+                <div>
+                    <dt>Discord</dt>
+                    <dd><a href="{{ discord_url }}" target="_blank" rel="noopener noreferrer">Server beitreten</a></dd>
+                </div>
+                {% endif %}
+            </dl>
+            {% if whitelist %}
+            <p class="srv-note">
+                Auf diesem Server spielen nur Spieler, die auf der Whitelist stehen.
+                {% if discord_url %}Frag im Discord nach, wenn du mitspielen möchtest.{% else %}Frag die Admins, wenn du mitspielen möchtest.{% endif %}
+            </p>
+            {% endif %}
+        </section>
+
+        <section class="srv-panel">
+            <h2>Über den Server</h2>
+            <p class="srv-description">{{ server_description_long }}</p>
+        </section>
+
+        <a class="srv-btn srv-btn-primary" href="/spieler">Spieler &amp; Statistiken ansehen</a>
+    </main>
+
     <footer>
         <nav>
             <ul>
                 <li><a href="/impressum">Impressum</a></li>
                 <li><a href="/datenschutz">Datenschutz</a></li>
-                <li><a href="#">🡅</a></li>
+                <li><a href="#top">Nach oben</a></li>
             </ul>
         </nav>
     </footer>
 
     <script>
         const eventSource = new EventSource("/api/player_count");
-
         eventSource.onmessage = (event) => {
-          console.log(event.data.replaceAll("'", '"'));
-          const parsedArray = JSON.parse(event.data.replaceAll("'", '"'));
-          console.log(parsedArray)
-          document.getElementById("player-count").innerText = parsedArray;
-        }
+            document.getElementById("player-count").textContent = JSON.parse(event.data);
+        };
 
+        const copyButton = document.getElementById("copy-address");
+        if (copyButton) {
+            copyButton.addEventListener("click", async () => {
+                await navigator.clipboard.writeText(document.getElementById("server-address").textContent);
+                copyButton.textContent = "Kopiert";
+                setTimeout(() => (copyButton.textContent = "Kopieren"), 2000);
+            });
+        }
     </script>
 </body>
 

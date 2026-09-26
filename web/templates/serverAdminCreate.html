@@ -13,8 +13,18 @@
   <label for="server_name">Name des Servers</label>
   <input id="server_name" required maxlength="64" placeholder="Mein Survival-Server" />
 
-  <label for="mc_server_domain">Adresse zum Verbinden <span class="hint">– was Spieler in Minecraft eingeben</span></label>
-  <input id="mc_server_domain" required maxlength="253" placeholder="play.meinserver.de" />
+  <fieldset class="choice">
+    <legend>Zugang</legend>
+    <label><input type="radio" name="access" value="public" checked /> Öffentlich
+      <span class="hint">– jeder darf mitspielen, die Adresse wird angezeigt</span></label>
+    <label><input type="radio" name="access" value="whitelist" /> Nur Whitelist
+      <span class="hint">– die Adresse wird nicht veröffentlicht</span></label>
+  </fieldset>
+
+  <div id="address-field">
+    <label for="mc_server_domain">Adresse zum Verbinden <span class="hint">– was Spieler in Minecraft eingeben</span></label>
+    <input id="mc_server_domain" required maxlength="253" placeholder="play.meinserver.de" />
+  </div>
 
   <label for="server_description_short">Kurzbeschreibung <span class="hint">(max. 200 Zeichen)</span></label>
   <input id="server_description_short" required maxlength="200" placeholder="Vanilla Survival seit 2020" />
@@ -36,6 +46,15 @@
 <script>
   const FIELDS = ["subdomain", "server_name", "mc_server_domain", "server_description_short",
                   "server_description_long", "discord_url"];
+  function isWhitelist() {
+    return document.querySelector('input[name="access"]:checked').value === "whitelist";
+  }
+  function updateAddressField() {
+    document.getElementById("address-field").hidden = isWhitelist();
+    document.getElementById("mc_server_domain").required = !isWhitelist();
+  }
+  document.querySelectorAll('input[name="access"]').forEach((radio) => radio.addEventListener("change", updateAddressField));
+
   document.getElementById("subdomain").addEventListener("input", (e) => {
     e.target.value = e.target.value.toLowerCase();
   });
@@ -43,6 +62,8 @@
     event.preventDefault();
     const body = {};
     FIELDS.forEach((f) => (body[f] = document.getElementById(f).value));
+    body.whitelist = isWhitelist();
+    if (body.whitelist) body.mc_server_domain = "";
     const result = await postJson("/api/servers", body);
     if (result.ok) {
       window.location.href = "/manage#server-" + result.data.id;
