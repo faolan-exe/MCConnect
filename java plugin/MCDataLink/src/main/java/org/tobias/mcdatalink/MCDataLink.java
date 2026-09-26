@@ -1,398 +1,348 @@
 package org.tobias.mcdatalink;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
-import org.bukkit.Bukkit;
-import org.bukkit.OfflinePlayer;
+import org.bukkit.ChatColor;
+import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
 
 import java.io.BufferedInputStream;
-import java.io.FileReader;
+import java.io.BufferedOutputStream;
+import java.io.EOFException;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.HashSet;
-import java.util.Set;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
+/**
+ * Keeps a connection to the MCConnect socket server and reports joins, quits and
+ * player statistics. All network I/O happens off the main server thread.
+ *
+ * Wire format: 10 byte space padded length header + UTF-8 payload (see mc_socket/main.py).
+ */
 public final class MCDataLink extends JavaPlugin {
 
     private static final int HEADER = 10;
-    private static final int PORT = 9991;
-    private static final String SERVER_HOST = "10.69.10.232";
-    private static final int CONNECT_RETRY_SECONDS = 5;
-    private static final int AUTH_TIMEOUT_SECONDS = 5;
-    private static final int HEARTBEAT_SEND_INTERVAL_SECONDS = 7;
-    private static final int HEARTBEAT_TIMEOUT_SECONDS = 20;
+    private static final int MAX_MESSAGE_SIZE = 16 * 1024 * 1024;
+    private static final int CONNECT_TIMEOUT_MS = 5000;
+    /** The server sends a heartbeat every 5 seconds; silence for this long means the connection is dead. */
+    private static final int READ_TIMEOUT_MS = 20000;
+    private static final int HEARTBEAT_INTERVAL_SECONDS = 5;
+    private static final int MAX_RETRY_SECONDS = 60;
+    /** Delay before sending the stats of a player who left, so the server has saved them. */
+    private static final long QUIT_STATS_DELAY_TICKS = 40L;
 
+    private final Object sendLock = new Object();
     private volatile Socket socket;
     private volatile OutputStream out;
-    private volatile BufferedInputStream in;
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
-    private final AtomicBoolean running = new AtomicBoolean(false);
-    private final AtomicBoolean keepPluginEnabled = new AtomicBoolean(true);
-    private final Gson gson = new Gson();
+    private volatile boolean authenticated;
+    private volatile boolean running;
+
+    private Thread connectionThread;
+    private ScheduledExecutorService worker;
     private String key;
-    private volatile long lastReceived = 0L;
+    private String host;
+    private int port;
+    private File statsDir;
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
-        key = getConfig().getString("key", "<enter key here>");
-        if (key.contains("<")) {
-            getLogger().severe("No license key provided to connect to the server. Please update the config.yml file.");
-            disablePlugin();
+        key = getConfig().getString("key", "").trim();
+        host = getConfig().getString("host", "mc.tobisit.de").trim();
+        port = getConfig().getInt("port", 9991);
+        if (key.isEmpty() || key.contains("<")) {
+            getLogger().severe("No server key configured. Enter your key in plugins/MCDataLink/config.yml and restart.");
+            getServer().getPluginManager().disablePlugin(this);
             return;
         }
-        running.set(true);
-        CompletableFuture.runAsync(this::connectionSupervisor);
+        statsDir = findStatsDir();
+
+        worker = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "MCDataLink-worker");
+            t.setDaemon(true);
+            return t;
+        });
+        worker.scheduleAtFixedRate(() -> {
+            if (authenticated) trySend("!BEAT");
+        }, HEARTBEAT_INTERVAL_SECONDS, HEARTBEAT_INTERVAL_SECONDS, TimeUnit.SECONDS);
+
+        running = true;
+        connectionThread = new Thread(this::connectionLoop, "MCDataLink-connection");
+        connectionThread.setDaemon(true);
+        connectionThread.start();
+
         getServer().getPluginManager().registerEvents(new JoinListener(this), this);
-        getLogger().info("MCConnect enabled and supervisor started");
+        getLogger().info("MCDataLink enabled, connecting to " + host + ":" + port);
     }
 
-    private void connectionSupervisor() {
-        while (running.get() && keepPluginEnabled.get()) {
+    @Override
+    public void onDisable() {
+        running = false;
+        if (authenticated) trySend("!DISCONNECT");
+        closeSocket();
+        if (worker != null) worker.shutdownNow();
+        if (connectionThread != null) {
+            connectionThread.interrupt();
             try {
-                establishConnectionWithRetry();
-                boolean authed = performAuthHandshake();
-                if (!authed) {
-                    getLogger().severe("Authentication failed; disabling plugin");
-                    disablePlugin();
-                    return;
-                }
-                lastReceived = System.currentTimeMillis();
-                startHeartbeatSender();
-                startReaderLoop();
-                waitForDisconnect();
-            } catch (Throwable t) {
-                getLogger().severe("Connection supervisor encountered an error: " + t.getMessage());
-                safeCloseSocket();
+                connectionThread.join(2000);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
             }
-
-            if (!keepPluginEnabled.get()) break;
-
-            sleepSeconds(CONNECT_RETRY_SECONDS);
-            getLogger().info("Attempting reconnect...");
         }
     }
 
-    private void establishConnectionWithRetry() throws InterruptedException {
-        while (running.get() && keepPluginEnabled.get()) {
+    // ------------------------------------------------------------------ connection
+
+    private void connectionLoop() {
+        int retrySeconds = 1;
+        while (running) {
             try {
-                socket = new Socket(SERVER_HOST, PORT);
-                socket.setReuseAddress(true);
-                socket.setSoTimeout(0);
-                out = socket.getOutputStream();
-                in = new BufferedInputStream(socket.getInputStream());
-                getLogger().info("Connected to the server at " + SERVER_HOST + ":" + PORT);
+                connectAndServe();
+            } catch (AuthenticationException e) {
+                getLogger().severe(e.getMessage());
+                running = false;
+                closeSocket();
+                runOnMainThread(() -> getServer().getPluginManager().disablePlugin(this));
                 return;
             } catch (IOException e) {
-                getLogger().severe("Connection failed: " + e.getMessage());
-                safeCloseSocket();
-                sleepSeconds(CONNECT_RETRY_SECONDS);
-            }
-        }
-    }
-
-    private boolean performAuthHandshake() {
-        CountDownLatch latch = new CountDownLatch(1);
-        final boolean[] authResult = {false};
-
-        CompletableFuture.runAsync(() -> {
-            try {
-                sendMsg("!AUTH~" + key);
-            } catch (IOException e) {
-                getLogger().severe("Failed to send AUTH: " + e.getMessage());
-                latch.countDown();
-                return;
-            }
-
-            long deadline = System.currentTimeMillis() + AUTH_TIMEOUT_SECONDS * 1000L;
-            while (System.currentTimeMillis() < deadline && socket != null && !socket.isClosed()) {
-                try {
-                    String msg = readNextMessageNonBlocking(50);
-                    if (msg == null) continue;
-                    lastReceived = System.currentTimeMillis();
-                    if (msg.equals("!heartbeat")) {
-                        try {
-                            sendMsg("!BEAT");
-                        } catch (IOException ignored) {}
-                        continue;
-                    }
-                    if (msg.contains("|")) {
-                        String[] parts = msg.split("\\|", 2);
-                        String status = parts.length > 1 ? parts[1] : "";
-                        if ("100".equals(status)) {
-                            authResult[0] = true;
-                            latch.countDown();
-                            return;
-                        } else if ("000".equals(status) || "001".equals(status) || "002".equals(status)) {
-                            authResult[0] = false;
-                            latch.countDown();
-                            return;
-                        }
-                    }
-                } catch (IOException e) {
-                    getLogger().severe("IOException during auth handshake: " + e.getMessage());
-                    break;
-                }
-            }
-            latch.countDown();
-        });
-
-        try {
-            boolean completed = latch.await(AUTH_TIMEOUT_SECONDS + 1, TimeUnit.SECONDS);
-            if (!completed) {
-                getLogger().severe("Authentication timed out");
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-
-        return authResult[0];
-    }
-
-    private void startHeartbeatSender() {
-        scheduler.scheduleAtFixedRate(() -> {
-            try {
-                if (socket == null || socket.isClosed()) return;
-                sendMsg("!BEAT");
-            } catch (IOException e) {
-                getLogger().severe("Heartbeat send failed: " + e.getMessage());
-            }
-        }, HEARTBEAT_SEND_INTERVAL_SECONDS, HEARTBEAT_SEND_INTERVAL_SECONDS, TimeUnit.SECONDS);
-    }
-
-    private void startReaderLoop() {
-        CompletableFuture.runAsync(() -> {
-            try {
-                while (running.get() && keepPluginEnabled.get() && socket != null && !socket.isClosed()) {
-                    String message = readNextMessageBlocking();
-                    if (message == null) {
-                        getLogger().severe("Read returned null, assuming disconnect");
-                        break;
-                    }
-                    lastReceived = System.currentTimeMillis();
-                    if (message.equals("!heartbeat")) {
-                        try {
-                            sendMsg("!BEAT");
-                        } catch (IOException ignored) {}
-                        continue;
-                    }
-                    if (message.contains("|")) {
-                        String[] parts = message.split("\\|", 2);
-                        String code = parts.length > 1 ? parts[1] : "";
-                        switch (code) {
-                            case "100":
-                                getLogger().info("Auth confirmed by server");
-                                break;
-                            case "000":
-                                getLogger().severe("Critical error from server. Disconnecting.");
-                                keepPluginEnabled.set(false);
-                                disablePlugin();
-                                return;
-                            case "001":
-                            case "002":
-                                getLogger().severe("License key error: Please check your license key and restart.");
-                                keepPluginEnabled.set(false);
-                                disablePlugin();
-                                return;
-                        }
-                        continue;
-                    }
-                    if (message.startsWith("!")) {
-                        String[] parts = message.split("~");
-                        String command = parts[0];
-                        switch (command) {
-                            case "!sendAllPlayerStats":
-                                sendAllPlayerStats();
-                                break;
-                            case "!sendPlayerStats":
-                                if (parts.length > 1) {
-                                    try {
-                                        UUID uuid = UUID.fromString(parts[1]);
-                                        sendPlayerStats(uuid);
-                                    } catch (IllegalArgumentException ignored) {}
-                                }
-                                break;
-                            case "!loginPin":
-                                if (parts.length > 2) {
-                                    try {
-                                        UUID uuid = UUID.fromString(parts[1]);
-                                        String pin = parts[2];
-                                        Player player = Bukkit.getPlayer(uuid);
-                                        if (player != null) {
-                                            player.sendMessage("Deine Pin ist: " + pin + "\nGebe sie niemals weiter!");
-                                        }
-                                    } catch (IllegalArgumentException ignored) {}
-                                }
-                                break;
-                            default:
-                                getLogger().info("Unknown command received: " + message);
-                        }
-                        continue;
-                    }
-                    getLogger().info("Unhandled message: " + message);
-                    if (System.currentTimeMillis() - lastReceived > HEARTBEAT_TIMEOUT_SECONDS * 1000L) {
-                        getLogger().severe("No data received for " + HEARTBEAT_TIMEOUT_SECONDS + " seconds; reconnecting");
-                        break;
-                    }
-                }
-            } catch (IOException e) {
-                getLogger().severe("Reader loop IOException: " + e.getMessage());
+                if (running) getLogger().warning("Connection to MCConnect (" + host + ":" + port + ") lost: " + e.getMessage());
             } finally {
-                safeCloseSocket();
+                closeSocket();
             }
-        });
-    }
-
-    private void waitForDisconnect() {
-        while (running.get() && keepPluginEnabled.get() && socket != null && !socket.isClosed()) {
-            if (System.currentTimeMillis() - lastReceived > HEARTBEAT_TIMEOUT_SECONDS * 1000L) {
-                getLogger().severe("Heartbeat timeout detected in supervisor; will reconnect");
-                safeCloseSocket();
+            if (!running) return;
+            if (authenticated) retrySeconds = 1;
+            authenticated = false;
+            try {
+                TimeUnit.SECONDS.sleep(retrySeconds);
+            } catch (InterruptedException e) {
                 return;
             }
-            sleepSeconds(1);
+            retrySeconds = Math.min(retrySeconds * 2, MAX_RETRY_SECONDS);
         }
     }
 
-    public void sendAllPlayerStats() {
-        Set<UUID> allUUIDs = new HashSet<>();
-        for (Player player : Bukkit.getOnlinePlayers()) allUUIDs.add(player.getUniqueId());
-        for (OfflinePlayer offlinePlayer : Bukkit.getOfflinePlayers()) allUUIDs.add(offlinePlayer.getUniqueId());
-        for (UUID uuid : allUUIDs) sendPlayerStats(uuid);
+    private void connectAndServe() throws IOException, AuthenticationException {
+        Socket s = new Socket();
+        s.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
+        s.setSoTimeout(READ_TIMEOUT_MS);
+        s.setKeepAlive(true);
+        InputStream in = new BufferedInputStream(s.getInputStream());
+        synchronized (sendLock) {
+            socket = s;
+            out = new BufferedOutputStream(s.getOutputStream());
+        }
+        send("!AUTH~" + key);
+        while (running) {
+            handleMessage(readMessage(in));
+        }
     }
 
-    public void sendPlayerStats(UUID uuid) {
-        JsonObject playerStats = readPlayerStats(uuid);
-        if (playerStats != null) {
-            String jsonData = gson.toJson(playerStats);
-            String msg = "!STATS~" + uuid + "|" + jsonData;
-            try {
-                sendMsg(msg);
-                getLogger().info("Sent stats for " + uuid);
-            } catch (IOException e) {
-                getLogger().severe("Failed to send player stats for " + uuid + ": " + e.getMessage());
-                safeCloseSocket();
+    private void handleMessage(String msg) throws IOException, AuthenticationException {
+        if (msg.equals("!heartbeat")) return;
+
+        if (msg.startsWith("success|") || msg.startsWith("error|")) {
+            String code = msg.substring(msg.indexOf('|') + 1);
+            switch (code) {
+                case "100":
+                    authenticated = true;
+                    getLogger().info("Connected to MCConnect");
+                    sendOnlinePlayers();
+                    break;
+                case "001":
+                case "002":
+                    throw new AuthenticationException("MCConnect rejected the server key. Check plugins/MCDataLink/config.yml and restart.");
+                case "000":
+                    throw new IOException("closed by server");
+                default:
+                    if (msg.startsWith("error|")) getLogger().fine("MCConnect answered " + msg);
             }
-        } else {
-            getLogger().info("No stats for " + uuid);
+            return;
+        }
+
+        String[] parts = msg.split("~");
+        switch (parts[0]) {
+            case "!sendAllPlayerStats":
+                worker.execute(this::sendAllPlayerStats);
+                break;
+            case "!sendPlayerStats":
+                if (parts.length > 1) {
+                    UUID uuid = parseUuid(parts[1]);
+                    if (uuid != null) worker.execute(() -> sendPlayerStats(uuid));
+                }
+                break;
+            case "!loginPin":
+                if (parts.length > 2) {
+                    UUID uuid = parseUuid(parts[1]);
+                    String pin = parts[2];
+                    if (uuid != null) runOnMainThread(() -> showLoginPin(uuid, pin));
+                }
+                break;
+            default:
+                getLogger().fine("Unknown message from MCConnect: " + msg);
         }
     }
 
-    private JsonObject readPlayerStats(UUID playerUUID) {
-        Path statsPath = Paths.get(getServer().getWorldContainer().getAbsolutePath(), "world", "stats", playerUUID.toString() + ".json");
-        getLogger().info("Reading stats from: " + statsPath);
-        try (FileReader reader = new FileReader(statsPath.toFile())) {
-            return gson.fromJson(reader, JsonObject.class);
-        } catch (IOException e) {
-            getLogger().severe("Could not read stats file for player " + playerUUID + ": " + e.getMessage());
-        }
-        return null;
-    }
-
-    public synchronized void sendMsg(String msg) throws IOException {
-        if (socket == null || socket.isClosed() || out == null) throw new IOException("Socket not connected");
-        byte[] payload = msg.getBytes(StandardCharsets.UTF_8);
-        String header = String.format("%-" + HEADER + "s", payload.length);
-        out.write(header.getBytes(StandardCharsets.UTF_8));
-        out.write(payload);
-        out.flush();
-    }
-
-    private String readNextMessageBlocking() throws IOException {
-        byte[] headerBuf = readExactly(HEADER);
-        if (headerBuf == null) return null;
-        String headerStr = new String(headerBuf, StandardCharsets.UTF_8).trim();
+    private String readMessage(InputStream in) throws IOException {
+        String header = new String(readExactly(in, HEADER), StandardCharsets.UTF_8).trim();
         int length;
         try {
-            length = Integer.parseInt(headerStr);
+            length = Integer.parseInt(header);
         } catch (NumberFormatException e) {
-            throw new IOException("Invalid header length: '" + headerStr + "'");
+            throw new IOException("invalid message header '" + header + "'");
         }
-        if (length <= 0) return "";
-        byte[] payload = readExactly(length);
-        if (payload == null) return null;
-        return new String(payload, StandardCharsets.UTF_8);
+        if (length < 0 || length > MAX_MESSAGE_SIZE) throw new IOException("invalid message length " + length);
+        return new String(readExactly(in, length), StandardCharsets.UTF_8);
     }
 
-    private String readNextMessageNonBlocking(int waitMillis) throws IOException {
-        long start = System.currentTimeMillis();
-        while (System.currentTimeMillis() - start < waitMillis) {
-            if (in == null) return null;
-            if (in.available() >= HEADER) {
-                return readNextMessageBlocking();
-            }
-            sleepMillis(10);
-        }
-        return null;
-    }
-
-    private byte[] readExactly(int len) throws IOException {
-        byte[] buf = new byte[len];
+    private static byte[] readExactly(InputStream in, int length) throws IOException {
+        byte[] buf = new byte[length];
         int read = 0;
-        while (read < len) {
-            int r = in.read(buf, read, len - read);
-            if (r == -1) {
-                return null;
-            }
+        while (read < length) {
+            int r = in.read(buf, read, length - read);
+            if (r == -1) throw new EOFException("connection closed");
             read += r;
         }
         return buf;
     }
 
-    private void safeCloseSocket() {
-        try {
-            if (socket != null && !socket.isClosed()) socket.close();
-        } catch (IOException ignored) {}
-        socket = null;
-        out = null;
-        in = null;
-    }
-
-    private void sleepSeconds(int s) {
-        try {
-            TimeUnit.SECONDS.sleep(s);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+    private void send(String msg) throws IOException {
+        byte[] payload = msg.getBytes(StandardCharsets.UTF_8);
+        byte[] header = String.format("%-" + HEADER + "s", payload.length).getBytes(StandardCharsets.UTF_8);
+        synchronized (sendLock) {
+            if (out == null) throw new IOException("not connected");
+            out.write(header);
+            out.write(payload);
+            out.flush();
         }
     }
 
-    private void sleepMillis(long ms) {
+    /** Send if connected; failures are only logged, the connection thread handles reconnects. */
+    private boolean trySend(String msg) {
         try {
-            TimeUnit.MILLISECONDS.sleep(ms);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            send(msg);
+            return true;
+        } catch (IOException e) {
+            getLogger().fine("Could not send to MCConnect: " + e.getMessage());
+            return false;
         }
     }
 
-    private void disablePlugin() {
-        keepPluginEnabled.set(false);
-        Bukkit.getScheduler().runTask(this, () -> {
-            getLogger().severe("MCConnect shuts down! Read the logs to find out what went wrong. Ensure your server can connect to: " + SERVER_HOST);
-            Bukkit.getPluginManager().disablePlugin(this);
+    private void sendAsync(String msg) {
+        if (worker == null || worker.isShutdown()) return;
+        worker.execute(() -> {
+            if (authenticated) trySend(msg);
         });
     }
 
-    @Override
-    public void onDisable() {
-        running.set(false);
-        keepPluginEnabled.set(false);
-        scheduler.shutdownNow();
-        safeCloseSocket();
-        getLogger().info("MCConnect has been successfully disabled");
+    private void closeSocket() {
+        synchronized (sendLock) {
+            try {
+                if (socket != null) socket.close();
+            } catch (IOException ignored) {
+            }
+            socket = null;
+            out = null;
+        }
+    }
+
+    // ------------------------------------------------------------------ players & stats
+
+    void playerJoined(Player player) {
+        sendAsync("!JOIN~" + player.getUniqueId() + "|" + player.getName());
+    }
+
+    void playerQuit(Player player) {
+        UUID uuid = player.getUniqueId();
+        sendAsync("!QUIT~" + uuid);
+        getServer().getScheduler().runTaskLaterAsynchronously(this, () -> sendPlayerStats(uuid), QUIT_STATS_DELAY_TICKS);
+    }
+
+    /** Called on the main thread after the main world was saved (stats files are up to date then). */
+    void mainWorldSaved() {
+        List<UUID> online = new ArrayList<>();
+        for (Player player : getServer().getOnlinePlayers()) online.add(player.getUniqueId());
+        worker.execute(() -> online.forEach(this::sendPlayerStats));
+    }
+
+    boolean isMainWorld(World world) {
+        return !getServer().getWorlds().isEmpty() && getServer().getWorlds().get(0).equals(world);
+    }
+
+    /** After (re)connecting the server marks everyone offline, so report who is online. */
+    private void sendOnlinePlayers() {
+        runOnMainThread(() -> {
+            for (Player player : getServer().getOnlinePlayers()) playerJoined(player);
+        });
+    }
+
+    private void sendAllPlayerStats() {
+        File[] files = statsDir.listFiles((dir, name) -> name.endsWith(".json"));
+        if (files == null) {
+            getLogger().warning("Stats folder not found: " + statsDir);
+            return;
+        }
+        int sent = 0;
+        for (File file : files) {
+            UUID uuid = parseUuid(file.getName().substring(0, file.getName().length() - ".json".length()));
+            if (uuid != null && sendPlayerStats(uuid)) sent++;
+        }
+        getLogger().info("Sent stats of " + sent + " players to MCConnect");
+    }
+
+    private boolean sendPlayerStats(UUID uuid) {
+        if (!authenticated) return false;
+        File file = new File(statsDir, uuid + ".json");
+        if (!file.isFile()) return false;
+        try {
+            String json = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+            return trySend("!STATS~" + uuid + "|" + json);
+        } catch (IOException e) {
+            getLogger().warning("Could not read stats of " + uuid + ": " + e.getMessage());
+            return false;
+        }
+    }
+
+    private void showLoginPin(UUID uuid, String pin) {
+        Player player = getServer().getPlayer(uuid);
+        if (player == null) return;
+        player.sendMessage(ChatColor.GOLD + "[MCConnect] " + ChatColor.GRAY + "Dein Login-PIN: "
+                + ChatColor.GREEN + ChatColor.BOLD + pin);
+        player.sendMessage(ChatColor.GRAY + "Gültig für 5 Minuten. Gib ihn niemals weiter!");
+    }
+
+    // ------------------------------------------------------------------ helpers
+
+    private File findStatsDir() {
+        List<World> worlds = getServer().getWorlds();
+        File worldFolder = worlds.isEmpty() ? new File(getServer().getWorldContainer(), "world") : worlds.get(0).getWorldFolder();
+        return new File(worldFolder, "stats");
+    }
+
+    private void runOnMainThread(Runnable task) {
+        if (isEnabled()) getServer().getScheduler().runTask(this, task);
+    }
+
+    private static UUID parseUuid(String value) {
+        try {
+            return UUID.fromString(value.trim());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private static final class AuthenticationException extends Exception {
+        AuthenticationException(String message) {
+            super(message);
+        }
     }
 }

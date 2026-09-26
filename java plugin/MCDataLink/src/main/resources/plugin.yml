@@ -1,7 +1,7 @@
 name: MCDataLink
 version: '${project.version}'
 main: org.tobias.mcdatalink.MCDataLink
-api-version: '1.21'
+api-version: '1.13'
 authors: [Tobias Auer]
-description: Connects to the server to provide the in-game stats
-website: www.t-auer.com
+description: Connects the server to MCConnect and provides the in-game stats
+website: mc.tobisit.de

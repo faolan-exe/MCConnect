@@ -1,1 +1,7 @@
+# MCDataLink - connects this server to MCConnect.
+# Your server key is shown when you create the server on the MCConnect website.
 key: <enter key here>
+
+# Address of the MCConnect socket server. Only change this if you host MCConnect yourself.
+host: mc.tobisit.de
+port: 9991
