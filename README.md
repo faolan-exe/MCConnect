@@ -39,7 +39,7 @@ docker compose -f docker/db/docker-compose.yml -p mcconnect up -d   # local post
 - `mc_socket/` – socket server the plugin connects to (protocol documented in `main.py`)
 - `web/` – Flask app (main domain: admin area; `<subdomain>.`: server pages)
 - `java plugin/MCDataLink/` – Spigot/Paper plugin (`mvn package`)
-- `deploy/` – production docker compose with traefik; see [deploy/README.md](deploy/README.md)
+- `deploy/` – production docker compose (behind Nginx Proxy Manager, optional traefik); see [deploy/README.md](deploy/README.md)
 
 Legal information: 
 
