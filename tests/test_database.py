@@ -347,3 +347,36 @@ def test_update_regenerate_delete_only_for_owner(db, admin_id, server):
     assert db.delete_server(server["id"], admin_id) is True
     assert db.get_server_information_dict("testdomain") is None
     assert db._fetchvalue("SELECT count(*) FROM player_server_info") == 0
+
+
+def test_concurrent_migrations_on_empty_database(db):
+    """web workers and the socket server start at the same time and all try to create the schema."""
+    import threading
+    with db._cursor() as cur:
+        cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+    managers = [DatabaseManager(db_config=TEST_DB_CONFIG, minecraft=FakeMinecraft(), check_schema=False)
+                for _ in range(4)]
+    # Like the constructor does: this caches "schema_version does not exist" in the pooled
+    # connection, which a later lookup in the same session must not reuse.
+    for manager in managers:
+        assert manager.get_schema_version() is None
+    errors = []
+    barrier = threading.Barrier(len(managers))
+
+    def run(manager):
+        barrier.wait()
+        try:
+            manager.migrate()
+        except Exception as e:
+            errors.append(e)
+
+    threads = [threading.Thread(target=run, args=(m,)) for m in managers]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    for m in managers:
+        m.close()
+    assert errors == []
+    assert db.get_schema_version() == SCHEMA_VERSION
+    assert db._fetchvalue("SELECT count(*) FROM schema_version") == 1

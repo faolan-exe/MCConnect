@@ -155,21 +155,39 @@ class DatabaseManager:
         Create the schema in an empty database and/or apply pending migrations.
         Safe to call from several processes at once (advisory lock).
         """
-        with self._cursor() as cur:
-            cur.execute("SELECT pg_advisory_xact_lock(%s)", (MIGRATION_LOCK_ID,))
-            cur.execute("SELECT to_regclass('public.schema_version') IS NOT NULL")
-            version = None
-            if cur.fetchone()[0]:
-                cur.execute("SELECT max(version) FROM schema_version")
-                version = cur.fetchone()[0]
-            if version is None:
-                self._create_base_schema(cur)
-                version = 1
-            for target in range(version + 1, SCHEMA_VERSION + 1):
-                for statement in MIGRATIONS[target]:
-                    cur.execute(statement)
-                cur.execute("UPDATE schema_version SET version = %s", (target,))
-                logger.info(f"Migrated database to schema version {target}")
+        conn = self.pool.getconn()
+        try:
+            # Session-level lock in its own transaction: the migration below then starts a
+            # fresh transaction and sees the tables another process may have just created
+            # (an advisory lock alone does not refresh the catalog snapshot).
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_lock(%s)", (MIGRATION_LOCK_ID,))
+            conn.commit()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT to_regclass('public.schema_version') IS NOT NULL")
+                    version = None
+                    if cur.fetchone()[0]:
+                        cur.execute("SELECT max(version) FROM schema_version")
+                        version = cur.fetchone()[0]
+                    if version is None:
+                        self._create_base_schema(cur)
+                        version = 1
+                    for target in range(version + 1, SCHEMA_VERSION + 1):
+                        for statement in MIGRATIONS[target]:
+                            cur.execute(statement)
+                        cur.execute("UPDATE schema_version SET version = %s", (target,))
+                        logger.info(f"Migrated database to schema version {target}")
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT pg_advisory_unlock(%s)", (MIGRATION_LOCK_ID,))
+                conn.commit()
+        finally:
+            self.pool.putconn(conn)
         self._load_lookups()
 
     def init_database(self):

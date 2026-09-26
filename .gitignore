@@ -21,3 +21,4 @@ database/credentials.txt
 .DS_Store
 __pycache__/
 .env
+deploy/backups/

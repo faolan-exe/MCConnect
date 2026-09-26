@@ -4,9 +4,11 @@
     python -m database.manage init            # create the schema in an empty database
     python -m database.manage reset --yes     # DROP everything and recreate (dev only)
     python -m database.manage seed            # add a dev admin + server, prints the server key
+    python -m database.manage create-admin USERNAME EMAIL   # asks for the password
     python -m database.manage add-server OWNER SUBDOMAIN MC_DOMAIN NAME
 """
 import argparse
+import getpass
 import sys
 
 from .databaseManagerV2 import DatabaseManager, SCHEMA_VERSION
@@ -25,6 +27,9 @@ def main(argv=None):
     reset.add_argument("--yes", action="store_true", help="really drop all data")
     seed = sub.add_parser("seed")
     seed.add_argument("--password", default="testPassword")
+    create_admin = sub.add_parser("create-admin", help="create a server admin with verified email")
+    create_admin.add_argument("username")
+    create_admin.add_argument("email")
     add_server = sub.add_parser("add-server")
     add_server.add_argument("owner", help="username of an existing server admin")
     add_server.add_argument("subdomain")
@@ -59,6 +64,15 @@ def main(argv=None):
             admin_id, "testDomain", "mc.t-auer.com", "Test Server")
         print(f"admin 'tobi' (id {admin_id}), server 'testdomain' (id {server_id})")
         print(f"server key: {_server_key(db, server_id)}")
+        return 0
+
+    if args.command == "create-admin":
+        password = getpass.getpass("Password: ")
+        if len(password) < 8 or password != getpass.getpass("Repeat password: "):
+            print("Passwords differ or are shorter than 8 characters", file=sys.stderr)
+            return 1
+        admin_id = db.add_server_admin(args.username, password, args.email, email_verified=True)
+        print(f"admin '{args.username}' created (id {admin_id})")
         return 0
 
     if args.command == "add-server":

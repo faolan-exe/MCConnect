@@ -1,0 +1,18 @@
+.git
+.venv
+**/__pycache__
+**/*.pyc
+**/.DS_Store
+logs
+**/logs
+.env
+deploy/.env
+deploy/backups
+web/config.py
+web/instance
+database/credentials.txt
+java plugin/MCDataLink/target
+java plugin/MCDataLink/.idea
+#readmeImages
+sampleData
+tests

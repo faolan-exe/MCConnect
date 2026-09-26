@@ -1,0 +1,136 @@
+# MCConnect production stack. See deploy/README.md.
+#   cp .env.example .env   # fill in
+#   docker compose up -d --build
+
+name: mcconnect
+
+services:
+  traefik:
+    image: traefik:v3
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=mcconnect_web
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.cloudflare.acme.email=${ACME_EMAIL}
+      - --certificatesresolvers.cloudflare.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.cloudflare.acme.dnschallenge=true
+      - --certificatesresolvers.cloudflare.acme.dnschallenge.provider=cloudflare
+      - --certificatesresolvers.cloudflare.acme.dnschallenge.resolvers=1.1.1.1:53,1.0.0.1:53
+    environment:
+      CF_DNS_API_TOKEN: ${CF_DNS_API_TOKEN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    networks: [web]
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mcconnect
+      POSTGRES_USER: mcconnect
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      TZ: Europe/Berlin
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcconnect -d mcconnect"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  web:
+    build: ..
+    image: mcconnect:latest
+    restart: unless-stopped
+    environment: &app_env
+      MCC_DB_HOST: db
+      MCC_DB_NAME: mcconnect
+      MCC_DB_USER: mcconnect
+      MCC_DB_PASSWORD: ${DB_PASSWORD}
+      MCC_BASE_DOMAIN: ${MCC_DOMAIN}
+      MCC_PUBLIC_SCHEME: https
+      FLASK_SERVER_NAME: ${MCC_DOMAIN}
+      FLASK_SECRET_KEY: ${SECRET_KEY}
+      FLASK_SESSION_COOKIE_SECURE: "true"
+      FLASK_PROXY_FIX: "true"
+      MCC_SMTP_HOST: ${MCC_SMTP_HOST:-}
+      MCC_SMTP_PORT: ${MCC_SMTP_PORT:-587}
+      MCC_SMTP_USER: ${MCC_SMTP_USER:-}
+      MCC_SMTP_PASSWORD: ${MCC_SMTP_PASSWORD:-}
+      MCC_LEGAL_NAME: ${MCC_LEGAL_NAME:-}
+      MCC_LEGAL_ADDRESS: ${MCC_LEGAL_ADDRESS:-}
+      MCC_LEGAL_EMAIL: ${MCC_LEGAL_EMAIL:-}
+      MCC_LEGAL_PHONE: ${MCC_LEGAL_PHONE:-}
+      TZ: Europe/Berlin
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/healthz', headers={'Host': '${MCC_DOMAIN}'}))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.mcconnect.entrypoints=websecure
+      - 'traefik.http.routers.mcconnect.rule=Host(`${MCC_DOMAIN}`) || HostRegexp(`^[a-z0-9-]+\.${MCC_DOMAIN}$$`)'
+      - traefik.http.routers.mcconnect.tls.certresolver=cloudflare
+      - traefik.http.routers.mcconnect.tls.domains[0].main=${MCC_DOMAIN}
+      - traefik.http.routers.mcconnect.tls.domains[0].sans=*.${MCC_DOMAIN}
+      - traefik.http.services.mcconnect.loadbalancer.server.port=8000
+    networks: [web, internal]
+
+  socket:
+    build: ..
+    image: mcconnect:latest
+    restart: unless-stopped
+    command: ["python", "mc_socket/main.py"]
+    environment: *app_env
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "9991:9991"
+    networks: [internal]
+
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      PGPASSWORD: ${DB_PASSWORD}
+      TZ: Europe/Berlin
+    volumes:
+      - ./backups:/backups
+    # Daily dump, keeps the last 14 days.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        while true; do
+          pg_dump -h db -U mcconnect -d mcconnect -Fc -f /backups/mcconnect-$$(date +%F).dump \
+            && find /backups -name 'mcconnect-*.dump' -mtime +14 -delete
+          sleep 86400
+        done
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [internal]
+
+volumes:
+  db_data:
+  letsencrypt:
+
+networks:
+  web:
+    name: mcconnect_web
+  internal:
