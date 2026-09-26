@@ -264,13 +264,16 @@ def stream_player_info(player_name):
     def player_info():
         info = database.get_player_info_by_player_id(player_id)
         fmt = lambda ts: ts.strftime("%d.%m.%Y") if ts else "-"
+        deaths = _custom_stat(database, player_id, "minecraft:deaths")
+        # Without a death the game counts time_since_death from the first join, which would be misleading.
+        since_death = format_time(_custom_stat(database, player_id, "minecraft:time_since_death") / 20) if deaths else "-"
         return [
             str(info["mojang_uuid"]),
             "online" if info["online"] else "offline",
-            _custom_stat(database, player_id, "minecraft:deaths"),
+            deaths,
             fmt(info["first_seen"]),
             fmt(info["last_seen"]),
-            format_time(_custom_stat(database, player_id, "minecraft:time_since_death") / 20),
+            since_death,
             format_time(_custom_stat(database, player_id, "minecraft:play_time", "minecraft:play_one_minute") / 20),
         ]
     return sse_response(player_info)

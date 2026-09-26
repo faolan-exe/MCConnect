@@ -504,3 +504,11 @@ def test_servers_status_polling(admin_client, db, server, other_server):
 
 def test_servers_status_requires_login(client):
     assert client.get("/api/servers/status", **on(None)).status_code == 401
+
+
+def test_player_info_without_deaths_shows_dash(client, db, server):
+    db.set_plugin_connected(server["id"], True)
+    player_id = db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
+    db.update_player_stats(player_id, {"stats": {"minecraft:custom": {"minecraft:time_since_death": 72000}}})
+    data = first_event(client.get("/api/player_info/_Tobias4444", buffered=False, **on("testdomain")))
+    assert data[2] == 0 and data[5] == "-"
