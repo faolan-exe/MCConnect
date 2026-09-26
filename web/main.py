@@ -390,10 +390,25 @@ def signup():
         return {"error": f"Das Passwort muss mindestens {MIN_PASSWORD_LENGTH} Zeichen lang sein."}, 400
 
     try:
-        admin_id = db().add_server_admin(username, password, email)
+        admin_id = db().add_server_admin(username, password, email, replace_unverified=True)
     except psycopg2.errors.UniqueViolation:
         return {"error": "Benutzername oder E-Mail-Adresse ist bereits vergeben."}, 409
-    token = db().create_email_verification(admin_id)
+    send_verification_email(username, email, db().create_email_verification(admin_id))
+    return ("", 200)
+
+
+@main_bp.route("/api/resend_verification", methods=["POST"])
+def resend_verification():
+    """Always answers the same, so it cannot be used to find out which addresses are registered."""
+    email = str((request.get_json(silent=True) or {}).get("email") or "").strip()
+    if EMAIL_RE.match(email):
+        renewed = db().renew_email_verification(email)
+        if renewed:
+            send_verification_email(renewed[0], email, renewed[1])
+    return ("", 200)
+
+
+def send_verification_email(username, email, token):
     link = f"{config.PUBLIC_SCHEME}://{current_app.config['SERVER_NAME']}/verify_email/{username}/{token}"
     mailer = current_app.extensions.get("mcconnect_mailer")
     if mailer:
@@ -402,7 +417,6 @@ def signup():
                           f'<a href="{link}">{link}</a></p><p>Der Link ist 24 Stunden gültig.</p>')
     else:
         logger.warning(f"No SMTP configured, verification link for {username}: {link}")
-    return ("", 200)
 
 
 @main_bp.route("/api/login", methods=["POST"])

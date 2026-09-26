@@ -381,3 +381,44 @@ def test_proxy_fix_uses_forwarded_scheme(db, server):
     app = create_app(db, {"TESTING": True, "SECRET_KEY": "t", "SERVER_NAME": BASE, "PROXY_FIX": True})
     body = app.test_client().get("/", headers={"X-Forwarded-Proto": "https"}, **on("testdomain")).data.decode()
     assert f"https://{BASE}/static/" in body
+
+
+# ------------------------------------------------------------------ signup corrections
+
+class FakeMailer:
+    def __init__(self):
+        self.sent = []
+
+    def send_email(self, recipient, subject, html):
+        self.sent.append((recipient, html))
+
+
+@pytest.fixture
+def mailer(app):
+    fake = FakeMailer()
+    app.extensions["mcconnect_mailer"] = fake
+    return fake
+
+
+def test_signup_again_fixes_typo_in_email(client, db, mailer):
+    body = {"username": "alice", "email": "alice@exmaple.com", "password": "secret123"}
+    assert client.post("/api/signup", json=body, **on(None)).status_code == 200
+    body["email"] = "alice@example.com"
+    assert client.post("/api/signup", json=body, **on(None)).status_code == 200
+    assert [recipient for recipient, _ in mailer.sent] == ["alice@exmaple.com", "alice@example.com"]
+    token = db._fetchvalue("SELECT token FROM email_verification")
+    assert token in mailer.sent[-1][1]
+    assert client.get(f"/verify_email/alice/{token}", **on(None)).status_code == 200
+
+
+def test_resend_verification(client, db, mailer):
+    client.post("/api/signup", json={"username": "alice", "email": "alice@example.com",
+                                     "password": "secret123"}, **on(None))
+    with db._cursor() as cur:
+        cur.execute("UPDATE email_verification SET created_at = now() - interval '2 minutes'")
+    assert client.post("/api/resend_verification", json={"email": "alice@example.com"}, **on(None)).status_code == 200
+    assert len(mailer.sent) == 2
+    # rate limited, unknown and invalid addresses answer the same but send nothing
+    for email in ["alice@example.com", "nobody@example.com", "not-an-email"]:
+        assert client.post("/api/resend_verification", json={"email": email}, **on(None)).status_code == 200
+    assert len(mailer.sent) == 2

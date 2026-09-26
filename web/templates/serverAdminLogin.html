@@ -28,6 +28,16 @@
     <div class="message" id="signup-message"></div>
   </form>
 </div>
+
+<form class="card" id="resend-form">
+  <h2>Keine Bestätigungsmail bekommen?</h2>
+  <p class="hint">Schau zuerst im Spam-Ordner nach. Hast du dich bei der Adresse vertippt, registriere dich
+    einfach noch einmal mit der richtigen Adresse.</p>
+  <label for="resend-email">E-Mail-Adresse der Registrierung</label>
+  <input id="resend-email" type="email" autocomplete="email" required />
+  <div class="btn-row"><button class="btn btn-secondary" type="submit">Mail erneut senden</button></div>
+  <div class="message" id="resend-message"></div>
+</form>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -59,11 +69,21 @@
       password: password,
     });
     if (result.ok) {
+      const email = document.getElementById("email").value;
       event.target.reset();
-      showMessage(message, "Account erstellt! Wir haben dir eine E-Mail geschickt – bestätige deine Adresse und logge dich dann ein.", "success");
+      document.getElementById("resend-email").value = email;
+      showMessage(message, `Account erstellt! Wir haben eine E-Mail an ${email} geschickt – bestätige deine Adresse und logge dich dann ein. Falsche Adresse? Registriere dich einfach noch einmal.`, "success");
     } else {
       showMessage(message, result.data.error || "Der Account konnte nicht erstellt werden.", "error");
     }
+  });
+
+  document.getElementById("resend-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await postJson("/api/resend_verification", { email: document.getElementById("resend-email").value });
+    showMessage(document.getElementById("resend-message"),
+                "Falls zu dieser Adresse ein unbestätigter Account gehört, ist eine neue Mail unterwegs. Du kannst höchstens eine Mail pro Minute anfordern.",
+                "success");
   });
 </script>
 {% endblock %}

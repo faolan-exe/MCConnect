@@ -380,3 +380,50 @@ def test_concurrent_migrations_on_empty_database(db):
     assert errors == []
     assert db.get_schema_version() == SCHEMA_VERSION
     assert db._fetchvalue("SELECT count(*) FROM schema_version") == 1
+
+
+# ------------------------------------------------------------------ signup corrections
+
+def test_signup_replaces_unverified_account_with_same_username(db):
+    old_id = db.add_server_admin("bob", "secret123", "typo@example.con")
+    db.create_email_verification(old_id)
+    new_id = db.add_server_admin("bob", "secret456", "bob@example.com", replace_unverified=True)
+    assert new_id != old_id
+    assert db._fetchvalue("SELECT email FROM server_admins WHERE username = 'bob'") == "bob@example.com"
+    assert db._fetchvalue("SELECT count(*) FROM email_verification") == 0  # old token removed
+
+
+def test_signup_replaces_unverified_account_with_same_email(db):
+    db.add_server_admin("typoname", "secret123", "bob@example.com")
+    db.add_server_admin("bob", "secret456", "Bob@Example.com", replace_unverified=True)
+    assert db.get_admin_id_by_username("typoname") is None
+
+
+def test_signup_never_replaces_verified_account(db, admin_id):
+    import psycopg2.errors
+    with pytest.raises(psycopg2.errors.UniqueViolation):
+        db.add_server_admin("tobi", "hijack123", "evil@example.com", replace_unverified=True)
+    assert db.verify_admin_login("tobi", "testPassword") is True
+
+
+def test_signup_never_replaces_account_owning_servers(db):
+    import psycopg2.errors
+    owner = db.add_server_admin("owner", "secret123", "owner@example.com")
+    db.add_server(owner, "owned", "owned.example.com", "Owned")
+    with pytest.raises(psycopg2.errors.UniqueViolation):
+        db.add_server_admin("owner", "secret456", "other@example.com", replace_unverified=True)
+
+
+def test_renew_email_verification(db, admin_id):
+    bob = db.add_server_admin("bob", "secret123", "bob@example.com")
+    old_token = db.create_email_verification(bob)
+    assert db.renew_email_verification("bob@example.com") is None  # last mail too recent
+    with db._cursor() as cur:
+        cur.execute("UPDATE email_verification SET created_at = now() - interval '2 minutes'")
+    username, token = db.renew_email_verification("BOB@example.com")
+    assert username == "bob" and token != old_token
+    assert db.verify_signupcode("bob", old_token) is False
+    assert db.verify_signupcode("bob", token) is True
+    assert db.renew_email_verification("bob@example.com") is None      # already verified
+    assert db.renew_email_verification("tobi@example.com") is None     # verified account
+    assert db.renew_email_verification("nobody@example.com") is None

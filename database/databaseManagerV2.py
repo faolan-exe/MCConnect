@@ -271,11 +271,25 @@ class DatabaseManager:
                                    VALUES (%s, %s, %s) RETURNING prefix_id""",
                                 (player_id, prefix_text, password))
 
-    def add_server_admin(self, username, password, email, email_verified=False):
-        """Add a server admin with an argon2 hashed password and return the id."""
-        return self._fetchvalue("""INSERT INTO server_admins (username, password, email, email_verified)
-                                   VALUES (%s, %s, %s, %s) RETURNING id""",
-                                (username, ph.hash(password), email, email_verified))
+    def add_server_admin(self, username, password, email, email_verified=False, replace_unverified=False):
+        """
+        Add a server admin with an argon2 hashed password and return the id.
+
+        replace_unverified: first delete unverified accounts (without servers) that use the
+        same username or email, so a typo during signup can be fixed by signing up again.
+        Verified accounts are never replaced (the insert then raises UniqueViolation).
+        """
+        with self._cursor() as cur:
+            if replace_unverified:
+                cur.execute("""DELETE FROM server_admins sa
+                               WHERE NOT sa.email_verified
+                                 AND (lower(sa.username) = lower(%s) OR lower(sa.email) = lower(%s))
+                                 AND NOT EXISTS (SELECT 1 FROM servers s WHERE s.owner_id = sa.id)""",
+                            (username, email))
+            cur.execute("""INSERT INTO server_admins (username, password, email, email_verified)
+                           VALUES (%s, %s, %s, %s) RETURNING id""",
+                        (username, ph.hash(password), email, email_verified))
+            return cur.fetchone()[0]
 
     def create_email_verification(self, admin_id):
         """Create (or replace) the email verification token for an admin and return it."""
@@ -284,6 +298,28 @@ class DatabaseManager:
                          ON CONFLICT (admin_id) DO UPDATE SET token = EXCLUDED.token, created_at = now()""",
                       (admin_id, token))
         return token
+
+    def renew_email_verification(self, email, min_interval_seconds=60):
+        """
+        New verification token for the unverified admin with this email.
+        Returns (username, token), or None if there is no such admin or the last
+        mail was sent less than min_interval_seconds ago.
+        """
+        with self._cursor() as cur:
+            cur.execute("""SELECT sa.id, sa.username FROM server_admins sa
+                           LEFT JOIN email_verification ev ON ev.admin_id = sa.id
+                           WHERE lower(sa.email) = lower(%s) AND NOT sa.email_verified
+                             AND (ev.created_at IS NULL OR ev.created_at < now() - make_interval(secs => %s))
+                           FOR UPDATE OF sa""", (email, min_interval_seconds))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            admin_id, username = row
+            token = generate_secure_token(48)
+            cur.execute("""INSERT INTO email_verification (admin_id, token) VALUES (%s, %s)
+                           ON CONFLICT (admin_id) DO UPDATE SET token = EXCLUDED.token, created_at = now()""",
+                        (admin_id, token))
+        return username, token
 
     def add_ban_reason(self, reason, duration_in_days):
         return self._fetchvalue("""INSERT INTO ban_reasons (reason, ban_duration_in_days)
