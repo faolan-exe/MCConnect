@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import secrets
@@ -23,6 +24,14 @@ MIGRATIONS = {
         "ALTER TABLE servers ADD COLUMN plugin_connected boolean NOT NULL DEFAULT false",
         "ALTER TABLE servers ADD COLUMN plugin_last_seen timestamptz",
     ],
+    3: [
+        """CREATE TABLE password_reset(
+             admin_id integer PRIMARY KEY REFERENCES server_admins (id) ON DELETE CASCADE,
+             token_hash text NOT NULL UNIQUE,
+             created_at timestamptz NOT NULL DEFAULT now())""",
+        # Sessions started before this time are invalid (set on password change).
+        "ALTER TABLE server_admins ADD COLUMN password_changed_at timestamptz NOT NULL DEFAULT now()",
+    ],
 }
 SCHEMA_VERSION = max(MIGRATIONS, default=1)
 # A plugin counts as online if it was seen within this time (it sends a heartbeat every 5 seconds).
@@ -40,6 +49,7 @@ BAN_REASONS = [
 LOGIN_PIN_VALID_MINUTES = 5
 MAX_LOGIN_ATTEMPTS = 5
 EMAIL_VERIFICATION_VALID_HOURS = 24
+PASSWORD_RESET_VALID_MINUTES = 60
 LOGIN_PIN_CHANNEL = "login_pin"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -320,6 +330,63 @@ class DatabaseManager:
                            ON CONFLICT (admin_id) DO UPDATE SET token = EXCLUDED.token, created_at = now()""",
                         (admin_id, token))
         return username, token
+
+    ###----------------------------- Password reset ------------------------------------###
+
+    @staticmethod
+    def _hash_token(token):
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    def create_password_reset(self, email, min_interval_seconds=60):
+        """
+        Reset token for the verified admin with this email. Only a hash is stored.
+        Returns (username, token), or None if there is no such admin or the last
+        reset mail was sent less than min_interval_seconds ago.
+        """
+        with self._cursor() as cur:
+            cur.execute("""SELECT sa.id, sa.username FROM server_admins sa
+                           LEFT JOIN password_reset pr ON pr.admin_id = sa.id
+                           WHERE lower(sa.email) = lower(%s) AND sa.email_verified
+                             AND (pr.created_at IS NULL OR pr.created_at < now() - make_interval(secs => %s))
+                           FOR UPDATE OF sa""", (email, min_interval_seconds))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            admin_id, username = row
+            token = generate_secure_token(48)
+            cur.execute("""INSERT INTO password_reset (admin_id, token_hash) VALUES (%s, %s)
+                           ON CONFLICT (admin_id) DO UPDATE SET token_hash = EXCLUDED.token_hash, created_at = now()""",
+                        (admin_id, self._hash_token(token)))
+        return username, token
+
+    def get_password_reset_username(self, token):
+        """Username for a valid (unexpired) reset token, or None."""
+        return self._fetchvalue("""SELECT sa.username FROM password_reset pr
+                                   JOIN server_admins sa ON sa.id = pr.admin_id
+                                   WHERE pr.token_hash = %s
+                                     AND pr.created_at > now() - make_interval(mins => %s)""",
+                                (self._hash_token(token), PASSWORD_RESET_VALID_MINUTES))
+
+    def reset_password(self, token, new_password):
+        """Set a new password with a reset token (single use). Returns the username or None."""
+        with self._cursor() as cur:
+            cur.execute("""DELETE FROM password_reset
+                           WHERE token_hash = %s AND created_at > now() - make_interval(mins => %s)
+                           RETURNING admin_id""", (self._hash_token(token), PASSWORD_RESET_VALID_MINUTES))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            cur.execute("""UPDATE server_admins SET password = %s, password_changed_at = now()
+                           WHERE id = %s RETURNING username""", (ph.hash(new_password), row[0]))
+            username = cur.fetchone()[0]
+        logger.info(f'Password of admin "{username}" was reset')
+        return username
+
+    def get_admin_password_changed_at(self, admin_id):
+        """Unix time of the last password change, or None if the admin does not exist."""
+        value = self._fetchvalue("SELECT extract(epoch FROM password_changed_at) FROM server_admins WHERE id = %s",
+                                 (admin_id,))
+        return float(value) if value is not None else None
 
     def add_ban_reason(self, reason, duration_in_days):
         return self._fetchvalue("""INSERT INTO ban_reasons (reason, ban_duration_in_days)

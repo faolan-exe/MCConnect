@@ -283,12 +283,16 @@ def test_prefixes(db, player_id):
 
 def test_migration_from_version_1(db):
     with db._cursor() as cur:
+        # back to schema version 1
+        cur.execute("DROP TABLE password_reset")
+        cur.execute("ALTER TABLE server_admins DROP COLUMN password_changed_at")
         cur.execute("ALTER TABLE servers DROP COLUMN plugin_connected, DROP COLUMN plugin_last_seen")
         cur.execute("UPDATE schema_version SET version = 1")
     db.migrate()
     assert db.get_schema_version() == SCHEMA_VERSION
     assert db._fetchvalue("SELECT count(*) FROM information_schema.columns "
                           "WHERE table_name = 'servers' AND column_name LIKE 'plugin_%%'") == 2
+    assert db._fetchvalue("SELECT to_regclass('public.password_reset') IS NOT NULL")
     db.migrate()  # nothing left to do
     assert db.get_schema_version() == SCHEMA_VERSION
 
@@ -427,3 +431,43 @@ def test_renew_email_verification(db, admin_id):
     assert db.renew_email_verification("bob@example.com") is None      # already verified
     assert db.renew_email_verification("tobi@example.com") is None     # verified account
     assert db.renew_email_verification("nobody@example.com") is None
+
+
+# ------------------------------------------------------------------ password reset
+
+def test_password_reset(db, admin_id):
+    changed_before = db.get_admin_password_changed_at(admin_id)
+    username, token = db.create_password_reset("TOBI@example.com")
+    assert username == "tobi"
+    assert db._fetchvalue("SELECT token_hash FROM password_reset") != token  # only the hash is stored
+    assert db.get_password_reset_username(token) == "tobi"
+    assert db.reset_password(token, "brandNew123") == "tobi"
+    assert db.verify_admin_login("tobi", "brandNew123") is True
+    assert db.verify_admin_login("tobi", "testPassword") is False
+    assert db.get_admin_password_changed_at(admin_id) > changed_before
+    # single use
+    assert db.reset_password(token, "again12345") is None
+    assert db.get_password_reset_username(token) is None
+
+
+def test_password_reset_only_for_verified_accounts(db):
+    db.add_server_admin("bob", "secret123", "bob@example.com")
+    assert db.create_password_reset("bob@example.com") is None
+    assert db.create_password_reset("nobody@example.com") is None
+
+
+def test_password_reset_rate_limit_and_expiry(db, admin_id):
+    _, token = db.create_password_reset("tobi@example.com")
+    assert db.create_password_reset("tobi@example.com") is None  # too soon
+    with db._cursor() as cur:
+        cur.execute("UPDATE password_reset SET created_at = now() - interval '61 minutes'")
+    assert db.get_password_reset_username(token) is None
+    assert db.reset_password(token, "brandNew123") is None
+    _, new_token = db.create_password_reset("tobi@example.com")  # allowed again
+    assert db.reset_password(new_token, "brandNew123") == "tobi"
+
+
+def test_wrong_token_does_not_reset(db, admin_id):
+    db.create_password_reset("tobi@example.com")
+    assert db.reset_password("wrong", "brandNew123") is None
+    assert db.verify_admin_login("tobi", "testPassword") is True

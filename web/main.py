@@ -301,9 +301,27 @@ def datenschutz():
 
 ################################ MAIN DOMAIN #################################
 
+def current_admin_id():
+    """
+    The logged in admin, or None. A session is only valid if it started after the
+    last password change (and the admin still exists); otherwise it is cleared.
+    """
+    admin_id = session.get("admin_id")
+    if not admin_id:
+        return None
+    if "admin_valid" in g:
+        return admin_id if g.admin_valid else None
+    changed_at = db().get_admin_password_changed_at(admin_id)
+    g.admin_valid = changed_at is not None and session.get("admin_login_at", 0) >= changed_at
+    if not g.admin_valid:
+        session.clear()
+        return None
+    return admin_id
+
+
 @main_bp.context_processor
 def inject_main_context():
-    return {"admin_username": session.get("admin_username")}
+    return {"admin_username": session.get("admin_username") if current_admin_id() else None}
 
 
 def admin_required(view):
@@ -311,7 +329,7 @@ def admin_required(view):
     @functools.wraps(view)
     def wrapper(*args, **kwargs):
         is_api = request.path.startswith("/api/")
-        if not session.get("admin_id"):
+        if not current_admin_id():
             return ({"error": "not logged in"}, 401) if is_api else redirect("/login")
         if is_api and request.method == "POST" and not request.is_json:
             return {"error": "json required"}, 415
@@ -326,7 +344,7 @@ def main_index_route():
 
 @main_bp.route("/login")
 def server_admin_login():
-    if session.get("admin_id"):
+    if current_admin_id():
         return redirect("/manage")
     return render_template("serverAdminLogin.html")
 
@@ -408,15 +426,21 @@ def resend_verification():
     return ("", 200)
 
 
-def send_verification_email(username, email, token):
-    link = f"{config.PUBLIC_SCHEME}://{current_app.config['SERVER_NAME']}/verify_email/{username}/{token}"
+def send_mail(recipient, subject, html, log_hint):
+    """Send via SMTP, or log log_hint (containing the link) when no SMTP is configured."""
     mailer = current_app.extensions.get("mcconnect_mailer")
     if mailer:
-        mailer.send_email(email, "MCConnect: E-Mail bestätigen",
-                          f'<p>Hallo {username},</p><p>bitte bestätige deine E-Mail-Adresse: '
-                          f'<a href="{link}">{link}</a></p><p>Der Link ist 24 Stunden gültig.</p>')
+        mailer.send_email(recipient, subject, html)
     else:
-        logger.warning(f"No SMTP configured, verification link for {username}: {link}")
+        logger.warning(f"No SMTP configured, {log_hint}")
+
+
+def send_verification_email(username, email, token):
+    link = f"{config.PUBLIC_SCHEME}://{current_app.config['SERVER_NAME']}/verify_email/{username}/{token}"
+    send_mail(email, "MCConnect: E-Mail bestätigen",
+              f'<p>Hallo {username},</p><p>bitte bestätige deine E-Mail-Adresse: '
+              f'<a href="{link}">{link}</a></p><p>Der Link ist 24 Stunden gültig.</p>',
+              log_hint=f"verification link for {username}: {link}")
 
 
 @main_bp.route("/api/login", methods=["POST"])
@@ -427,9 +451,53 @@ def server_login_api():
         session.clear()
         session["admin_id"] = db().get_admin_id_by_username(username)
         session["admin_username"] = username
+        session["admin_login_at"] = time.time()
         session.permanent = True
         return ("", 200)
     return ("", 400)
+
+
+@main_bp.route("/forgot_password")
+def forgot_password():
+    return render_template("forgot_password.html")
+
+
+@main_bp.route("/api/password_reset/request", methods=["POST"])
+def password_reset_request():
+    """Always answers the same, so it cannot be used to find out which addresses are registered."""
+    email = str((request.get_json(silent=True) or {}).get("email") or "").strip()
+    if EMAIL_RE.match(email):
+        created = db().create_password_reset(email)
+        if created:
+            username, token = created
+            link = f"{config.PUBLIC_SCHEME}://{current_app.config['SERVER_NAME']}/reset_password/{token}"
+            send_mail(email, "MCConnect: Passwort zurücksetzen",
+                      f"<p>Hallo {username},</p><p>du kannst dein Passwort hier zurücksetzen: "
+                      f'<a href="{link}">{link}</a></p><p>Der Link ist 1 Stunde gültig. '
+                      f"Wenn du das nicht angefordert hast, ignoriere diese E-Mail.</p>",
+                      log_hint=f"password reset link for {username}: {link}")
+    return ("", 200)
+
+
+@main_bp.route("/reset_password/<token>")
+def reset_password_page(token):
+    username = db().get_password_reset_username(token)
+    if username is None:
+        return render_template("message.html", ok=False, title="Link ungültig",
+                               text="Der Link ist ungültig oder abgelaufen. Fordere einen neuen an."), 400
+    return render_template("reset_password.html", username=username, token=token)
+
+
+@main_bp.route("/api/password_reset/confirm", methods=["POST"])
+def password_reset_confirm():
+    data = request.get_json(silent=True) or {}
+    password = str(data.get("password") or "")
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return {"error": f"Das Passwort muss mindestens {MIN_PASSWORD_LENGTH} Zeichen lang sein."}, 400
+    if db().reset_password(str(data.get("token") or ""), password) is None:
+        return {"error": "Der Link ist ungültig oder abgelaufen. Fordere einen neuen an."}, 400
+    session.clear()
+    return ("", 200)
 
 
 @main_bp.route("/api/logout", methods=["POST"])

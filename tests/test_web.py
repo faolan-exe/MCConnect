@@ -422,3 +422,56 @@ def test_resend_verification(client, db, mailer):
     for email in ["alice@example.com", "nobody@example.com", "not-an-email"]:
         assert client.post("/api/resend_verification", json={"email": email}, **on(None)).status_code == 200
     assert len(mailer.sent) == 2
+
+
+# ------------------------------------------------------------------ password reset
+
+def _reset_link_token(mailer):
+    import re as _re
+    return _re.search(r"/reset_password/([A-Za-z0-9]+)", mailer.sent[-1][1]).group(1)
+
+
+def test_password_reset_flow(client, db, admin_id, mailer):
+    assert client.get("/forgot_password", **on(None)).status_code == 200
+    assert client.post("/api/password_reset/request", json={"email": "tobi@example.com"}, **on(None)).status_code == 200
+    assert mailer.sent[-1][0] == "tobi@example.com"
+    token = _reset_link_token(mailer)
+
+    page = client.get(f"/reset_password/{token}", **on(None))
+    assert page.status_code == 200 and b"tobi" in page.data
+    assert client.post("/api/password_reset/confirm", json={"token": token, "password": "short"},
+                       **on(None)).status_code == 400
+    assert client.post("/api/password_reset/confirm", json={"token": token, "password": "brandNew123"},
+                       **on(None)).status_code == 200
+    assert client.post("/api/login", json={"username": "tobi", "password": "brandNew123"}, **on(None)).status_code == 200
+    assert client.get(f"/reset_password/{token}", **on(None)).status_code == 400  # used
+
+
+def test_password_reset_request_reveals_nothing(client, mailer):
+    for email in ["nobody@example.com", "invalid"]:
+        assert client.post("/api/password_reset/request", json={"email": email}, **on(None)).status_code == 200
+    assert mailer.sent == []
+
+
+def test_password_reset_logs_out_other_sessions(app, db, admin_client, mailer):
+    assert admin_client.get("/manage", **on(None)).status_code == 200
+    other = app.test_client()
+    other.post("/api/password_reset/request", json={"email": "tobi@example.com"}, **on(None))
+    other.post("/api/password_reset/confirm", json={"token": _reset_link_token(mailer), "password": "brandNew123"},
+               **on(None))
+    # the session from before the reset is no longer valid
+    assert admin_client.get("/manage", **on(None)).status_code == 302
+    assert admin_client.post("/api/servers", json=NEW_SERVER, **on(None)).status_code == 401
+
+
+def test_session_of_deleted_admin_is_invalid(db, admin_client):
+    with db._cursor() as cur:
+        cur.execute("DELETE FROM server_admins")
+    assert admin_client.get("/manage", **on(None)).status_code == 302
+
+
+def test_session_without_login_time_is_invalid(client, admin_id):
+    with client.session_transaction(base_url=f"http://{BASE}") as sess:  # e.g. created before this version
+        sess["admin_id"] = admin_id
+        sess["admin_username"] = "tobi"
+    assert client.get("/manage", **on(None)).status_code == 302
