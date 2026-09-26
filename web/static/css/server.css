@@ -63,9 +63,7 @@ body {
 .srv-hero-inner { position: relative; z-index: 1; padding-top: 72px; padding-bottom: 96px; }
 
 .srv-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  display: inline-block;
   padding: 4px 12px;
   border-radius: 999px;
   font-size: 14px;
@@ -75,8 +73,6 @@ body {
   background: rgba(255, 255, 255, 0.14);
   border: 1px solid rgba(255, 255, 255, 0.25);
 }
-.srv-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--srv-green); }
-.srv-chip-whitelist .srv-dot { background: #f2b33d; }
 
 .srv-hero h1 {
   font-size: clamp(38px, 6vw, 68px);

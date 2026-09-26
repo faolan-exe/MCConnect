@@ -21,9 +21,9 @@
         <section class="srv-hero" {% if banner_url %}style="background-image: url('{{ banner_url }}')"{% endif %}>
             <div class="srv-wrap srv-hero-inner">
                 {% if whitelist %}
-                <span class="srv-chip srv-chip-whitelist"><span class="srv-dot"></span>Whitelist</span>
+                <span class="srv-chip">Whitelist</span>
                 {% else %}
-                <span class="srv-chip"><span class="srv-dot"></span>Öffentlich</span>
+                <span class="srv-chip">Öffentlich</span>
                 {% endif %}
                 <h1>{{ server_name }}</h1>
                 <p class="srv-tagline">{{ server_description_short }}</p>
