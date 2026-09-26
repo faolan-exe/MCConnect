@@ -10,6 +10,7 @@ import time
 import traceback
 import uuid
 import argon2
+import os
 import psycopg2
 import functools
 
@@ -32,6 +33,9 @@ BAN_REASONS = [
     ["spamming", 1],
     ["other", 7],
 ]
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(BASE_DIR)
 
 ph = argon2.PasswordHasher()
 logger = get_logger("databaseManager",logging.DEBUG)
@@ -67,7 +71,7 @@ def decorate_all_db_methods(cls):
 @decorate_all_db_methods
 class DatabaseManager:
     def __init__(self):
-        self.CURRENT_DOMAIN = open("DOMAIN.txt", "r").readline().strip()
+        self.CURRENT_DOMAIN = open(os.path.join(PROJECT_ROOT, "DOMAIN.txt"), "r").readline().strip()
         logger.debug("Initializing database manager")
         self.conn = psycopg2.connect(
             database="mcConnect-TestDB-1",
@@ -153,7 +157,7 @@ class DatabaseManager:
 
     def _init_tables(self):
         logger.debug("init_tables is called")
-        query = read_sql_file("database/queries/initDBv2.sql")
+        query = read_sql_file(os.path.join(BASE_DIR, "queries", "initDBv2.sql"))
         logger.debug(f"executing SQL query: {query}")
         self.cursor.execute(query)
         self.conn.commit()
@@ -163,8 +167,8 @@ class DatabaseManager:
     
     def _prefill_database(self):
         logger.debug("prefill_database is called")
-        self.fill_item_blocks_lookup_table("database/blocks.json")
-        self.fill_item_items_lookup_table("database/itemlist.json")
+        self.fill_item_blocks_lookup_table(os.path.join(BASE_DIR, "blocks.json"))
+        self.fill_item_items_lookup_table(os.path.join(BASE_DIR, "itemlist.json"))
         for ban_reason in BAN_REASONS:
             self.add_ban_reason(*ban_reason)
 

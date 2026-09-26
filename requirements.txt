@@ -3,4 +3,5 @@ argon2-cffi
 requests
 flask
 flask_cors
-logger
+colorlogx
+pytest

@@ -3,11 +3,11 @@ import sys
 import time
 from urllib.parse import urlparse
 import secrets
-from re import sub
-from sre_constants import SUCCESS
 
 # Projekt-Root bestimmen (eine Ebene über /web)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 # DOMAIN.txt einlesen, Fallback auf "localhost"
 DOMAIN_FILE = os.path.join(PROJECT_ROOT, "DOMAIN.txt")
@@ -18,22 +18,13 @@ except FileNotFoundError:
     print("DOMAIN.txt nicht gefunden! Fallback auf 'localhost'.")
     CURRENT_DOMAIN = "localhost"
 
-# Datenbankpfade zum sys.path hinzufügen
-DATABASE_DIR = os.path.join(PROJECT_ROOT, "database")
-if DATABASE_DIR not in sys.path:
-    sys.path.insert(0, DATABASE_DIR)
-
-# Imports aus dem database-Paket
+from colorlogx import get_logger
 from database.databaseManagerV2 import DatabaseManager
-from database.logger import get_logger
 from database.minecraft import Minecraft
 
 # Flask setup
-from flask import Flask, render_template, render_template_string, request, Response, redirect, session, flash, jsonify, abort
+from flask import Flask, render_template, request, Response, redirect, session, abort
 from flask_cors import CORS
-
-app = Flask(__name__)
-CORS(app)
 
 
 logger = get_logger("webServer")
@@ -49,8 +40,8 @@ CORS(app, resources={r"/api/*": {"origins": CURRENT_DOMAIN}})
 #             return jsonify({"error": "Blocked"}), 403
         
 logger.info('Application started')
-app.config.from_pyfile("config.py")
-app.config.from_pyfile("instance/config.py")
+app.config.from_pyfile(os.path.join(app.root_path, "config.py"))
+app.config.from_pyfile(os.path.join(app.root_path, "instance", "config.py"))
 
 
 @app.context_processor
