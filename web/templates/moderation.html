@@ -1,0 +1,13 @@
+{% extends "server_base.html" %}
+{% from "_components.html" import bans_panel %}
+{% block title %}Verwaltung – {{ server_name }}{% endblock %}
+{% block content %}
+<h1>Verwaltung</h1>
+<p class="srv-lead">Bans von hier werden sofort im Spiel ausgeführt: Der Spieler wird gekickt und kann bis zum Ende
+  des Bans nicht mehr joinen. Bans aus dem Spiel (<code>/ban</code>) erscheinen hier ebenfalls.</p>
+
+<section class="srv-card">
+  <h2>Spieler bannen</h2>
+  {{ bans_panel("mod-bans", bans_api ~ "/bans", bans_api ~ "/ban", bans_api ~ "/unban", ban_reasons, players) }}
+</section>
+{% endblock %}

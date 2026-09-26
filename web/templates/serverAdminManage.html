@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_components.html" import bans_panel %}
 {% block title %}Meine Server – MCConnect{% endblock %}
 {% block content %}
 <div class="server-head" style="margin-bottom: 24px">
@@ -126,6 +127,33 @@ port: {{ plugin_port }}</pre>
       </label>
     </div>
     <div class="message" id="image-message-{{ server.id }}"></div>
+  </details>
+
+  <details>
+    <summary>Moderation</summary>
+    <p class="hint">Moderatoren loggen sich auf der Serverseite per Ingame-PIN ein und können dort unter
+      „Verwaltung“ Spieler bannen. Bans werden sofort im Spiel ausgeführt.</p>
+
+    <label style="font-weight: 400; display: flex; gap: 8px; align-items: center">
+      <input type="checkbox" style="width: auto" {% if server.auto_mod_ops %}checked{% endif %}
+             onchange="setAutoModOps({{ server.id }}, this)" />
+      OPs vom Minecraft-Server automatisch zu Moderatoren machen
+    </label>
+
+    <h3 class="images-title">Moderatoren</h3>
+    <ul class="moderator-list" id="moderators-{{ server.id }}"><li class="hint">Lade …</li></ul>
+    <form class="input-suffix" style="max-width: 420px" onsubmit="addModerator(event, {{ server.id }})">
+      <input name="name" placeholder="Spielername" list="players-{{ server.id }}" required autocomplete="off" />
+      <button class="btn" style="border-radius: 0 8px 8px 0" type="submit">Hinzufügen</button>
+    </form>
+    <datalist id="players-{{ server.id }}">
+      {% for player in server.players %}<option value="{{ player }}"></option>{% endfor %}
+    </datalist>
+    <div class="message" id="moderation-message-{{ server.id }}"></div>
+
+    <h3 class="images-title" style="margin-top: 28px">Bans</h3>
+    {{ bans_panel("bans-" ~ server.id, "/api/servers/" ~ server.id ~ "/moderation", "/api/servers/" ~ server.id ~ "/ban",
+                  "/api/servers/" ~ server.id ~ "/unban", ban_reasons, server.players) }}
   </details>
 
   <details>
@@ -269,6 +297,69 @@ port: {{ plugin_port }}</pre>
       showMessage(message, "Entfernen fehlgeschlagen.", "error");
     }
   }
+
+  async function loadModerators(serverId) {
+    const list = document.getElementById("moderators-" + serverId);
+    const response = await fetch(`/api/servers/${serverId}/moderation`);
+    if (!response.ok) return;
+    const moderators = (await response.json()).moderators;
+    list.replaceChildren();
+    if (!moderators.length) {
+      const li = document.createElement("li");
+      li.className = "hint";
+      li.textContent = "Noch keine Moderatoren.";
+      list.append(li);
+    }
+    for (const moderator of moderators) {
+      const li = document.createElement("li");
+      li.append(moderator.name);
+      if (!moderator.explicit) {
+        const note = document.createElement("span");
+        note.className = "hint";
+        note.textContent = " (OP)";
+        li.append(note);
+      } else {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "btn btn-secondary";
+        button.textContent = "Entfernen";
+        button.addEventListener("click", async () => {
+          await postJson(`/api/servers/${serverId}/moderators`, { name: moderator.name, moderator: false });
+          loadModerators(serverId);
+        });
+        li.append(button);
+      }
+      list.append(li);
+    }
+  }
+
+  async function addModerator(event, serverId) {
+    event.preventDefault();
+    const input = event.target.elements.name;
+    const result = await postJson(`/api/servers/${serverId}/moderators`, { name: input.value, moderator: true });
+    const message = document.getElementById("moderation-message-" + serverId);
+    if (result.ok) {
+      showMessage(message, result.data.name + " ist jetzt Moderator.", "success");
+      input.value = "";
+      loadModerators(serverId);
+    } else {
+      showMessage(message, result.data.error || "Das hat nicht geklappt.", "error");
+    }
+  }
+
+  async function setAutoModOps(serverId, checkbox) {
+    const result = await postJson(`/api/servers/${serverId}/update`, { auto_mod_ops: checkbox.checked });
+    const message = document.getElementById("moderation-message-" + serverId);
+    if (result.ok) {
+      showMessage(message, checkbox.checked ? "OPs sind jetzt Moderatoren." : "OPs sind keine automatischen Moderatoren mehr.", "success");
+      loadModerators(serverId);
+    } else {
+      checkbox.checked = !checkbox.checked;
+      showMessage(message, result.data.error || "Speichern fehlgeschlagen.", "error");
+    }
+  }
+
+  document.querySelectorAll("[id^='moderators-']").forEach((list) => loadModerators(list.id.split("-")[1]));
 
   async function regenerateKey(id) {
     const result = await postJson(`/api/servers/${id}/regenerate_key`);

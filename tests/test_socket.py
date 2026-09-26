@@ -10,8 +10,11 @@ from tests.conftest import OTHER_UUID, PLAYER_UUID, wait_for
 
 
 class FakePlugin:
+    """Speaks the plugin protocol. Prefix updates are collected separately (self.prefixes)."""
+
     def __init__(self, port):
         self.sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+        self.prefixes = []
 
     def send(self, msg):
         self.sock.sendall(encode_msg(msg))
@@ -19,8 +22,23 @@ class FakePlugin:
     def recv(self, skip_heartbeats=True):
         while True:
             msg = recv_msg(self.sock)
-            if not (skip_heartbeats and msg == "!heartbeat"):
-                return msg
+            if skip_heartbeats and msg == "!heartbeat":
+                continue
+            if msg.startswith("!prefix~"):
+                self.prefixes.append(msg)
+                continue
+            return msg
+
+    def recv_prefix(self):
+        """Next prefix message; fails if another message arrives first."""
+        while not self.prefixes:
+            msg = recv_msg(self.sock)
+            if msg == "!heartbeat":
+                continue
+            if not msg.startswith("!prefix~"):
+                raise AssertionError(f"expected a prefix message, got {msg!r}")
+            self.prefixes.append(msg)
+        return self.prefixes.pop(0)
 
     def request(self, msg):
         self.send(msg)
@@ -206,3 +224,93 @@ def test_login_pin_goes_to_the_right_server(db, server, other_server, plugin):
     first.sock.settimeout(0.5)
     with pytest.raises(socket.timeout):
         first.recv()
+
+
+
+# ------------------------------------------------------------------ prefixes, ops, bans
+
+def test_join_sends_prefix_and_op_status(db, server, plugin):
+    client = plugin().auth(server["key"])
+    assert client.request(f"!JOIN~{PLAYER_UUID}|_Tobias4444|1") == "success|101"
+    assert client.recv_prefix() == f"!prefix~{PLAYER_UUID}||"  # no prefix yet
+    player_id = db.get_player_id_from_mojang_uuid_and_server_id(PLAYER_UUID, server["id"])
+    assert db._fetchvalue("SELECT is_op FROM player_server_info WHERE player_id = %s", (player_id,)) is True
+
+    db.save_own_prefix(player_id, "Bauteam", "gold")
+    client.request(f"!QUIT~{PLAYER_UUID}")
+    assert client.request(f"!JOIN~{PLAYER_UUID}|_Tobias4444|0") == "success|101"
+    assert client.recv_prefix() == f"!prefix~{PLAYER_UUID}|gold|Bauteam"
+    assert db._fetchvalue("SELECT is_op FROM player_server_info WHERE player_id = %s", (player_id,)) is False
+
+
+def test_auth_sends_all_worn_prefixes(db, server, plugin):
+    player_id = db.ensure_player_on_server(server["id"], PLAYER_UUID)
+    db.save_own_prefix(player_id, "Clan", "red")
+    client = plugin().auth(server["key"])
+    assert client.recv_prefix() == f"!prefix~{PLAYER_UUID}|red|Clan"
+
+
+def test_prefix_change_is_pushed_to_plugin(db, server, plugin):
+    client = plugin().auth(server["key"])
+    player_id = db.ensure_player_on_server(server["id"], PLAYER_UUID)
+    uuids = db.save_own_prefix(player_id, "Neu", "aqua")
+    db.notify_server_event(server["id"], "prefix", uuids=uuids)
+    assert client.recv_prefix() == f"!prefix~{PLAYER_UUID}|aqua|Neu"
+
+
+def test_web_ban_and_unban_are_pushed_to_plugin(db, server, plugin):
+    client = plugin().auth(server["key"])
+    db.ensure_player_on_server(server["id"], PLAYER_UUID)
+    db.notify_server_event(server["id"], "ban", uuid=PLAYER_UUID, name="_Tobias4444", end_ms=0, reason="hacking|x~y")
+    assert client.recv() == f"!ban~{PLAYER_UUID}|_Tobias4444|0|hacking/x-y"
+    db.notify_server_event(server["id"], "unban", uuid=PLAYER_UUID, name="_Tobias4444")
+    assert client.recv() == f"!unban~{PLAYER_UUID}|_Tobias4444"
+
+
+def test_ingame_ban_list_sync(db, server, plugin):
+    client = plugin().auth(server["key"])
+    client.request(f"!JOIN~{PLAYER_UUID}|_Tobias4444")
+    bans = [{"name": "_Tobias4444", "reason": "Griefing", "source": "Console", "created": 1700000000000, "expires": 0},
+            {"name": "NeverPlayedHere", "reason": "x", "source": "Console", "created": 0, "expires": 0}]
+    assert client.request("!BANS~" + json.dumps(bans)) == "success|103"
+    active = db.list_active_bans(server["id"])
+    assert [(b["name"], b["source"], b["reason"], b["end"]) for b in active] == [("_Tobias4444", "ingame", "Griefing", None)]
+    assert client.request("!BANS~[]") == "success|103"  # pardoned ingame
+    assert db.list_active_bans(server["id"]) == []
+    assert client.request("!BANS~{}") == "error|005"
+
+
+# ------------------------------------------------------------------ website -> plugin, end to end
+
+@pytest.fixture
+def web_client(db):
+    from web.main import create_app
+    return create_app(db, {"TESTING": True, "SECRET_KEY": "test", "SERVER_NAME": "mc.test"}).test_client()
+
+
+def test_web_ban_reaches_plugin(db, server, plugin, web_client, admin_id):
+    client = plugin().auth(server["key"])
+    client.request(f"!JOIN~{PLAYER_UUID}|_Tobias4444")
+    web_client.post("/api/login", json={"username": "tobi", "password": "testPassword"}, base_url="http://mc.test")
+    response = web_client.post(f"/api/servers/{server['id']}/ban", json={"name": "_Tobias4444", "days": 2},
+                               base_url="http://mc.test")
+    assert response.status_code == 200
+    command, _, value = client.recv().partition("~")
+    uuid, name, end_ms, reason = value.split("|")
+    assert (command, uuid, name, reason) == ("!ban", PLAYER_UUID, "_Tobias4444", "Gebannt")
+    assert int(end_ms) > time.time() * 1000
+
+
+def test_web_prefix_reaches_plugin(db, server, plugin, web_client):
+    client = plugin().auth(server["key"])
+    client.request(f"!JOIN~{PLAYER_UUID}|_Tobias4444")
+    assert client.recv_prefix() == f"!prefix~{PLAYER_UUID}||"
+    player_id = db.get_player_id_from_mojang_uuid_and_server_id(PLAYER_UUID, server["id"])
+    db.set_plugin_connected(server["id"], True)
+    # log in on the server page like a player (pin comes through the socket)
+    web_client.post("/api/login", json={"username": "_Tobias4444", "pin": None}, base_url="http://testdomain.mc.test")
+    pin = client.recv().split("~")[2]
+    web_client.post("/api/login", json={"username": None, "pin": pin}, base_url="http://testdomain.mc.test")
+    web_client.post("/api/prefix/save", json={"text": "Bauteam", "color": "gold"}, base_url="http://testdomain.mc.test")
+    assert client.recv_prefix() == f"!prefix~{PLAYER_UUID}|gold|Bauteam"
+    assert db.get_player_prefix(player_id)["text"] == "Bauteam"

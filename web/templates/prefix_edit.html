@@ -1,0 +1,99 @@
+{% extends "server_base.html" %}
+{% from "_components.html" import prefix_chip %}
+{% block title %}Dein Prefix – {{ server_name }}{% endblock %}
+{% block content %}
+<h1>Dein Prefix</h1>
+<p class="srv-lead">Dein Prefix steht im Chat, in der Tabliste, über deinem Kopf und hier auf der Website vor deinem Namen.
+  Andere können ihm beitreten – mit Passwort nur, wenn sie es kennen.</p>
+
+{% if current_prefix and (not own_prefix or current_prefix.prefix_id != own_prefix.prefix_id) %}
+<div class="srv-card">
+  <p style="margin: 0">Gerade trägst du {{ prefix_chip(current_prefix.text, current_prefix.color, prefix_colors) }}
+    von {{ current_prefix.owner_name }}. Speicherst du hier deinen eigenen, wechselst du zu diesem.</p>
+</div>
+{% endif %}
+
+<form class="srv-card mcc-form" id="prefix-form">
+  <h2>{{ "Prefix bearbeiten" if own_prefix else "Prefix erstellen" }}</h2>
+
+  <label for="text">Text <span class="mcc-hint">(1–16 Zeichen)</span></label>
+  <input class="mcc-input" id="text" maxlength="16" required value="{{ own_prefix.text if own_prefix else '' }}" />
+
+  <label>Farbe</label>
+  <div class="mcc-colors">
+    {% set selected = own_prefix.color if own_prefix else "gold" %}
+    {% for color, hex in prefix_colors.items() %}
+    <label title="{{ color }}"><input type="radio" name="color" value="{{ color }}" {% if color == selected %}checked{% endif %} />
+      <span style="--swatch: {{ hex }}"></span></label>
+    {% endfor %}
+  </div>
+
+  <label>Vorschau im Chat</label>
+  <div class="mcc-chat"><span id="preview-prefix"></span> {{ name }}: Hallo zusammen!</div>
+
+  <label for="password">Passwort zum Beitreten <span class="mcc-hint">
+    {% if own_prefix and own_prefix.has_password %}(leer lassen, um das bisherige zu behalten){% else %}(optional, ohne Passwort kann jeder beitreten){% endif %}</span></label>
+  <input class="mcc-input" id="password" type="password" autocomplete="new-password" minlength="4" />
+  {% if own_prefix and own_prefix.has_password %}
+  <label style="font-weight: 400"><input type="checkbox" id="remove-password" /> Passwort entfernen</label>
+  {% endif %}
+
+  <div class="mcc-actions">
+    <button class="mcc-btn" type="submit">Speichern</button>
+    {% if own_prefix %}
+    <button class="mcc-btn mcc-btn-secondary" type="button" id="delete-prefix">Prefix löschen</button>
+    <span class="mcc-hint">{{ own_prefix.members }} {{ "Spieler trägt" if own_prefix.members == 1 else "Spieler tragen" }} ihn</span>
+    {% endif %}
+  </div>
+  <div class="mcc-message" id="prefix-message"></div>
+</form>
+
+<p><a href="/join_pref">Lieber einem bestehenden Prefix beitreten →</a></p>
+{% endblock %}
+{% block scripts %}
+<script>
+  const COLORS = {{ prefix_colors | tojson }};
+  const form = document.getElementById("prefix-form");
+  const message = document.getElementById("prefix-message");
+  const preview = document.getElementById("preview-prefix");
+
+  function updatePreview() {
+    const color = form.querySelector('input[name="color"]:checked').value;
+    preview.textContent = "[" + (document.getElementById("text").value || "Prefix") + "]";
+    preview.style.color = COLORS[color];
+  }
+  form.addEventListener("input", updatePreview);
+  updatePreview();
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const remove = document.getElementById("remove-password");
+    const result = await postJson("/api/prefix/save", {
+      text: document.getElementById("text").value,
+      color: form.querySelector('input[name="color"]:checked').value,
+      password: document.getElementById("password").value,
+      remove_password: remove ? remove.checked : false,
+    });
+    if (result.ok) {
+      showMessage(message, "Gespeichert. Im Spiel siehst du den Prefix sofort.", "success");
+      setTimeout(() => window.location.reload(), 900);
+    } else {
+      showMessage(message, result.data.error || "Speichern fehlgeschlagen.", "error");
+    }
+  });
+
+  const deleteButton = document.getElementById("delete-prefix");
+  if (deleteButton) {
+    deleteButton.addEventListener("click", async () => {
+      if (deleteButton.dataset.confirm !== "1") {
+        deleteButton.dataset.confirm = "1";
+        deleteButton.textContent = "Wirklich löschen? Alle Mitglieder verlieren ihn";
+        return;
+      }
+      const result = await postJson("/api/prefix/delete");
+      if (result.ok) window.location.reload();
+      else showMessage(message, "Löschen fehlgeschlagen.", "error");
+    });
+  }
+</script>
+{% endblock %}

@@ -14,6 +14,7 @@ import re
 import secrets
 import sys
 import time
+import uuid as uuid_mod
 from urllib.parse import urlparse
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -27,7 +28,7 @@ from flask import (Blueprint, Flask, Response, abort, current_app, g, redirect, 
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from database import config
-from database.databaseManagerV2 import MAX_GALLERY_IMAGES, DatabaseManager
+from database.databaseManagerV2 import MAX_GALLERY_IMAGES, MODERATOR_LEVEL, DatabaseManager
 from database.stats import format_time
 from web.uploads import FILENAME_RE, MAX_UPLOAD_BYTES, InvalidImage, delete_images, save_image
 
@@ -39,6 +40,15 @@ MIN_PASSWORD_LENGTH = 8
 SUBDOMAIN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$")
 RESERVED_SUBDOMAINS = {"www", "mc", "api", "admin", "app", "mail", "smtp", "static", "plugin", "connect",
                        "socket", "traefik", "dashboard", "status", "help", "support", "login", "manage"}
+# Minecraft chat colors that can be used for prefixes, with their web color.
+PREFIX_COLORS = {
+    "black": "#000000", "dark_blue": "#0000AA", "dark_green": "#00AA00", "dark_aqua": "#00AAAA",
+    "dark_red": "#AA0000", "dark_purple": "#AA00AA", "gold": "#FFAA00", "gray": "#AAAAAA",
+    "dark_gray": "#555555", "blue": "#5555FF", "green": "#55FF55", "aqua": "#55FFFF",
+    "red": "#FF5555", "light_purple": "#FF55FF", "yellow": "#FFFF55", "white": "#FFFFFF",
+}
+# No formatting characters (§ &), no protocol separators (~ |), no % (chat format).
+PREFIX_TEXT_RE = re.compile(r"^[A-Za-z0-9ÄÖÜäöüß _.!?+*#-]{1,16}$")
 SSE_INTERVAL_SECONDS = 2
 # SSE streams end after this time; the browser's EventSource reconnects on its own.
 # Keeps worker threads from being blocked forever by forgotten tabs.
@@ -97,9 +107,12 @@ def inject_server_context():
     if player_id:
         name = db().get_player_name_from_player_id(player_id) or ""
         permission_level = db().get_web_access_permission_from_player_id(player_id)
+        if db().is_moderator(player_id):  # includes OPs when the server allows it
+            permission_level = min(permission_level or 99, MODERATOR_LEVEL)
     server = g.server
     # loginVar is only rendered while logged out (name == "").
     return dict(loginVar="<a href=\"/login\" id=loginLink>Login</a>",
+                prefix_colors=PREFIX_COLORS,
                 perm=permission_level if permission_level is not None else 99,
                 uuid_profile=session.get("uuid") if player_id else None,
                 name=name,
@@ -145,7 +158,8 @@ def player_overview_route():
     user_name = request.args.get("player")
     if not user_name:
         players = db().get_players_overview_from_subdomain(g.subdomain)
-        results = [[p["name"], p["uuid"]] for p in players]
+        prefixes = db().get_all_worn_prefixes(g.server["id"])
+        results = [[p["name"], p["uuid"], prefixes.get(p["uuid"])] for p in players]
         status = ["online" if p["online"] else "offline" for p in players]
         return render_template("spieler.html", results=results, status=status)
 
@@ -158,10 +172,12 @@ def player_overview_route():
     banned = db().get_ban_reason_from_player_id(player_id)
     if banned:
         start, end = db().get_ban_start_and_ban_end_by_player_id(player_id)
-        startdate, enddate = start.strftime("%d.%m.%Y %H:%M"), end.strftime("%d.%m.%Y %H:%M")
+        startdate = start.strftime("%d.%m.%Y %H:%M")
+        enddate = end.strftime("%d.%m.%Y %H:%M") if end else "dauerhaft"
 
     return render_template(
         "spieler-info.html", uuid=info["mojang_uuid"], user_name=info["name"], status=info["online"],
+        player_prefix=db().get_player_prefix(player_id),
         banned=bool(banned), startdate=startdate, enddate=enddate,
         armor_stats=json.dumps(db().get_all_armor_stats(player_id)),
         tool_stats=json.dumps(db().get_all_tools_stats(player_id)),
@@ -169,6 +185,167 @@ def player_overview_route():
         block_stats=json.dumps(db().get_all_blocks_stats(player_id)),
         mob_stats=json.dumps(db().get_all_mobs_stats(player_id)),
         custom_stats=json.dumps(db().get_all_custom_stats(player_id)))
+
+
+def player_required(view):
+    """Server pages that need a logged in player; POST API calls must be JSON (CSRF protection)."""
+    @functools.wraps(view)
+    def wrapper(*args, **kwargs):
+        is_api = request.path.startswith("/api/")
+        if not logged_in_player_id():
+            return ({"error": "Bitte zuerst einloggen."}, 401) if is_api else redirect(f"/login?next={request.path}")
+        if is_api and request.method == "POST" and not request.is_json:
+            return {"error": "json required"}, 415
+        return view(*args, **kwargs)
+    return wrapper
+
+
+def moderator_required(view):
+    @functools.wraps(view)
+    @player_required
+    def wrapper(*args, **kwargs):
+        if not db().is_moderator(logged_in_player_id()):
+            abort(403)
+        return view(*args, **kwargs)
+    return wrapper
+
+
+@server_bp.route("/add_pref")
+@player_required
+def prefix_edit_page():
+    player_id = logged_in_player_id()
+    return render_template("prefix_edit.html", own_prefix=db().get_owned_prefix(player_id),
+                           current_prefix=db().get_player_prefix(player_id))
+
+
+@server_bp.route("/join_pref")
+@player_required
+def prefix_join_page():
+    player_id = logged_in_player_id()
+    return render_template("prefix_join.html", prefixes=db().list_prefixes(g.server["id"]),
+                           current_prefix=db().get_player_prefix(player_id))
+
+
+@server_bp.route("/users")
+@moderator_required
+def moderation_page():
+    return render_template("moderation.html", ban_reasons=db().get_ban_reasons(), bans_api="/api/mod",
+                           players=[p["name"] for p in db().get_players_overview_from_subdomain(g.subdomain)])
+
+
+@server_bp.route("/api/prefix/save", methods=["POST"])
+@player_required
+def prefix_save_api():
+    data = request.get_json(silent=True) or {}
+    text = str(data.get("text") or "").strip()
+    color = str(data.get("color") or "")
+    password = str(data.get("password") or "")
+    if not PREFIX_TEXT_RE.match(text):
+        return {"error": "Der Prefix muss 1-16 Zeichen lang sein (Buchstaben, Zahlen, Leerzeichen und _ . ! ? + * # -)."}, 400
+    if color not in PREFIX_COLORS:
+        return {"error": "Unbekannte Farbe."}, 400
+    if password and len(password) < 4:
+        return {"error": "Das Passwort muss mindestens 4 Zeichen lang sein."}, 400
+    try:
+        uuids = db().save_own_prefix(logged_in_player_id(), text, color, password=password or None,
+                                     remove_password=bool(data.get("remove_password")))
+    except psycopg2.errors.UniqueViolation:
+        return {"error": "Diesen Prefix gibt es auf dem Server schon."}, 409
+    db().notify_server_event(g.server["id"], "prefix", uuids=uuids)
+    return ("", 200)
+
+
+@server_bp.route("/api/prefix/delete", methods=["POST"])
+@player_required
+def prefix_delete_api():
+    uuids = db().delete_own_prefix(logged_in_player_id())
+    db().notify_server_event(g.server["id"], "prefix", uuids=uuids)
+    return ("", 200)
+
+
+@server_bp.route("/api/prefix/join", methods=["POST"])
+@player_required
+def prefix_join_api():
+    data = request.get_json(silent=True) or {}
+    try:
+        prefix_id = int(data.get("prefix_id"))
+    except (TypeError, ValueError):
+        return {"error": "Unbekannter Prefix."}, 400
+    result = db().join_prefix(logged_in_player_id(), prefix_id, str(data.get("password") or ""))
+    if result == "wrong password":
+        return {"error": "Falsches Passwort."}, 403
+    if result != "ok":
+        return {"error": "Unbekannter Prefix."}, 404
+    db().notify_server_event(g.server["id"], "prefix", uuids=[session.get("uuid")])
+    return ("", 200)
+
+
+@server_bp.route("/api/prefix/leave", methods=["POST"])
+@player_required
+def prefix_leave_api():
+    db().leave_prefix(logged_in_player_id())
+    db().notify_server_event(g.server["id"], "prefix", uuids=[session.get("uuid")])
+    return ("", 200)
+
+
+@server_bp.route("/api/mod/bans")
+@moderator_required
+def mod_bans_api():
+    return {"bans": bans_json(g.server["id"])}
+
+
+@server_bp.route("/api/mod/ban", methods=["POST"])
+@moderator_required
+def mod_ban_api():
+    return do_ban(g.server["id"], request.get_json(silent=True) or {},
+                  banned_by=db().get_player_name_from_player_id(logged_in_player_id()))
+
+
+@server_bp.route("/api/mod/unban", methods=["POST"])
+@moderator_required
+def mod_unban_api():
+    return do_unban(g.server["id"], request.get_json(silent=True) or {})
+
+
+################################ BANS (shared by moderators and server admins) #################################
+
+def bans_json(server_id):
+    fmt = lambda ts: ts.strftime("%d.%m.%Y %H:%M") if ts else None
+    return [{"player_id": b["player_id"], "name": b["name"], "uuid": b["uuid"], "source": b["source"],
+             "reason": b["reason"], "banned_by": b["banned_by"], "comment": b["comment"],
+             "start": fmt(b["start"]), "end": fmt(b["end"])} for b in db().list_active_bans(server_id)]
+
+
+def do_ban(server_id, data, banned_by):
+    name = str(data.get("name") or "").strip()
+    reason_id = data.get("reason_id")
+    days = data.get("days")
+    try:
+        reason_id = int(reason_id) if reason_id not in (None, "") else None
+        days = int(days) if days not in (None, "") else None
+    except (TypeError, ValueError):
+        return {"error": "Ungültige Angaben."}, 400
+    if days is not None and not 0 <= days <= 3650:
+        return {"error": "Die Dauer muss zwischen 0 (dauerhaft) und 3650 Tagen liegen."}, 400
+    comment = str(data.get("comment") or "").strip()[:500] or None
+    ban = db().ban_player(server_id, name, banned_by, reason_id=reason_id, days=days, comment=comment)
+    if ban is None:
+        return {"error": "Diesen Spieler gibt es auf dem Server nicht."}, 404
+    end_ms = int(ban["end"].timestamp() * 1000) if ban["end"] else 0
+    db().notify_server_event(server_id, "ban", uuid=ban["uuid"], name=ban["name"], reason=ban["reason"], end_ms=end_ms)
+    return ("", 200)
+
+
+def do_unban(server_id, data):
+    try:
+        player_id = str(uuid_mod.UUID(str(data.get("player_id"))))
+    except ValueError:
+        return {"error": "Unbekannter Spieler."}, 400
+    result = db().unban_player(server_id, player_id)
+    if result is None:
+        return {"error": "Unbekannter Spieler."}, 404
+    db().notify_server_event(server_id, "unban", uuid=result["uuid"], name=result["name"])
+    return ("", 200)
 
 
 ################################ SERVER API #################################
@@ -382,8 +559,10 @@ def manage_server():
     servers = db().get_servers_by_owner(session["admin_id"])
     for server in servers:
         server["images"] = db().get_server_images(server["id"])
+        server["players"] = [p["name"] for p in db().get_players_overview_from_subdomain(server["subdomain"])]
     return render_template("serverAdminManage.html",
                            servers=servers, max_gallery_images=MAX_GALLERY_IMAGES,
+                           ban_reasons=db().get_ban_reasons(),
                            base_domain=current_app.config["SERVER_NAME"],
                            plugin_host=config.PLUGIN_PUBLIC_HOST, plugin_port=config.PLUGIN_PUBLIC_PORT,
                            plugin_available=plugin_jar_path() is not None)
@@ -556,8 +735,9 @@ def _validate_server_fields(data, current=None):
             return None, f"Feld '{key}' muss {min_len}-{max_len} Zeichen lang sein."
         optional = key in ("mc_server_domain", "discord_url")
         fields[key] = (value or None) if optional else value
-    if "whitelist" in data or current is None:
-        fields["whitelist"] = data.get("whitelist") in (True, "true", "on", "1", 1)
+    for flag in ("whitelist", "auto_mod_ops"):
+        if flag in data or current is None:
+            fields[flag] = data.get(flag) in (True, "true", "on", "1", 1)
 
     merged = dict(current or {}, **fields)
     domain = merged.get("mc_server_domain")
@@ -636,6 +816,45 @@ def delete_server_api(server_id):
     return ("", 200)
 
 
+@main_bp.route("/api/servers/<int:server_id>/moderation")
+@admin_required
+def admin_moderation_api(server_id):
+    owned_server_or_404(server_id)
+    return {"moderators": db().list_moderators(server_id), "bans": bans_json(server_id)}
+
+
+@main_bp.route("/api/servers/<int:server_id>/moderators", methods=["POST"])
+@admin_required
+def admin_set_moderator_api(server_id):
+    owned_server_or_404(server_id)
+    data = request.get_json(silent=True) or {}
+    name = db().set_moderator(server_id, str(data.get("name") or "").strip(), bool(data.get("moderator")))
+    if name is None:
+        return {"error": "Diesen Spieler gibt es auf dem Server nicht."}, 404
+    return {"name": name}
+
+
+@main_bp.route("/api/servers/<int:server_id>/ban", methods=["POST"])
+@admin_required
+def admin_ban_api(server_id):
+    owned_server_or_404(server_id)
+    return do_ban(server_id, request.get_json(silent=True) or {}, banned_by=f"Admin {session['admin_username']}")
+
+
+@main_bp.route("/api/servers/<int:server_id>/unban", methods=["POST"])
+@admin_required
+def admin_unban_api(server_id):
+    owned_server_or_404(server_id)
+    return do_unban(server_id, request.get_json(silent=True) or {})
+
+
+def owned_server_or_404(server_id):
+    server = {s["id"]: s for s in db().get_servers_by_owner(session["admin_id"])}.get(server_id)
+    if server is None:
+        abort(404)
+    return server
+
+
 @main_bp.route("/api/servers/<int:server_id>/images", methods=["POST"])
 @admin_required(allow_upload=True)
 def upload_server_image_api(server_id):
@@ -690,8 +909,8 @@ def create_app(db_manager=None, config_overrides=None):
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         PREFERRED_URL_SCHEME=config.PUBLIC_SCHEME,
-        FEATURE_PREFIXES=False,      # prefix pages are not implemented yet
-        FEATURE_ADMIN_PANEL=False,   # in-game admin panel (/users) is not implemented yet
+        FEATURE_PREFIXES=True,       # prefix pages (/add_pref, /join_pref)
+        FEATURE_ADMIN_PANEL=True,    # moderation page for moderators (/users)
         PROXY_FIX=False,             # set FLASK_PROXY_FIX=true behind traefik/nginx
     )
     app.config.from_pyfile(os.path.join(app.root_path, "config.py"), silent=True)

@@ -5,3 +5,10 @@ key: <enter key here>
 # Address of the MCConnect socket server. Only change this if you host MCConnect yourself.
 host: mc.tobisit.de
 port: 9991
+
+# Where prefixes from the website are shown. Switch a place off if another plugin
+# (e.g. TAB or a chat plugin) already manages it.
+prefix:
+  chat: true
+  tablist: true
+  nametag: true

@@ -1,4 +1,5 @@
 import hashlib
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import secrets
@@ -47,6 +48,27 @@ MIGRATIONS = {
              created_at timestamptz NOT NULL DEFAULT now())""",
         "CREATE INDEX server_images_server_idx ON server_images (server_id, kind)",
     ],
+    6: [
+        # prefixes belong to a server, have a color and a hashed password (the old column was plain text)
+        "ALTER TABLE prefixes ADD COLUMN server_id integer REFERENCES servers (id) ON DELETE CASCADE",
+        """UPDATE prefixes p SET server_id = psi.server_id
+           FROM player_server_info psi WHERE psi.player_id = p.prefix_owner_id""",
+        "ALTER TABLE prefixes ALTER COLUMN server_id SET NOT NULL",
+        "ALTER TABLE prefixes ADD COLUMN color text NOT NULL DEFAULT 'gray'",
+        "ALTER TABLE prefixes RENAME COLUMN password TO password_hash",
+        "UPDATE prefixes SET password_hash = NULL",
+        "CREATE UNIQUE INDEX prefixes_server_text_idx ON prefixes (server_id, lower(prefix_text))",
+        "CREATE UNIQUE INDEX prefixes_owner_idx ON prefixes (prefix_owner_id)",
+        # moderation
+        "ALTER TABLE player_server_info ADD COLUMN is_op boolean NOT NULL DEFAULT false",
+        "ALTER TABLE servers ADD COLUMN auto_mod_ops boolean NOT NULL DEFAULT false",
+        # bans from the website (source web) and from the game (source ingame, synced by the plugin)
+        "ALTER TABLE banned_players ALTER COLUMN ban_reason_id DROP NOT NULL",
+        "ALTER TABLE banned_players ALTER COLUMN ban_end DROP NOT NULL",  # NULL = permanent
+        "ALTER TABLE banned_players ADD COLUMN reason_text text",
+        "ALTER TABLE banned_players ADD COLUMN banned_by text",
+        "ALTER TABLE banned_players ADD COLUMN source text NOT NULL DEFAULT 'web' CHECK (source IN ('web', 'ingame'))",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 SCHEMA_VERSION = max(MIGRATIONS, default=1)
@@ -67,6 +89,8 @@ MAX_LOGIN_ATTEMPTS = 5
 EMAIL_VERIFICATION_VALID_HOURS = 24
 PASSWORD_RESET_VALID_MINUTES = 60
 LOGIN_PIN_CHANNEL = "login_pin"
+EVENTS_CHANNEL = "mcc_events"
+MODERATOR_LEVEL = 1
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SCHEMA_FILE = os.path.join(BASE_DIR, "queries", "schema.sql")
@@ -295,11 +319,6 @@ class DatabaseManager:
             (owner_id, subdomain, mc_server_domain, server_name, server_key,
              server_description_short, server_description_long, discord_url, whitelist))
 
-    def add_prefix(self, player_id, prefix_text, password=None):
-        return self._fetchvalue("""INSERT INTO prefixes (prefix_owner_id, prefix_text, password)
-                                   VALUES (%s, %s, %s) RETURNING prefix_id""",
-                                (player_id, prefix_text, password))
-
     def add_server_admin(self, username, password, email, email_verified=False, replace_unverified=False):
         """
         Add a server admin with an argon2 hashed password and return the id.
@@ -411,12 +430,6 @@ class DatabaseManager:
         return self._fetchvalue("""INSERT INTO ban_reasons (reason, ban_duration_in_days)
                                    VALUES (%s, %s) RETURNING id""", (reason, duration_in_days))
 
-    def add_banned_player(self, banned_player_id, moderator_id, ban_reason_id, ban_end, comment=None):
-        return self._fetchvalue("""
-            INSERT INTO banned_players (banned_player_id, moderator_id, ban_reason_id, ban_end, comment)
-            VALUES (%s, %s, %s, %s, %s) RETURNING id""",
-            (banned_player_id, moderator_id, ban_reason_id, ban_end, comment))
-
     def add_login_entry_from_player_id(self, player_id, pin):
         """
         Store a login pin for the player and notify the socket server
@@ -478,23 +491,10 @@ class DatabaseManager:
         self._execute("UPDATE player_server_info SET online = %s WHERE player_id = %s",
                       (online_status, player_id))
 
-    def update_player_prefix_by_player_id(self, player_id, prefix_id):
-        self._execute("UPDATE player_server_info SET prefix_id = %s WHERE player_id = %s",
-                      (prefix_id, player_id))
-
-    def update_prefix_text_by_prefix_id(self, prefix_id, prefix_text):
-        self._execute("UPDATE prefixes SET prefix_text = %s WHERE prefix_id = %s", (prefix_text, prefix_id))
-
-    def update_prefix_password_by_prefix_id(self, prefix_id, prefix_password):
-        self._execute("UPDATE prefixes SET password = %s WHERE prefix_id = %s", (prefix_password, prefix_id))
-
     ################################ DELETE FUNCTIONS #################################
 
     def delete_login_entry(self, player_id):
         self._execute("DELETE FROM login WHERE player_id = %s", (player_id,))
-
-    def delete_banned_player(self, banned_player_id):
-        self._execute("DELETE FROM banned_players WHERE banned_player_id = %s", (banned_player_id,))
 
     ################################ GET FUNCTIONS ####################################
 
@@ -567,10 +567,6 @@ class DatabaseManager:
             WHERE s.subdomain = lower(%s) ORDER BY lower(p.name)""", (subdomain,))
         return [{"name": name, "uuid": str(uuid), "online": online} for name, uuid, online in rows]
 
-    def get_members_from_prefix_id(self, prefix_id):
-        return [row[0] for row in self._fetchall("SELECT player_id FROM player_server_info WHERE prefix_id = %s",
-                                                 (prefix_id,))]
-
     ###----------------------------- Player Statuses ------------------------------------###
 
     def get_online_player_count_from_subdomain(self, subdomain):
@@ -599,26 +595,254 @@ class DatabaseManager:
         return self._fetchvalue("SELECT web_access_permissions FROM player_server_info WHERE player_id = %s",
                                 (player_id,))
 
-    ###----------------------------- Prefixes & Bans ------------------------------------###
 
-    def get_prefix_id_by_player_id(self, player_id):
-        return self._fetchvalue("SELECT prefix_id FROM player_server_info WHERE player_id = %s", (player_id,))
+    ###----------------------------- Prefixes ------------------------------------###
 
-    def get_prefix_text_by_prefix_id(self, prefix_id):
-        return self._fetchvalue("SELECT prefix_text FROM prefixes WHERE prefix_id = %s", (prefix_id,))
+    def _prefix_dict(self, row):
+        prefix_id, text, color, owner_id, owner_name, has_password, members = row
+        return {"prefix_id": prefix_id, "text": text, "color": color, "owner_id": owner_id,
+                "owner_name": owner_name, "has_password": has_password, "members": members}
+
+    _PREFIX_SELECT = """
+        SELECT p.prefix_id, p.prefix_text, p.color, p.prefix_owner_id, op.name, p.password_hash IS NOT NULL,
+               (SELECT count(*) FROM player_server_info m WHERE m.prefix_id = p.prefix_id)
+        FROM prefixes p
+        JOIN player_server_info opsi ON opsi.player_id = p.prefix_owner_id
+        JOIN player op ON op.uuid = opsi.mojang_uuid"""
+
+    def list_prefixes(self, server_id):
+        """All prefixes of a server, sorted by text."""
+        return [self._prefix_dict(row) for row in self._fetchall(
+            self._PREFIX_SELECT + " WHERE p.server_id = %s ORDER BY lower(p.prefix_text)", (server_id,))]
+
+    def get_owned_prefix(self, player_id):
+        row = self._fetchone(self._PREFIX_SELECT + " WHERE p.prefix_owner_id = %s", (player_id,))
+        return self._prefix_dict(row) if row else None
+
+    def get_player_prefix(self, player_id):
+        """The prefix the player currently wears (own or joined), or None."""
+        row = self._fetchone(self._PREFIX_SELECT + """
+            WHERE p.prefix_id = (SELECT prefix_id FROM player_server_info WHERE player_id = %s)""", (player_id,))
+        return self._prefix_dict(row) if row else None
+
+    def save_own_prefix(self, player_id, text, color, password=None, remove_password=False):
+        """
+        Create or update the player's own prefix and wear it. password=None keeps the
+        current password (unless remove_password). Returns the uuids of everyone wearing it.
+        Raises psycopg2.errors.UniqueViolation if another prefix on the server has this text.
+        """
+        with self._cursor() as cur:
+            cur.execute("SELECT server_id FROM player_server_info WHERE player_id = %s", (player_id,))
+            server_id = cur.fetchone()[0]
+            cur.execute("SELECT prefix_id FROM prefixes WHERE prefix_owner_id = %s", (player_id,))
+            row = cur.fetchone()
+            password_hash = ph.hash(password) if password else None
+            if row is None:
+                cur.execute("""INSERT INTO prefixes (prefix_owner_id, server_id, prefix_text, color, password_hash)
+                               VALUES (%s, %s, %s, %s, %s) RETURNING prefix_id""",
+                            (player_id, server_id, text, color, password_hash))
+                prefix_id = cur.fetchone()[0]
+            else:
+                prefix_id = row[0]
+                cur.execute("UPDATE prefixes SET prefix_text = %s, color = %s WHERE prefix_id = %s",
+                            (text, color, prefix_id))
+                if password or remove_password:
+                    cur.execute("UPDATE prefixes SET password_hash = %s WHERE prefix_id = %s", (password_hash, prefix_id))
+            cur.execute("UPDATE player_server_info SET prefix_id = %s WHERE player_id = %s", (prefix_id, player_id))
+            cur.execute("SELECT mojang_uuid FROM player_server_info WHERE prefix_id = %s", (prefix_id,))
+            return [str(r[0]) for r in cur.fetchall()]
+
+    def delete_own_prefix(self, player_id):
+        """Delete the player's own prefix. Returns the uuids of everyone who wore it."""
+        with self._cursor() as cur:
+            cur.execute("""SELECT psi.mojang_uuid FROM player_server_info psi
+                           JOIN prefixes p ON p.prefix_id = psi.prefix_id WHERE p.prefix_owner_id = %s""",
+                        (player_id,))
+            uuids = [str(r[0]) for r in cur.fetchall()]
+            cur.execute("DELETE FROM prefixes WHERE prefix_owner_id = %s", (player_id,))  # members: ON DELETE SET NULL
+        return uuids
+
+    def join_prefix(self, player_id, prefix_id, password=None):
+        """Wear another prefix of the same server. Returns "ok", "not found" or "wrong password"."""
+        with self._cursor() as cur:
+            cur.execute("""SELECT p.password_hash FROM prefixes p
+                           JOIN player_server_info psi ON psi.server_id = p.server_id
+                           WHERE p.prefix_id = %s AND psi.player_id = %s""", (prefix_id, player_id))
+            row = cur.fetchone()
+            if row is None:
+                return "not found"
+            if row[0]:
+                try:
+                    ph.verify(row[0], password or "")
+                except argon2.exceptions.VerificationError:
+                    return "wrong password"
+            cur.execute("UPDATE player_server_info SET prefix_id = %s WHERE player_id = %s", (prefix_id, player_id))
+        return "ok"
+
+    def leave_prefix(self, player_id):
+        self._execute("UPDATE player_server_info SET prefix_id = NULL WHERE player_id = %s", (player_id,))
+
+    def get_prefix_for_uuid(self, server_id, mojang_uuid):
+        """(text, color) of the prefix a player wears on a server, or None (used by the socket server)."""
+        return self._fetchone("""SELECT p.prefix_text, p.color FROM player_server_info psi
+                                 JOIN prefixes p ON p.prefix_id = psi.prefix_id
+                                 WHERE psi.server_id = %s AND psi.mojang_uuid = %s""", (server_id, mojang_uuid))
+
+    def get_all_worn_prefixes(self, server_id):
+        """{uuid: (text, color)} for every player on the server that wears a prefix."""
+        return {str(uuid): (text, color) for uuid, text, color in self._fetchall(
+            """SELECT psi.mojang_uuid, p.prefix_text, p.color FROM player_server_info psi
+               JOIN prefixes p ON p.prefix_id = psi.prefix_id WHERE psi.server_id = %s""", (server_id,))}
+
+    def notify_server_event(self, server_id, event_type, **data):
+        """Tell the socket server about a change (prefix, ban, unban) on a minecraft server."""
+        payload = json.dumps(dict(data, type=event_type, server_id=server_id))
+        self._execute("SELECT pg_notify(%s, %s)", (EVENTS_CHANNEL, payload))
+
+    ###----------------------------- Moderation ------------------------------------###
+
+    def is_moderator(self, player_id):
+        """Moderators have web_access_permissions <= 1, or are OPs on a server with auto_mod_ops."""
+        return bool(self._fetchvalue("""
+            SELECT psi.web_access_permissions <= %s OR (s.auto_mod_ops AND psi.is_op)
+            FROM player_server_info psi JOIN servers s ON s.id = psi.server_id
+            WHERE psi.player_id = %s""", (MODERATOR_LEVEL, player_id)))
+
+    def set_moderator(self, server_id, player_name, moderator):
+        """Grant or revoke moderator rights by player name. Returns the player's name or None if unknown."""
+        return self._fetchvalue("""
+            UPDATE player_server_info psi SET web_access_permissions = %s
+            FROM player p WHERE p.uuid = psi.mojang_uuid AND psi.server_id = %s AND lower(p.name) = lower(%s)
+            RETURNING p.name""", (MODERATOR_LEVEL if moderator else DEFAULT_WEB_ACCESS_LEVEL, server_id, player_name))
+
+    def list_moderators(self, server_id):
+        """[{"name", "uuid", "is_op", "explicit"}] of everyone with moderator rights on the server."""
+        rows = self._fetchall("""
+            SELECT p.name, psi.mojang_uuid, psi.is_op, psi.web_access_permissions <= %s
+            FROM player_server_info psi
+            JOIN player p ON p.uuid = psi.mojang_uuid
+            JOIN servers s ON s.id = psi.server_id
+            WHERE psi.server_id = %s AND (psi.web_access_permissions <= %s OR (s.auto_mod_ops AND psi.is_op))
+            ORDER BY lower(p.name)""", (MODERATOR_LEVEL, server_id, MODERATOR_LEVEL))
+        return [{"name": n, "uuid": str(u), "is_op": op, "explicit": explicit} for n, u, op, explicit in rows]
+
+    def set_player_op(self, server_id, mojang_uuid, is_op):
+        self._execute("UPDATE player_server_info SET is_op = %s WHERE server_id = %s AND mojang_uuid = %s",
+                      (is_op, server_id, mojang_uuid))
+
+    ###----------------------------- Bans ------------------------------------###
+
+    _ACTIVE_BAN = "(bp.ban_end IS NULL OR bp.ban_end > now())"
+
+    def get_ban_reasons(self):
+        return [{"id": i, "reason": r, "days": d}
+                for i, r, d in self._fetchall("SELECT id, reason, ban_duration_in_days FROM ban_reasons ORDER BY id")]
+
+    def add_banned_player(self, banned_player_id, moderator_id, ban_reason_id, ban_end, comment=None,
+                          reason_text=None, banned_by=None, source="web"):
+        """ban_end None = permanent."""
+        return self._fetchvalue("""
+            INSERT INTO banned_players (banned_player_id, moderator_id, ban_reason_id, ban_end, comment,
+                                        reason_text, banned_by, source)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+            (banned_player_id, moderator_id, ban_reason_id, ban_end, comment, reason_text, banned_by, source))
+
+    def ban_player(self, server_id, player_name, banned_by, reason_id=None, days=None, comment=None):
+        """
+        Web ban by player name. days=None uses the reason's default duration, days=0 is permanent.
+        Returns {"uuid", "name", "reason", "end"} or None if the player is unknown on the server.
+        """
+        with self._cursor() as cur:
+            cur.execute("""SELECT psi.player_id, psi.mojang_uuid, p.name FROM player_server_info psi
+                           JOIN player p ON p.uuid = psi.mojang_uuid
+                           WHERE psi.server_id = %s AND lower(p.name) = lower(%s)""", (server_id, player_name))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            player_id, uuid, name = row
+            reason = "Gebannt"
+            if reason_id is not None:
+                cur.execute("SELECT reason, ban_duration_in_days FROM ban_reasons WHERE id = %s", (reason_id,))
+                reason_row = cur.fetchone()
+                if reason_row:
+                    reason = reason_row[0]
+                    if days is None:
+                        days = reason_row[1]
+            end = None if not days else datetime.now(timezone.utc) + timedelta(days=int(days))
+            cur.execute("""INSERT INTO banned_players (banned_player_id, ban_reason_id, ban_end, comment, banned_by, source)
+                           VALUES (%s, %s, %s, %s, %s, 'web')""", (player_id, reason_id, end, comment, banned_by))
+        return {"uuid": str(uuid), "name": name, "reason": reason, "end": end}
+
+    def unban_player(self, server_id, player_id):
+        """Remove all active bans of the player. Returns {"uuid", "name"} or None."""
+        with self._cursor() as cur:
+            cur.execute("""SELECT psi.mojang_uuid, p.name FROM player_server_info psi
+                           JOIN player p ON p.uuid = psi.mojang_uuid
+                           WHERE psi.server_id = %s AND psi.player_id = %s""", (server_id, player_id))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            cur.execute(f"DELETE FROM banned_players bp WHERE bp.banned_player_id = %s AND {self._ACTIVE_BAN}",
+                        (player_id,))
+        return {"uuid": str(row[0]), "name": row[1]}
+
+    def list_active_bans(self, server_id):
+        rows = self._fetchall(f"""
+            SELECT psi.player_id, p.name, psi.mojang_uuid, bp.source, COALESCE(br.reason, bp.reason_text),
+                   bp.banned_by, bp.ban_start, bp.ban_end, bp.comment
+            FROM banned_players bp
+            JOIN player_server_info psi ON psi.player_id = bp.banned_player_id
+            JOIN player p ON p.uuid = psi.mojang_uuid
+            LEFT JOIN ban_reasons br ON br.id = bp.ban_reason_id
+            WHERE psi.server_id = %s AND {self._ACTIVE_BAN}
+            ORDER BY bp.ban_start DESC""", (server_id,))
+        keys = ("player_id", "name", "uuid", "source", "reason", "banned_by", "start", "end", "comment")
+        bans = [dict(zip(keys, row)) for row in rows]
+        for ban in bans:
+            ban["uuid"] = str(ban["uuid"])
+        return bans
+
+    def sync_ingame_bans(self, server_id, entries):
+        """
+        Replace the server's ingame bans with the ban list the plugin reported:
+        [{"name", "reason", "source", "created" (epoch ms), "expires" (epoch ms or 0)}].
+        Names that never played on the server are ignored. Returns the number of stored bans.
+        """
+        stored = 0
+        with self._cursor() as cur:
+            cur.execute("""DELETE FROM banned_players bp USING player_server_info psi
+                           WHERE bp.banned_player_id = psi.player_id AND psi.server_id = %s AND bp.source = 'ingame'""",
+                        (server_id,))
+            for entry in entries:
+                cur.execute("""SELECT psi.player_id FROM player_server_info psi JOIN player p ON p.uuid = psi.mojang_uuid
+                               WHERE psi.server_id = %s AND lower(p.name) = lower(%s)""",
+                            (server_id, str(entry.get("name", ""))))
+                row = cur.fetchone()
+                if row is None:
+                    continue
+                created = entry.get("created") or 0
+                expires = entry.get("expires") or 0
+                cur.execute("""INSERT INTO banned_players (banned_player_id, ban_start, ban_end, reason_text, banned_by, source)
+                               VALUES (%s, COALESCE(to_timestamp(%s / 1000.0), now()), to_timestamp(%s / 1000.0),
+                                       %s, %s, 'ingame')""",
+                            (row[0], created or None, expires or None,
+                             str(entry.get("reason") or "")[:500] or None, str(entry.get("source") or "")[:100] or None))
+                stored += 1
+        return stored
 
     def get_ban_reason_from_player_id(self, player_id):
-        """Reason of the currently active ban, or None."""
-        return self._fetchvalue("""SELECT br.reason FROM banned_players bp
-                                   JOIN ban_reasons br ON br.id = bp.ban_reason_id
-                                   WHERE bp.banned_player_id = %s AND bp.ban_end > now()
-                                   ORDER BY bp.ban_end DESC LIMIT 1""", (player_id,))
+        """Reason of the currently active ban (or "Gebannt" without a reason), or None if not banned."""
+        row = self._fetchone(f"""SELECT COALESCE(br.reason, bp.reason_text, 'Gebannt') FROM banned_players bp
+                                 LEFT JOIN ban_reasons br ON br.id = bp.ban_reason_id
+                                 WHERE bp.banned_player_id = %s AND {self._ACTIVE_BAN}
+                                 ORDER BY bp.ban_end DESC NULLS FIRST LIMIT 1""", (player_id,))
+        return row[0] if row else None
 
     def get_ban_start_and_ban_end_by_player_id(self, player_id):
-        """(ban_start, ban_end) of the currently active ban, or None."""
-        return self._fetchone("""SELECT ban_start, ban_end FROM banned_players
-                                 WHERE banned_player_id = %s AND ban_end > now()
-                                 ORDER BY ban_end DESC LIMIT 1""", (player_id,))
+        """(ban_start, ban_end) of the currently active ban (ban_end None = permanent), or None."""
+        return self._fetchone(f"""SELECT ban_start, ban_end FROM banned_players bp
+                                  WHERE bp.banned_player_id = %s AND {self._ACTIVE_BAN}
+                                  ORDER BY bp.ban_end DESC NULLS FIRST LIMIT 1""", (player_id,))
 
     ###----------------------------- Servers ------------------------------------###
 
@@ -667,7 +891,7 @@ class DatabaseManager:
 
     def update_server(self, server_id, owner_id, **fields):
         """Update editable server fields; only succeeds for the owner. Returns True if updated."""
-        allowed = {"server_name", "mc_server_domain", "discord_url", "whitelist",
+        allowed = {"server_name", "mc_server_domain", "discord_url", "whitelist", "auto_mod_ops",
                    "server_description_short", "server_description_long"}
         fields = {k: v for k, v in fields.items() if k in allowed}
         if not fields:
@@ -850,10 +1074,11 @@ class DatabaseManager:
 
     ################################# Notifications #######################################
 
-    def listen_for_login_pins(self, callback, stop_event=None, poll_timeout=1.0):
+    def listen_for_login_pins(self, callback, stop_event=None, poll_timeout=1.0, event_callback=None):
         """
-        Block and call callback(server_id, mojang_uuid, pin) for every new login pin
-        until stop_event is set. Uses a dedicated connection (LISTEN needs autocommit).
+        Block and call callback(server_id, mojang_uuid, pin) for every new login pin, and
+        event_callback(payload_dict) for server events (prefix, ban, unban), until stop_event
+        is set. Uses a dedicated connection (LISTEN needs autocommit).
         """
         stop_event = stop_event or threading.Event()
         conn = psycopg2.connect(**self.db_config)
@@ -861,7 +1086,9 @@ class DatabaseManager:
         try:
             with conn.cursor() as cur:
                 cur.execute(f"LISTEN {LOGIN_PIN_CHANNEL};")
-            logger.info("Listening for login pins")
+                if event_callback:
+                    cur.execute(f"LISTEN {EVENTS_CHANNEL};")
+            logger.info("Listening for login pins and server events")
             while not stop_event.is_set():
                 if select.select([conn], [], [], poll_timeout) == ([], [], []):
                     continue
@@ -870,9 +1097,12 @@ class DatabaseManager:
                     notify = conn.notifies.pop(0)
                     try:
                         payload = json.loads(notify.payload)
-                        callback(payload["server_id"], payload["mojang_uuid"], payload["pin"])
+                        if notify.channel == LOGIN_PIN_CHANNEL:
+                            callback(payload["server_id"], payload["mojang_uuid"], payload["pin"])
+                        elif event_callback:
+                            event_callback(payload)
                     except Exception:
-                        logger.exception(f"Failed to handle login pin notification: {notify.payload}")
+                        logger.exception(f"Failed to handle notification on {notify.channel}: {notify.payload}")
         finally:
             conn.close()
 

@@ -207,3 +207,25 @@ body {
   .srv-number + .srv-number { border-left: 0; border-top: 1px solid var(--srv-border); }
   .srv-number { padding: 14px 20px; }
 }
+
+/* ---------------------------------------------------------------- sub pages (prefix, moderation) */
+.srv-page { padding-top: 116px; padding-bottom: 64px; max-width: 900px; }
+.srv-page h1 { font-size: 40px; margin-bottom: 6px; }
+.srv-lead { color: var(--srv-muted); font-size: 18px; margin: 0 0 24px; }
+.srv-page .srv-card { margin-bottom: 20px; }
+.srv-page h3 { font-size: 20px; margin-bottom: 8px; }
+
+.srv-prefix-list { list-style: none; margin: 0; padding: 0; }
+.srv-prefix-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--srv-border);
+}
+.srv-prefix-list li:last-child { border-bottom: 0; }
+.srv-prefix-meta { color: var(--srv-muted); font-size: 15px; flex: 1 1 200px; }
+.srv-prefix-join { display: flex; gap: 8px; align-items: center; }
+.srv-prefix-join input { width: 160px; }
+.srv-current { font-size: 13px; font-weight: 700; color: var(--srv-green-dark); text-transform: uppercase; letter-spacing: 0.05em; }

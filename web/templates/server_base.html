@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html id="top" lang="de">
+<head>
+    <meta charset="UTF-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>{% block title %}{{ server_name }}{% endblock %}</title>
+    <link href="{{ url_for('static', filename='css/header.css') }}" rel="stylesheet"/>
+    <link href="{{ url_for('static', filename='css/fonts.css') }}" rel="stylesheet"/>
+    <link href="{{ url_for('static', filename='css/server.css') }}" rel="stylesheet"/>
+    <link href="{{ url_for('static', filename='css/components.css') }}" rel="stylesheet"/>
+    <link href="{{ url_for('static', filename='images/favicon.ico') }}" rel="icon" type="image/vnd.microsoft.icon"/>
+</head>
+<body class="srv">
+    {% include 'header.html' %}
+    <main class="srv-main">
+        <div class="srv-wrap srv-page">{% block content %}{% endblock %}</div>
+    </main>
+    <footer>
+        <nav>
+            <ul>
+                <li><a href="/impressum">Impressum</a></li>
+                <li><a href="/datenschutz">Datenschutz</a></li>
+                <li><a href="#top">Nach oben</a></li>
+            </ul>
+        </nav>
+    </footer>
+    <script>
+      async function postJson(url, body) {
+        const response = await fetch(url, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}),
+        });
+        let data = {};
+        try { data = await response.json(); } catch (e) {}
+        return { ok: response.ok, status: response.status, data };
+      }
+      function showMessage(element, text, kind) {
+        element.textContent = text;
+        element.className = "mcc-message " + kind;
+      }
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

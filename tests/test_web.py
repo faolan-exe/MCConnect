@@ -271,14 +271,14 @@ def test_impressum_shows_configured_operator(client, monkeypatch):
     assert "Max Muster" in body and "12345 Stadt" in body and "nicht konfiguriert" not in body
 
 
-def test_unfinished_menu_items_are_hidden(client, server):
+def test_prefix_menu_is_shown(client, server):
     body = client.get("/", **on("testdomain")).data.decode()
-    assert "/add_pref" not in body and "/users" not in body
+    assert "/add_pref" in body and "/users" not in body  # "Verwaltung" only for moderators
 
 
-def test_menu_items_can_be_enabled(db, server):
-    app = create_app(db, {"TESTING": True, "SECRET_KEY": "t", "SERVER_NAME": BASE, "FEATURE_PREFIXES": True})
-    assert "/add_pref" in app.test_client().get("/", **on("testdomain")).data.decode()
+def test_menu_items_can_be_disabled(db, server):
+    app = create_app(db, {"TESTING": True, "SECRET_KEY": "t", "SERVER_NAME": BASE, "FEATURE_PREFIXES": False})
+    assert "/add_pref" not in app.test_client().get("/", **on("testdomain")).data.decode()
 
 
 def test_server_description_is_escaped(client, db, admin_id):
@@ -669,3 +669,148 @@ def test_uploads_route_only_serves_generated_names(client, upload_dir):
     (upload_dir / "secret.txt").write_text("x")
     assert client.get("/uploads/secret.txt", **on(None)).status_code == 404
     assert client.get("/uploads/..%2Fsecret.txt", **on(None)).status_code == 404
+
+
+
+# ------------------------------------------------------------------ prefixes
+
+@pytest.fixture
+def player_client(client, db, online_player):
+    """Client logged in as _Tobias4444 on testdomain."""
+    assert login_player(client, db, online_player).json["status"] == "success"
+    return client
+
+
+def test_prefix_pages_require_login(client, server):
+    response = client.get("/add_pref", **on("testdomain"))
+    assert response.status_code == 302 and "next=/add_pref" in response.location
+    assert client.post("/api/prefix/save", json={}, **on("testdomain")).status_code == 401
+
+
+def test_create_prefix_and_show_it(player_client, db, server, online_player):
+    assert player_client.get("/add_pref", **on("testdomain")).status_code == 200
+    response = player_client.post("/api/prefix/save", json={"text": "Bauteam", "color": "gold"}, **on("testdomain"))
+    assert response.status_code == 200
+    assert db.get_player_prefix(online_player)["text"] == "Bauteam"
+    assert "[Bauteam]" in player_client.get("/spieler", **on("testdomain")).data.decode()
+    assert "[Bauteam]" in player_client.get("/spieler?player=_Tobias4444", **on("testdomain")).data.decode()
+    assert "[Bauteam]" in player_client.get("/join_pref", **on("testdomain")).data.decode()
+
+
+@pytest.mark.parametrize("body", [
+    {"text": "", "color": "gold"}, {"text": "x" * 17, "color": "gold"}, {"text": "§cRot", "color": "gold"},
+    {"text": "a|b", "color": "gold"}, {"text": "100%", "color": "gold"}, {"text": "ok", "color": "pink"},
+    {"text": "ok", "color": "gold", "password": "abc"},
+])
+def test_prefix_validation(player_client, body):
+    assert player_client.post("/api/prefix/save", json=body, **on("testdomain")).status_code == 400
+
+
+def test_prefix_requires_json(player_client):
+    assert player_client.post("/api/prefix/save", data={"text": "x", "color": "gold"},
+                              **on("testdomain")).status_code == 415
+
+
+def test_join_and_leave_prefix(player_client, db, server):
+    owner = db.ensure_player_on_server(server["id"], OTHER_UUID)
+    db.save_own_prefix(owner, "Clan", "red", password="geheim")
+    prefix_id = db.get_owned_prefix(owner)["prefix_id"]
+    url = "/api/prefix/join"
+    assert player_client.post(url, json={"prefix_id": prefix_id, "password": "x"}, **on("testdomain")).status_code == 403
+    assert player_client.post(url, json={"prefix_id": 99999}, **on("testdomain")).status_code == 404
+    assert player_client.post(url, json={"prefix_id": prefix_id, "password": "geheim"}, **on("testdomain")).status_code == 200
+    player_id = db.get_player_id_from_mojang_uuid_and_server_id(PLAYER_UUID, server["id"])
+    assert db.get_player_prefix(player_id)["text"] == "Clan"
+    assert player_client.post("/api/prefix/leave", json={}, **on("testdomain")).status_code == 200
+    assert db.get_player_prefix(player_id) is None
+
+
+def test_duplicate_prefix_text(player_client, db, server):
+    owner = db.ensure_player_on_server(server["id"], OTHER_UUID)
+    db.save_own_prefix(owner, "Clan", "red")
+    response = player_client.post("/api/prefix/save", json={"text": "clan", "color": "gold"}, **on("testdomain"))
+    assert response.status_code == 409
+
+
+def test_prefix_is_escaped_on_pages(player_client, db, server):
+    owner = db.ensure_player_on_server(server["id"], OTHER_UUID)
+    with db._cursor() as cur:  # bypasses the web validation on purpose
+        cur.execute("INSERT INTO prefixes (prefix_owner_id, server_id, prefix_text) VALUES (%s, %s, '<b>x</b>')",
+                    (owner, server["id"]))
+    assert "<b>x</b>" not in player_client.get("/join_pref", **on("testdomain")).data.decode()
+
+
+# ------------------------------------------------------------------ moderation
+
+def test_moderation_page_only_for_moderators(player_client, db, server):
+    assert player_client.get("/users", **on("testdomain")).status_code == 403
+    assert player_client.get("/api/mod/bans", **on("testdomain")).status_code == 403
+    db.set_moderator(server["id"], "_Tobias4444", True)
+    page = player_client.get("/users", **on("testdomain"))
+    assert page.status_code == 200 and "Spieler bannen" in page.data.decode()
+    assert "/users" in player_client.get("/", **on("testdomain")).data.decode()  # menu entry
+
+
+def test_op_becomes_moderator_only_with_setting(player_client, db, admin_id, server):
+    db.set_player_op(server["id"], PLAYER_UUID, True)
+    assert player_client.get("/users", **on("testdomain")).status_code == 403
+    db.update_server(server["id"], admin_id, auto_mod_ops=True)
+    assert player_client.get("/users", **on("testdomain")).status_code == 200
+
+
+def test_moderator_bans_and_unbans(player_client, db, server):
+    db.set_moderator(server["id"], "_Tobias4444", True)
+    target = db.ensure_player_on_server(server["id"], OTHER_UUID)
+    reason_id = db._fetchvalue("SELECT id FROM ban_reasons WHERE reason = 'spamming'")
+    response = player_client.post("/api/mod/ban", json={"name": "notch", "reason_id": reason_id, "days": "",
+                                                        "comment": "Chat"}, **on("testdomain"))
+    assert response.status_code == 200
+    [ban] = player_client.get("/api/mod/bans", **on("testdomain")).json["bans"]
+    assert (ban["name"], ban["reason"], ban["banned_by"], ban["source"]) == ("Notch", "spamming", "_Tobias4444", "web")
+    assert "Notch" in player_client.get("/spieler?player=Notch", **on("testdomain")).data.decode()
+    assert player_client.post("/api/mod/unban", json={"player_id": target}, **on("testdomain")).status_code == 200
+    assert player_client.get("/api/mod/bans", **on("testdomain")).json["bans"] == []
+
+
+@pytest.mark.parametrize("body, status", [
+    ({"name": "nobody"}, 404), ({"name": "Notch", "days": "abc"}, 400), ({"name": "Notch", "days": 5000}, 400),
+])
+def test_ban_validation(player_client, db, server, body, status):
+    db.set_moderator(server["id"], "_Tobias4444", True)
+    db.ensure_player_on_server(server["id"], OTHER_UUID)
+    assert player_client.post("/api/mod/ban", json=body, **on("testdomain")).status_code == status
+
+
+def test_permanent_ban_shows_on_player_page(client, db, server):
+    player_id = db.ensure_player_on_server(server["id"], OTHER_UUID)
+    db.ban_player(server["id"], "Notch", "Admin", days=0)
+    body = client.get("/spieler?player=Notch", **on("testdomain")).data.decode()
+    assert "dauerhaft" in body
+
+
+def test_admin_manages_moderators_and_bans(admin_client, db, server):
+    db.ensure_player_on_server(server["id"], PLAYER_UUID)
+    url = f"/api/servers/{server['id']}"
+    assert admin_client.post(f"{url}/moderators", json={"name": "_tobias4444", "moderator": True},
+                             **on(None)).json["name"] == "_Tobias4444"
+    assert admin_client.post(f"{url}/moderators", json={"name": "nobody", "moderator": True}, **on(None)).status_code == 404
+    assert [m["name"] for m in admin_client.get(f"{url}/moderation", **on(None)).json["moderators"]] == ["_Tobias4444"]
+    assert admin_client.post(f"{url}/update", json={"auto_mod_ops": True}, **on(None)).status_code == 200
+    assert db.get_server_information_dict("testdomain")["auto_mod_ops"] is True
+
+    assert admin_client.post(f"{url}/ban", json={"name": "_Tobias4444", "days": 1}, **on(None)).status_code == 200
+    [ban] = admin_client.get(f"{url}/moderation", **on(None)).json["bans"]
+    assert ban["banned_by"] == "Admin tobi"
+    player_id = db.get_player_id_from_mojang_uuid_and_server_id(PLAYER_UUID, server["id"])
+    assert admin_client.post(f"{url}/unban", json={"player_id": player_id}, **on(None)).status_code == 200
+    page = admin_client.get("/manage", **on(None)).data.decode()
+    assert "Moderation" in page and "OPs vom Minecraft-Server" in page
+
+
+def test_admin_cannot_moderate_foreign_server(client, db, server):
+    db.add_server_admin("eve", "secret123", "eve@example.com", email_verified=True)
+    client.post("/api/login", json={"username": "eve", "password": "secret123"}, **on(None))
+    url = f"/api/servers/{server['id']}"
+    assert client.get(f"{url}/moderation", **on(None)).status_code == 404
+    assert client.post(f"{url}/ban", json={"name": "x"}, **on(None)).status_code == 404
+    assert client.post(f"{url}/moderators", json={"name": "x", "moderator": True}, **on(None)).status_code == 404

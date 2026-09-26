@@ -1,3 +1,4 @@
+{% from "_components.html" import prefix_chip %}
 <!DOCTYPE html>
 <html id="top" lang="en">
 
@@ -12,6 +13,8 @@
     
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
     <link href="{{ url_for('static', filename='css/player_list.css') }}" rel="stylesheet" />
+    <link href="{{ url_for('static', filename='css/fonts.css') }}" rel="stylesheet" />
+    <link href="{{ url_for('static', filename='css/components.css') }}" rel="stylesheet" />
 
     <link href="{{ url_for('static', filename='images/favicon.ico') }}" rel="icon" type="image/vnd.microsoft.icon"/>
 </head>
@@ -29,7 +32,7 @@
 
                         <img alt="player_head" class="list-item-image" src="https://mc-heads.net/avatar/{{result[1]}}/64" />
 
-                        <div class="list-item-text">{{result[0]}}</div>
+                        <div class="list-item-text">{% if result[2] %}{{ prefix_chip(result[2][0], result[2][1], prefix_colors) }} {% endif %}{{result[0]}}</div>
 
                         <b class="status-text-{{ status[loop.index-1] | safe }} status-text-right" id="status-text-{{loop.index-1}}">{{ status[loop.index-1] | safe}}</b>
 

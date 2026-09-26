@@ -206,6 +206,9 @@ summary { cursor: pointer; font-weight: 600; }
 .gallery-admin img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; }
 .gallery-admin .btn { padding: 4px 10px; font-size: 14px; }
 .upload-button { margin: 0; }
+.moderator-list { list-style: none; padding: 0; margin: 0 0 12px; }
+.moderator-list li { display: flex; align-items: center; gap: 12px; padding: 6px 0; }
+.moderator-list .btn { padding: 3px 10px; font-size: 14px; }
 
 .steps { padding-left: 20px; }
 .steps li { margin-bottom: 8px; }

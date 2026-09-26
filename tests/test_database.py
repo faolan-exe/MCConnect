@@ -258,25 +258,9 @@ def test_email_verification_expires(db):
 
 # ------------------------------------------------------------------ bans & prefixes
 
-def test_only_active_bans_count(db, player_id):
-    reason_id = db._fetchvalue("SELECT id FROM ban_reasons WHERE reason = 'hacking'")
-    db.add_banned_player(player_id, None, reason_id, datetime.now(timezone.utc) - timedelta(days=1))
-    assert db.get_ban_reason_from_player_id(player_id) is None
-    db.add_banned_player(player_id, None, reason_id, datetime.now(timezone.utc) + timedelta(days=1))
-    assert db.get_ban_reason_from_player_id(player_id) == "hacking"
-    start, end = db.get_ban_start_and_ban_end_by_player_id(player_id)
-    assert start < end
-    db.delete_banned_player(player_id)
-    assert db.get_ban_reason_from_player_id(player_id) is None
 
 
-def test_prefixes(db, player_id):
-    prefix_id = db.add_prefix(player_id, "TEST")
-    db.update_player_prefix_by_player_id(player_id, prefix_id)
-    assert db.get_prefix_id_by_player_id(player_id) == prefix_id
-    db.update_prefix_text_by_prefix_id(prefix_id, "NEW")
-    assert db.get_prefix_text_by_prefix_id(prefix_id) == "NEW"
-    assert db.get_members_from_prefix_id(prefix_id) == [player_id]
+
 
 
 # ------------------------------------------------------------------ migrations & server admin
@@ -284,6 +268,12 @@ def test_prefixes(db, player_id):
 def test_migration_from_version_1(db):
     with db._cursor() as cur:
         # back to schema version 1
+        cur.execute("DROP INDEX prefixes_server_text_idx; DROP INDEX prefixes_owner_idx")
+        cur.execute("ALTER TABLE prefixes DROP COLUMN server_id, DROP COLUMN color")
+        cur.execute("ALTER TABLE prefixes RENAME COLUMN password_hash TO password")
+        cur.execute("ALTER TABLE player_server_info DROP COLUMN is_op")
+        cur.execute("ALTER TABLE servers DROP COLUMN auto_mod_ops")
+        cur.execute("ALTER TABLE banned_players DROP COLUMN reason_text, DROP COLUMN banned_by, DROP COLUMN source")
         cur.execute("DROP TABLE server_images")
         cur.execute("ALTER TABLE servers DROP COLUMN whitelist")
         cur.execute("ALTER TABLE servers ALTER COLUMN mc_server_domain SET NOT NULL")
@@ -517,3 +507,117 @@ def test_server_images(db, admin_id, server):
     filenames = db.delete_server(server["id"], admin_id)
     assert len(filenames) == MAX_GALLERY_IMAGES  # banner + 11 gallery images
     assert db._fetchvalue("SELECT count(*) FROM server_images") == 0
+
+
+
+# ------------------------------------------------------------------ prefixes
+
+def test_own_prefix_create_update_delete(db, server):
+    owner = db.ensure_player_on_server(server["id"], PLAYER_UUID)
+    member = db.ensure_player_on_server(server["id"], OTHER_UUID)
+    assert db.save_own_prefix(owner, "Bauteam", "gold") == [PLAYER_UUID]
+    prefix = db.get_player_prefix(owner)
+    assert (prefix["text"], prefix["color"], prefix["owner_name"], prefix["has_password"]) == ("Bauteam", "gold", "_Tobias4444", False)
+
+    assert db.join_prefix(member, prefix["prefix_id"]) == "ok"
+    assert sorted(db.save_own_prefix(owner, "Baumeister", "red")) == sorted([PLAYER_UUID, OTHER_UUID])
+    assert db.get_player_prefix(member)["text"] == "Baumeister"
+    assert db.list_prefixes(server["id"])[0]["members"] == 2
+    assert db.get_all_worn_prefixes(server["id"]) == {PLAYER_UUID: ("Baumeister", "red"), OTHER_UUID: ("Baumeister", "red")}
+
+    assert sorted(db.delete_own_prefix(owner)) == sorted([PLAYER_UUID, OTHER_UUID])
+    assert db.get_player_prefix(member) is None and db.list_prefixes(server["id"]) == []
+
+
+def test_prefix_password_is_hashed_and_checked(db, server):
+    owner = db.ensure_player_on_server(server["id"], PLAYER_UUID)
+    member = db.ensure_player_on_server(server["id"], OTHER_UUID)
+    db.save_own_prefix(owner, "Geheim", "dark_purple", password="clanpass")
+    stored = db._fetchvalue("SELECT password_hash FROM prefixes")
+    assert stored.startswith("$argon2")
+    prefix_id = db.get_owned_prefix(owner)["prefix_id"]
+    assert db.join_prefix(member, prefix_id, "falsch") == "wrong password"
+    assert db.join_prefix(member, prefix_id, "clanpass") == "ok"
+    # updating without a password keeps it, remove_password drops it
+    db.save_own_prefix(owner, "Geheim", "blue")
+    assert db.get_owned_prefix(owner)["has_password"] is True
+    db.save_own_prefix(owner, "Geheim", "blue", remove_password=True)
+    assert db.get_owned_prefix(owner)["has_password"] is False
+    db.leave_prefix(member)
+    assert db.get_player_prefix(member) is None
+
+
+def test_prefix_text_unique_per_server_but_not_globally(db, server, other_server):
+    import psycopg2.errors
+    first = db.ensure_player_on_server(server["id"], PLAYER_UUID)
+    second = db.ensure_player_on_server(server["id"], OTHER_UUID)
+    db.save_own_prefix(first, "Clan", "red")
+    with pytest.raises(psycopg2.errors.UniqueViolation):
+        db.save_own_prefix(second, "clan", "blue")
+    elsewhere = db.ensure_player_on_server(other_server["id"], OTHER_UUID)
+    db.save_own_prefix(elsewhere, "Clan", "blue")
+    # a prefix of another server cannot be joined
+    assert db.join_prefix(elsewhere, db.get_owned_prefix(first)["prefix_id"]) == "not found"
+
+
+# ------------------------------------------------------------------ moderation
+
+def test_moderators_and_auto_op(db, admin_id, server):
+    player = db.ensure_player_on_server(server["id"], PLAYER_UUID)
+    op = db.ensure_player_on_server(server["id"], OTHER_UUID)
+    db.set_player_op(server["id"], OTHER_UUID, True)
+    assert not db.is_moderator(player) and not db.is_moderator(op)
+
+    assert db.set_moderator(server["id"], "_tobias4444", True) == "_Tobias4444"
+    assert db.set_moderator(server["id"], "nobody", True) is None
+    assert db.is_moderator(player)
+    assert [m["name"] for m in db.list_moderators(server["id"])] == ["_Tobias4444"]
+
+    db.update_server(server["id"], admin_id, auto_mod_ops=True)
+    assert db.is_moderator(op)
+    assert {m["name"]: m["explicit"] for m in db.list_moderators(server["id"])} == {"_Tobias4444": True, "Notch": False}
+
+    db.set_moderator(server["id"], "_Tobias4444", False)
+    assert not db.is_moderator(player)
+
+
+# ------------------------------------------------------------------ bans
+
+def test_web_ban_with_reason_default_duration(db, server):
+    db.ensure_player_on_server(server["id"], PLAYER_UUID)
+    reason_id = db._fetchvalue("SELECT id FROM ban_reasons WHERE reason = 'hacking'")
+    ban = db.ban_player(server["id"], "_tobias4444", "Mod Max", reason_id=reason_id, comment="Killaura")
+    assert ban["name"] == "_Tobias4444" and ban["reason"] == "hacking"
+    assert timedelta(days=364) < ban["end"] - datetime.now(timezone.utc) < timedelta(days=366)
+    [active] = db.list_active_bans(server["id"])
+    assert (active["source"], active["banned_by"], active["comment"]) == ("web", "Mod Max", "Killaura")
+    assert db.ban_player(server["id"], "nobody", "x") is None
+
+
+def test_permanent_ban_and_unban(db, server):
+    player_id = db.ensure_player_on_server(server["id"], PLAYER_UUID)
+    ban = db.ban_player(server["id"], "_Tobias4444", "Admin", days=0)
+    assert ban["end"] is None and ban["reason"] == "Gebannt"
+    assert db.get_ban_reason_from_player_id(player_id) == "Gebannt"
+    assert db.get_ban_start_and_ban_end_by_player_id(player_id)[1] is None
+    assert db.unban_player(server["id"], player_id) == {"uuid": PLAYER_UUID, "name": "_Tobias4444"}
+    assert db.get_ban_reason_from_player_id(player_id) is None
+
+
+def test_expired_bans_are_not_active(db, server):
+    player_id = db.ensure_player_on_server(server["id"], PLAYER_UUID)
+    db.add_banned_player(player_id, None, None, datetime.now(timezone.utc) - timedelta(days=1), reason_text="alt")
+    assert db.get_ban_reason_from_player_id(player_id) is None
+    assert db.list_active_bans(server["id"]) == []
+
+
+def test_ingame_ban_sync_keeps_web_bans(db, server):
+    db.ensure_player_on_server(server["id"], PLAYER_UUID)
+    db.ensure_player_on_server(server["id"], OTHER_UUID)
+    db.ban_player(server["id"], "_Tobias4444", "Admin", days=3)
+    in_a_day = int((datetime.now(timezone.utc) + timedelta(days=1)).timestamp() * 1000)
+    assert db.sync_ingame_bans(server["id"], [{"name": "Notch", "reason": "Spam", "source": "Steve", "expires": in_a_day}]) == 1
+    sources = {b["name"]: (b["source"], b["banned_by"]) for b in db.list_active_bans(server["id"])}
+    assert sources == {"_Tobias4444": ("web", "Admin"), "Notch": ("ingame", "Steve")}
+    db.sync_ingame_bans(server["id"], [])
+    assert [b["name"] for b in db.list_active_bans(server["id"])] == ["_Tobias4444"]

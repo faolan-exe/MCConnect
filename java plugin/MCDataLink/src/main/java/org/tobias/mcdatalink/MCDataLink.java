@@ -40,6 +40,8 @@ public final class MCDataLink extends JavaPlugin {
     private static final int MAX_RETRY_SECONDS = 60;
     /** Delay before sending the stats of a player who left, so the server has saved them. */
     private static final long QUIT_STATS_DELAY_TICKS = 40L;
+    /** How often the server's ban list is reported to MCConnect (60 seconds). */
+    private static final long BAN_SYNC_INTERVAL_TICKS = 20L * 60;
 
     private final Object sendLock = new Object();
     private volatile Socket socket;
@@ -56,6 +58,8 @@ public final class MCDataLink extends JavaPlugin {
     /** Found lazily: the folder only exists once the game has saved stats. */
     private volatile File statsDir;
     private volatile boolean missingStatsLogged;
+    private PrefixDisplay prefixDisplay;
+    private BanSync banSync;
 
     @Override
     public void onEnable() {
@@ -68,6 +72,11 @@ public final class MCDataLink extends JavaPlugin {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
+        prefixDisplay = new PrefixDisplay(this, getConfig().getBoolean("prefix.chat", true),
+                getConfig().getBoolean("prefix.tablist", true), getConfig().getBoolean("prefix.nametag", true));
+        banSync = new BanSync(this);
+        getServer().getScheduler().runTaskTimer(this, this::sendBanList, BAN_SYNC_INTERVAL_TICKS, BAN_SYNC_INTERVAL_TICKS);
+
         List<World> worlds = getServer().getWorlds();
         worldFolder = worlds.isEmpty() ? new File(getServer().getWorldContainer(), "world") : worlds.get(0).getWorldFolder();
 
@@ -161,6 +170,7 @@ public final class MCDataLink extends JavaPlugin {
                     authenticated = true;
                     getLogger().info("Connected to MCConnect");
                     sendOnlinePlayers();
+                    runOnMainThread(this::sendBanList);
                     break;
                 case "001":
                 case "002":
@@ -173,23 +183,40 @@ public final class MCDataLink extends JavaPlugin {
             return;
         }
 
-        String[] parts = msg.split("~");
-        switch (parts[0]) {
+        int separator = msg.indexOf('~');
+        String command = separator < 0 ? msg : msg.substring(0, separator);
+        String value = separator < 0 ? "" : msg.substring(separator + 1);
+        String[] fields = value.split("\\|", -1);
+        switch (command) {
             case "!sendAllPlayerStats":
                 worker.execute(this::sendAllPlayerStats);
                 break;
-            case "!sendPlayerStats":
-                if (parts.length > 1) {
-                    UUID uuid = parseUuid(parts[1]);
-                    if (uuid != null) worker.execute(() -> sendPlayerStats(uuid));
+            case "!sendPlayerStats": {
+                UUID uuid = parseUuid(value);
+                if (uuid != null) worker.execute(() -> sendPlayerStats(uuid));
+                break;
+            }
+            case "!loginPin": {
+                String[] parts = value.split("~");
+                UUID uuid = parts.length > 1 ? parseUuid(parts[0]) : null;
+                if (uuid != null) runOnMainThread(() -> showLoginPin(uuid, parts[1]));
+                break;
+            }
+            case "!prefix": {  // uuid|color|text
+                UUID uuid = fields.length >= 3 ? parseUuid(fields[0]) : null;
+                if (uuid != null) prefixDisplay.set(uuid, fields[1], fields[2]);
+                break;
+            }
+            case "!ban": {  // uuid|name|end millis (0 = permanent)|reason
+                UUID uuid = fields.length >= 4 ? parseUuid(fields[0]) : null;
+                if (uuid != null) {
+                    long end = parseLong(fields[2]);
+                    runOnMainThread(() -> banSync.ban(uuid, fields[1], end, fields[3]));
                 }
                 break;
-            case "!loginPin":
-                if (parts.length > 2) {
-                    UUID uuid = parseUuid(parts[1]);
-                    String pin = parts[2];
-                    if (uuid != null) runOnMainThread(() -> showLoginPin(uuid, pin));
-                }
+            }
+            case "!unban":  // uuid|name
+                if (fields.length >= 2) runOnMainThread(() -> banSync.unban(fields[1]));
                 break;
             default:
                 getLogger().fine("Unknown message from MCConnect: " + msg);
@@ -262,11 +289,23 @@ public final class MCDataLink extends JavaPlugin {
     // ------------------------------------------------------------------ players & stats
 
     void playerJoined(Player player) {
-        sendAsync("!JOIN~" + player.getUniqueId() + "|" + player.getName());
+        sendAsync("!JOIN~" + player.getUniqueId() + "|" + player.getName() + "|" + (player.isOp() ? "1" : "0"));
+    }
+
+    PrefixDisplay prefixDisplay() {
+        return prefixDisplay;
+    }
+
+    /** Main thread: report the server's own bans (not MCConnect's) to the website. */
+    private void sendBanList() {
+        if (!authenticated) return;
+        String json = banSync.banListJson();
+        if (json != null) sendAsync("!BANS~" + json);
     }
 
     void playerQuit(Player player) {
         UUID uuid = player.getUniqueId();
+        prefixDisplay.clear(player);
         sendAsync("!QUIT~" + uuid);
         getServer().getScheduler().runTaskLaterAsynchronously(this, () -> sendPlayerStats(uuid), QUIT_STATS_DELAY_TICKS);
     }
@@ -342,8 +381,16 @@ public final class MCDataLink extends JavaPlugin {
         return found;
     }
 
-    private void runOnMainThread(Runnable task) {
+    void runOnMainThread(Runnable task) {
         if (isEnabled()) getServer().getScheduler().runTask(this, task);
+    }
+
+    private static long parseLong(String value) {
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
     }
 
     private static UUID parseUuid(String value) {

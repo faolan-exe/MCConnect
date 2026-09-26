@@ -1,0 +1,99 @@
+/* Shared components of the server pages and the admin area (bans, prefixes). Needs fonts.css. */
+
+/* A prefix looks like in the Minecraft chat: colored text on a dark background. */
+.mcc-prefix {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: #1b1f1d;
+  color: var(--mcc-prefix-color, #aaaaaa);
+  -webkit-text-fill-color: var(--mcc-prefix-color, #aaaaaa);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.85em;
+  line-height: 1.5;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.mcc-form label { display: block; font-weight: 700; margin: 14px 0 6px; }
+.mcc-form .mcc-hint, .mcc-hint { color: #5c6862; font-size: 14px; font-weight: 400; }
+.mcc-input, .mcc-select {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #dfe3df;
+  border-radius: 8px;
+  font: inherit;
+  background: #fff;
+  color: inherit;
+}
+.mcc-input:focus, .mcc-select:focus { outline: 2px solid #2fbf62; border-color: transparent; }
+.mcc-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 0 16px; }
+
+.mcc-btn {
+  display: inline-block;
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: #2fbf62;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+.mcc-btn:hover { background: #1f8f47; }
+.mcc-btn-secondary { background: #fff; color: #1b1f1d; border-color: #dfe3df; }
+.mcc-btn-secondary:hover { background: #f1f2f0; }
+.mcc-btn-danger { background: #d93b3b; }
+.mcc-btn-danger:hover { background: #b52f2f; }
+.mcc-btn-small { padding: 5px 12px; font-size: 14px; }
+.mcc-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; align-items: center; }
+
+.mcc-message { margin-top: 14px; padding: 10px 12px; border-radius: 8px; display: none; }
+.mcc-message.error { display: block; background: #fdecec; color: #8f1f1f; }
+.mcc-message.success { display: block; background: #e7f8ee; color: #135f31; }
+
+.mcc-table-wrap { overflow-x: auto; }
+.mcc-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.mcc-table th {
+  text-align: left;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #5c6862;
+  padding: 8px 10px;
+  border-bottom: 1px solid #dfe3df;
+}
+.mcc-table td { padding: 10px; border-bottom: 1px solid #eef0ee; vertical-align: top; }
+.mcc-empty { color: #5c6862; padding: 12px 0; }
+
+.mcc-badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.mcc-badge-web { background: #e7f8ee; color: #135f31; }
+.mcc-badge-ingame { background: #eef0ff; color: #3b44a8; }
+
+/* color picker for prefixes */
+.mcc-colors { display: flex; flex-wrap: wrap; gap: 8px; }
+.mcc-colors label { margin: 0; cursor: pointer; }
+.mcc-colors input { position: absolute; opacity: 0; width: 0; height: 0; }
+.mcc-colors span {
+  display: block;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  border: 2px solid #dfe3df;
+  background: var(--swatch);
+}
+.mcc-colors input:checked + span { outline: 3px solid #1b1f1d; outline-offset: 2px; }
+.mcc-colors input:focus-visible + span { outline: 3px solid #2fbf62; outline-offset: 2px; }
+
+/* chat preview */
+.mcc-chat {
+  background: rgba(15, 21, 18, 0.9);
+  color: #fff;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 15px;
+}

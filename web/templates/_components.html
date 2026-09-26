@@ -1,0 +1,119 @@
+{# Macros shared by the server pages and the admin area. #}
+
+{% macro prefix_chip(text, color, colors) -%}
+<span class="mcc-prefix" style="--mcc-prefix-color: {{ colors.get(color, '#AAAAAA') }}">[{{ text }}]</span>
+{%- endmacro %}
+
+
+{# Ban management. api: base URL; GET {api}/bans or {list_url}, POST {api}/ban and {api}/unban. #}
+{% macro bans_panel(prefix_id, list_url, ban_url, unban_url, reasons, players) %}
+<div class="mcc-bans" id="{{ prefix_id }}">
+  <form class="mcc-form" data-role="ban-form">
+    <div class="mcc-row">
+      <div>
+        <label for="{{ prefix_id }}-name">Spieler</label>
+        <input class="mcc-input" id="{{ prefix_id }}-name" name="name" list="{{ prefix_id }}-players" required autocomplete="off" />
+        <datalist id="{{ prefix_id }}-players">
+          {% for player in players %}<option value="{{ player }}"></option>{% endfor %}
+        </datalist>
+      </div>
+      <div>
+        <label for="{{ prefix_id }}-reason">Grund</label>
+        <select class="mcc-select" id="{{ prefix_id }}-reason" name="reason_id">
+          {% for reason in reasons %}
+          <option value="{{ reason.id }}" data-days="{{ reason.days }}">{{ reason.reason }} ({{ reason.days }} {{ "Tag" if reason.days == 1 else "Tage" }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="{{ prefix_id }}-days">Dauer in Tagen <span class="mcc-hint">(0 = dauerhaft)</span></label>
+        <input class="mcc-input" id="{{ prefix_id }}-days" name="days" type="number" min="0" max="3650" />
+      </div>
+    </div>
+    <label for="{{ prefix_id }}-comment">Kommentar <span class="mcc-hint">(optional, nur hier sichtbar)</span></label>
+    <input class="mcc-input" id="{{ prefix_id }}-comment" name="comment" maxlength="500" />
+    <div class="mcc-actions"><button class="mcc-btn mcc-btn-danger" type="submit">Bannen</button></div>
+    <div class="mcc-message" data-role="message"></div>
+  </form>
+
+  <h3 style="margin-top: 28px">Aktive Bans</h3>
+  <div class="mcc-table-wrap">
+    <table class="mcc-table">
+      <thead><tr><th>Spieler</th><th>Grund</th><th>Von</th><th>Bis</th><th></th></tr></thead>
+      <tbody data-role="list"><tr><td colspan="5" class="mcc-empty">Lade …</td></tr></tbody>
+    </table>
+  </div>
+</div>
+<script>
+  (() => {
+    const root = document.getElementById({{ prefix_id | tojson }});
+    const form = root.querySelector('[data-role="ban-form"]');
+    const message = root.querySelector('[data-role="message"]');
+    const list = root.querySelector('[data-role="list"]');
+    const reason = form.elements.reason_id;
+    const days = form.elements.days;
+
+    const show = (text, kind) => { message.textContent = text; message.className = "mcc-message " + kind; };
+    const cell = (text) => { const td = document.createElement("td"); td.textContent = text || "–"; return td; };
+    const post = async (url, body) => {
+      const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      let data = {};
+      try { data = await response.json(); } catch (e) {}
+      return { ok: response.ok, data };
+    };
+
+    function syncDays() { days.value = reason.selectedOptions[0] ? reason.selectedOptions[0].dataset.days : ""; }
+    reason.addEventListener("change", syncDays);
+    syncDays();
+
+    async function load() {
+      const response = await fetch({{ list_url | tojson }});
+      if (!response.ok) { list.replaceChildren(); return; }
+      const bans = (await response.json()).bans;
+      list.replaceChildren();
+      if (!bans.length) {
+        const row = document.createElement("tr");
+        const td = cell("Niemand ist gebannt.");
+        td.colSpan = 5; td.className = "mcc-empty";
+        row.append(td); list.append(row); return;
+      }
+      for (const ban of bans) {
+        const row = document.createElement("tr");
+        const player = cell(ban.name);
+        const badge = document.createElement("span");
+        badge.className = "mcc-badge " + (ban.source === "web" ? "mcc-badge-web" : "mcc-badge-ingame");
+        badge.textContent = ban.source === "web" ? "Website" : "Ingame";
+        player.append(" ", badge);
+        const why = cell(ban.reason);
+        if (ban.comment) { const c = document.createElement("div"); c.className = "mcc-hint"; c.textContent = ban.comment; why.append(c); }
+        const action = document.createElement("td");
+        const button = document.createElement("button");
+        button.type = "button"; button.className = "mcc-btn mcc-btn-secondary mcc-btn-small"; button.textContent = "Entbannen";
+        button.addEventListener("click", async () => {
+          const result = await post({{ unban_url | tojson }}, { player_id: ban.player_id });
+          if (result.ok) { show(ban.name + " wurde entbannt.", "success"); load(); }
+          else show(result.data.error || "Entbannen fehlgeschlagen.", "error");
+        });
+        action.append(button);
+        row.append(player, why, cell(ban.banned_by), cell(ban.end || "dauerhaft"), action);
+        list.append(row);
+      }
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const result = await post({{ ban_url | tojson }}, {
+        name: form.elements.name.value, reason_id: reason.value, days: days.value, comment: form.elements.comment.value,
+      });
+      if (result.ok) {
+        show(form.elements.name.value + " wurde gebannt.", "success");
+        form.elements.name.value = ""; form.elements.comment.value = "";
+        load();
+      } else {
+        show(result.data.error || "Bannen fehlgeschlagen.", "error");
+      }
+    });
+    load();
+  })();
+</script>
+{% endmacro %}

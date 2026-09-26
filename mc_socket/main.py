@@ -6,15 +6,20 @@ by the utf-8 payload.
 Plugin -> server:
     !AUTH~<server_key>           authenticate (must be the first message)
     !BEAT                        heartbeat
-    !JOIN~<uuid>[|<name>]        player joined
+    !JOIN~<uuid>[|<name>[|<op 0/1>]]  player joined
     !QUIT~<uuid>                 player left
     !STATS~<uuid>|<stats json>   content of world/stats/<uuid>.json
+    !BANS~<json list>            the server's ban list without MCConnect bans:
+                                 [{"name", "reason", "source", "created", "expires"}] (epoch ms, 0 = never)
     !DISCONNECT                  close the connection
 
 Server -> plugin:
     !heartbeat                   heartbeat
     !sendAllPlayerStats          request stats of every known player
     !loginPin~<uuid>~<pin>       show the website login pin to the player
+    !prefix~<uuid>|<color>|<text>  show a prefix (empty color and text: remove it)
+    !ban~<uuid>|<name>|<end ms, 0 = permanent>|<reason>   ban (and kick) a player
+    !unban~<uuid>|<name>         lift a ban
     success|<code> / error|<code>
 
 Error codes:
@@ -29,7 +34,9 @@ Success codes:
 100: Auth successful
 101: updated player status successfully
 102: stats saved
+103: ban list synced
 """
+import json
 import os
 import select
 import socket
@@ -185,7 +192,8 @@ class SocketServer:
     def _login_pin_loop(self):
         while not self._stop.is_set():
             try:
-                self.db.listen_for_login_pins(self.deliver_login_pin, self._stop, self.poll_interval)
+                self.db.listen_for_login_pins(self.deliver_login_pin, self._stop, self.poll_interval,
+                                              event_callback=self.handle_server_event)
             except Exception:
                 logger.exception("Login pin listener failed, restarting in 5 seconds")
                 self._stop.wait(5)
@@ -203,6 +211,44 @@ class SocketServer:
         except OSError as e:
             logger.error(f"Could not deliver login pin to server {server_id}: {e}")
             return False
+
+    # ------------------------------------------------------------------ website events
+    @staticmethod
+    def _clean(text):
+        """Remove the protocol separators from free text."""
+        return str(text or "").replace("~", "-").replace("|", "/").replace("\n", " ")
+
+    def _send_to_server(self, server_id, msg):
+        with self._lock:
+            client = self.active_connections.get(server_id)
+        if client is None:
+            return False
+        try:
+            client.send(msg)
+            return True
+        except OSError as e:
+            logger.error(f"Could not send to server {server_id}: {e}")
+            return False
+
+    def prefix_message(self, server_id, mojang_uuid):
+        prefix = self.db.get_prefix_for_uuid(server_id, mojang_uuid)
+        text, color = prefix if prefix else ("", "")
+        return f"!prefix~{mojang_uuid}|{color}|{self._clean(text)}"
+
+    def handle_server_event(self, event):
+        """Forward a change made on the website (see DatabaseManager.notify_server_event) to the plugin."""
+        server_id, kind = event["server_id"], event["type"]
+        if kind == "prefix":
+            for mojang_uuid in event.get("uuids", []):
+                self._send_to_server(server_id, self.prefix_message(server_id, mojang_uuid))
+        elif kind == "ban":
+            end_ms = int(event.get("end_ms") or 0)
+            self._send_to_server(server_id, f"!ban~{event['uuid']}|{self._clean(event['name'])}|{end_ms}|"
+                                            f"{self._clean(event.get('reason'))}")
+        elif kind == "unban":
+            self._send_to_server(server_id, f"!unban~{event['uuid']}|{self._clean(event['name'])}")
+        else:
+            logger.warning(f"Unknown server event {kind}")
 
     # ------------------------------------------------------------------ clients
     def handle_client_connection(self, conn, addr):
@@ -273,6 +319,8 @@ class SocketServer:
         logger.info(f"{client.addr} authenticated as server {server_id}")
         client.send("success|100")
         client.send("!sendAllPlayerStats")
+        for mojang_uuid, (text, color) in self.db.get_all_worn_prefixes(server_id).items():
+            client.send(f"!prefix~{mojang_uuid}|{color}|{self._clean(text)}")
         return True
 
     def _unregister(self, client):
@@ -295,9 +343,13 @@ class SocketServer:
             return
         try:
             if command == "!JOIN":
-                player_uuid, _, name = value.partition("|")
-                self.db.register_player_join(client.server_id, parse_uuid(player_uuid), name.strip() or None)
+                player_uuid, name, is_op = (value.split("|") + ["", ""])[:3]
+                player_uuid = parse_uuid(player_uuid)
+                self.db.register_player_join(client.server_id, player_uuid, name.strip() or None)
+                if is_op.strip() in ("0", "1"):
+                    self.db.set_player_op(client.server_id, player_uuid, is_op.strip() == "1")
                 client.send("success|101")
+                client.send(self.prefix_message(client.server_id, player_uuid))
             elif command == "!QUIT":
                 ok = self.db.register_player_quit(client.server_id, parse_uuid(value))
                 client.send("success|101" if ok else "error|003")
@@ -309,6 +361,12 @@ class SocketServer:
                 player_id = self.db.ensure_player_on_server(client.server_id, parse_uuid(player_uuid))
                 self.db.update_player_stats(player_id, stats)
                 client.send("success|102")
+            elif command == "!BANS":
+                entries = json.loads(value)
+                if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
+                    raise ValueError("ban list must be a list of objects")
+                self.db.sync_ingame_bans(client.server_id, entries)
+                client.send("success|103")
             else:
                 client.send("error|004")
         except ValueError as e:  # bad uuid or json

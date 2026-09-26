@@ -1,0 +1,67 @@
+{% extends "server_base.html" %}
+{% from "_components.html" import prefix_chip %}
+{% block title %}Prefixes – {{ server_name }}{% endblock %}
+{% block content %}
+<h1>Prefixes</h1>
+<p class="srv-lead">Tritt einem Prefix bei, um ihn im Spiel und hier auf der Website zu tragen. Du kannst immer nur einen tragen.</p>
+
+{% if current_prefix %}
+<div class="srv-card">
+  <p style="margin: 0 0 12px">Du trägst gerade {{ prefix_chip(current_prefix.text, current_prefix.color, prefix_colors) }}
+    von {{ current_prefix.owner_name }}.</p>
+  <button class="mcc-btn mcc-btn-secondary" type="button" id="leave-prefix">Ablegen</button>
+</div>
+{% endif %}
+
+<div class="srv-card">
+  {% if prefixes %}
+  <ul class="srv-prefix-list">
+    {% for prefix in prefixes %}
+    <li>
+      {{ prefix_chip(prefix.text, prefix.color, prefix_colors) }}
+      <span class="srv-prefix-meta">von {{ prefix.owner_name }} · {{ prefix.members }} {{ "Mitglied" if prefix.members == 1 else "Mitglieder" }}
+        {% if prefix.has_password %}· mit Passwort{% endif %}</span>
+      {% if current_prefix and current_prefix.prefix_id == prefix.prefix_id %}
+      <span class="srv-current">Trägst du</span>
+      {% else %}
+      <form class="srv-prefix-join" data-prefix-id="{{ prefix.prefix_id }}">
+        {% if prefix.has_password %}
+        <input class="mcc-input" type="password" placeholder="Passwort" required autocomplete="off" />
+        {% endif %}
+        <button class="mcc-btn mcc-btn-small" type="submit">Beitreten</button>
+      </form>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="mcc-empty" style="margin: 0">Auf diesem Server gibt es noch keine Prefixes.</p>
+  {% endif %}
+  <div class="mcc-message" id="join-message"></div>
+</div>
+
+<p><a href="/add_pref">Eigenen Prefix erstellen →</a></p>
+{% endblock %}
+{% block scripts %}
+<script>
+  const message = document.getElementById("join-message");
+  document.querySelectorAll(".srv-prefix-join").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const password = form.querySelector("input");
+      const result = await postJson("/api/prefix/join", {
+        prefix_id: Number(form.dataset.prefixId), password: password ? password.value : "",
+      });
+      if (result.ok) window.location.reload();
+      else showMessage(message, result.data.error || "Beitreten fehlgeschlagen.", "error");
+    });
+  });
+  const leave = document.getElementById("leave-prefix");
+  if (leave) {
+    leave.addEventListener("click", async () => {
+      const result = await postJson("/api/prefix/leave");
+      if (result.ok) window.location.reload();
+    });
+  }
+</script>
+{% endblock %}
