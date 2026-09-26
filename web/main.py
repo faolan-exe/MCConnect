@@ -446,11 +446,10 @@ def send_verification_email(username, email, token):
 @main_bp.route("/api/login", methods=["POST"])
 def server_login_api():
     data = request.get_json(silent=True) or {}
-    username = data.get("username") or ""
-    if db().verify_admin_login(username, data.get("password") or ""):
+    admin = db().authenticate_admin(str(data.get("username") or "").strip(), str(data.get("password") or ""))
+    if admin:
         session.clear()
-        session["admin_id"] = db().get_admin_id_by_username(username)
-        session["admin_username"] = username
+        session["admin_id"], session["admin_username"] = admin
         session["admin_login_at"] = time.time()
         session.permanent = True
         return ("", 200)

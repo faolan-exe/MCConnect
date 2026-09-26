@@ -471,3 +471,11 @@ def test_wrong_token_does_not_reset(db, admin_id):
     db.create_password_reset("tobi@example.com")
     assert db.reset_password("wrong", "brandNew123") is None
     assert db.verify_admin_login("tobi", "testPassword") is True
+
+
+def test_admin_login_with_username_or_email(db, admin_id):
+    assert db.authenticate_admin("tobi", "testPassword") == (admin_id, "tobi")
+    assert db.authenticate_admin("TOBI@Example.com", "testPassword") == (admin_id, "tobi")
+    assert db.authenticate_admin("tobi@example.com", "wrong") is None
+    assert db.authenticate_admin("Tobi", "testPassword") is None  # usernames are exact
+    assert db.authenticate_admin("nobody@example.com", "testPassword") is None

@@ -475,3 +475,10 @@ def test_session_without_login_time_is_invalid(client, admin_id):
         sess["admin_id"] = admin_id
         sess["admin_username"] = "tobi"
     assert client.get("/manage", **on(None)).status_code == 302
+
+
+def test_admin_login_with_email(client, admin_id):
+    response = client.post("/api/login", json={"username": " Tobi@example.com ", "password": "testPassword"}, **on(None))
+    assert response.status_code == 200
+    manage = client.get("/manage", **on(None))
+    assert manage.status_code == 200 and b"Logout (tobi)" in manage.data

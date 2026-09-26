@@ -6,7 +6,7 @@
 <div class="grid-2">
   <form class="card" id="login-form">
     <h2>Einloggen</h2>
-    <label for="usernameL">Benutzername</label>
+    <label for="usernameL">Benutzername oder E-Mail</label>
     <input id="usernameL" autocomplete="username" required />
     <label for="passwordL">Passwort</label>
     <input id="passwordL" type="password" autocomplete="current-password" required />
@@ -54,7 +54,7 @@
     if (result.ok) {
       window.location.href = "/manage";
     } else {
-      showMessage(message, "Login fehlgeschlagen. Prüfe Benutzername und Passwort und ob du deine E-Mail-Adresse bestätigt hast.", "error");
+      showMessage(message, "Login fehlgeschlagen. Prüfe Benutzername bzw. E-Mail und Passwort und ob du deine E-Mail-Adresse bestätigt hast.", "error");
     }
   });
 

@@ -737,19 +737,28 @@ class DatabaseManager:
     def get_admin_id_by_username(self, username):
         return self._fetchvalue("SELECT id FROM server_admins WHERE username = %s", (username,))
 
-    def verify_admin_login(self, username, password):
-        """True if the credentials are correct and the email address is verified."""
-        stored_hash = self._fetchvalue("SELECT password FROM server_admins WHERE username = %s AND email_verified",
-                                       (username,))
-        if not stored_hash:
-            return False
-        try:
-            return ph.verify(stored_hash, password)
-        except argon2.exceptions.VerificationError:
-            return False
-        except argon2.exceptions.InvalidHashError:
-            logger.error(f'Stored password of admin "{username}" is not a valid argon2 hash')
-            return False
+    def authenticate_admin(self, login, password):
+        """
+        Check the credentials of an admin with verified email. login is the username or
+        the email address (case-insensitive; usernames cannot contain "@").
+        Returns (admin_id, username) or None.
+        """
+        column = "lower(email) = lower(%s)" if "@" in login else "username = %s"
+        rows = self._fetchall(f"SELECT id, username, password FROM server_admins WHERE {column} AND email_verified",
+                              (login,))
+        for admin_id, username, stored_hash in rows:
+            try:
+                if ph.verify(stored_hash, password):
+                    return admin_id, username
+            except argon2.exceptions.VerificationError:
+                continue
+            except argon2.exceptions.InvalidHashError:
+                logger.error(f'Stored password of admin "{username}" is not a valid argon2 hash')
+        return None
+
+    def verify_admin_login(self, login, password):
+        """True if the credentials (username or email) are correct and the email address is verified."""
+        return self.authenticate_admin(login, password) is not None
 
     def verify_signupcode(self, username, token):
         """Mark the admin's email as verified if the token matches and has not expired."""
