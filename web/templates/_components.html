@@ -5,17 +5,25 @@
 {%- endmacro %}
 
 
-{# Ban management. api: base URL; GET {api}/bans or {list_url}, POST {api}/ban and {api}/unban. #}
+{# Ban management: GET list_url ({"bans": [...]}), POST ban_url and unban_url.
+   players: [{"name", "online"}], shown grouped by online/offline and sorted by name. #}
 {% macro bans_panel(prefix_id, list_url, ban_url, unban_url, reasons, players) %}
 <div class="mcc-bans" id="{{ prefix_id }}">
   <form class="mcc-form" data-role="ban-form">
     <div class="mcc-row">
       <div>
         <label for="{{ prefix_id }}-name">Spieler</label>
-        <input class="mcc-input" id="{{ prefix_id }}-name" name="name" list="{{ prefix_id }}-players" required autocomplete="off" />
-        <datalist id="{{ prefix_id }}-players">
-          {% for player in players %}<option value="{{ player }}"></option>{% endfor %}
-        </datalist>
+        <select class="mcc-select" id="{{ prefix_id }}-name" name="name" required>
+          <option value="" disabled selected>Spieler auswählen …</option>
+          {% for group, label in [(true, "Online"), (false, "Offline")] %}
+          {% set members = players | selectattr("online", "equalto", group) | sort(attribute="name", case_sensitive=false) | list %}
+          {% if members %}
+          <optgroup label="{{ label }} ({{ members | length }})">
+            {% for player in members %}<option value="{{ player.name }}">{{ player.name }}</option>{% endfor %}
+          </optgroup>
+          {% endif %}
+          {% endfor %}
+        </select>
       </div>
       <div>
         <label for="{{ prefix_id }}-reason">Grund</label>
@@ -107,7 +115,7 @@
       });
       if (result.ok) {
         show(form.elements.name.value + " wurde gebannt.", "success");
-        form.elements.name.value = ""; form.elements.comment.value = "";
+        form.elements.name.selectedIndex = 0; form.elements.comment.value = "";
         load();
       } else {
         show(result.data.error || "Bannen fehlgeschlagen.", "error");

@@ -147,7 +147,7 @@ port: {{ plugin_port }}</pre>
       <button class="btn" style="border-radius: 0 8px 8px 0" type="submit">Hinzufügen</button>
     </form>
     <datalist id="players-{{ server.id }}">
-      {% for player in server.players %}<option value="{{ player }}"></option>{% endfor %}
+      {% for player in server.players %}<option value="{{ player.name }}"></option>{% endfor %}
     </datalist>
     <div class="message" id="moderation-message-{{ server.id }}"></div>
 

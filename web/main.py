@@ -230,7 +230,7 @@ def prefix_join_page():
 @moderator_required
 def moderation_page():
     return render_template("moderation.html", ban_reasons=db().get_ban_reasons(), bans_api="/api/mod",
-                           players=[p["name"] for p in db().get_players_overview_from_subdomain(g.subdomain)])
+                           players=db().get_players_overview_from_subdomain(g.subdomain))
 
 
 @server_bp.route("/api/prefix/save", methods=["POST"])
@@ -559,7 +559,7 @@ def manage_server():
     servers = db().get_servers_by_owner(session["admin_id"])
     for server in servers:
         server["images"] = db().get_server_images(server["id"])
-        server["players"] = [p["name"] for p in db().get_players_overview_from_subdomain(server["subdomain"])]
+        server["players"] = db().get_players_overview_from_subdomain(server["subdomain"])
     return render_template("serverAdminManage.html",
                            servers=servers, max_gallery_images=MAX_GALLERY_IMAGES,
                            ban_reasons=db().get_ban_reasons(),

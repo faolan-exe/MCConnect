@@ -814,3 +814,13 @@ def test_admin_cannot_moderate_foreign_server(client, db, server):
     assert client.get(f"{url}/moderation", **on(None)).status_code == 404
     assert client.post(f"{url}/ban", json={"name": "x"}, **on(None)).status_code == 404
     assert client.post(f"{url}/moderators", json={"name": "x", "moderator": True}, **on(None)).status_code == 404
+
+
+def test_ban_dropdown_groups_online_and_offline(player_client, db, server):
+    db.set_moderator(server["id"], "_Tobias4444", True)  # online (online_player fixture)
+    db.ensure_player_on_server(server["id"], OTHER_UUID)  # Notch, offline
+    db.add_player("11111111-2222-3333-4444-555555555555", "alex")
+    db.ensure_player_on_server(server["id"], "11111111-2222-3333-4444-555555555555")  # alex, offline
+    body = player_client.get("/users", **on("testdomain")).data.decode()
+    online, offline = body.index('label="Online (1)"'), body.index('label="Offline (2)"')
+    assert online < body.index('value="_Tobias4444"') < offline < body.index('value="alex"') < body.index('value="Notch"')
