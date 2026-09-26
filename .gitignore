@@ -20,3 +20,4 @@ database/credentials.txt
 .venv/
 .DS_Store
 __pycache__/
+.env
