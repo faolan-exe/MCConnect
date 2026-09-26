@@ -620,6 +620,14 @@ def create_app(db_manager=None, config_overrides=None):
         app.extensions["mcconnect_mailer"] = SMTPMailer(config.SMTP_HOST, config.SMTP_PORT,
                                                         config.SMTP_USER, config.SMTP_PASSWORD)
 
+    @app.after_request
+    def allow_font_embedding(response):
+        # Static files are served from the main domain; server subdomains load the
+        # fonts cross-origin, which browsers only allow with a CORS header.
+        if request.path.startswith("/static/fonts/"):
+            response.headers["Access-Control-Allow-Origin"] = "*"
+        return response
+
     app.register_blueprint(main_bp)
     app.register_blueprint(server_bp)
     logger.info(f"Application started for {app.config['SERVER_NAME']}")

@@ -482,3 +482,10 @@ def test_admin_login_with_email(client, admin_id):
     assert response.status_code == 200
     manage = client.get("/manage", **on(None))
     assert manage.status_code == 200 and b"Logout (tobi)" in manage.data
+
+
+def test_fonts_can_be_embedded_from_subdomains(client):
+    response = client.get("/static/fonts/pixelify-sans.woff2", headers={"Origin": f"http://testdomain.{BASE}"}, **on(None))
+    assert response.status_code == 200
+    assert response.headers["Access-Control-Allow-Origin"] == "*"
+    assert "Access-Control-Allow-Origin" not in client.get("/static/css/admin.css", **on(None)).headers
