@@ -24,16 +24,15 @@
     <div>
       <h2>{{ server.server_name }}</h2>
       <p class="meta"><a href="{{ url }}" target="_blank">{{ server.subdomain }}.{{ base_domain }}</a>
-        · {{ server.player_count }} Spieler bekannt</p>
+        · <span id="player-count-{{ server.id }}">{{ server.player_count }}</span> Spieler bekannt</p>
     </div>
-    {% if server.plugin_online %}
-    <span class="badge badge-online">Plugin verbunden</span>
-    {% else %}
-    <span class="badge badge-offline">Plugin nicht verbunden</span>
-    {% endif %}
+    <span id="plugin-badge-{{ server.id }}" data-online="{{ 'true' if server.plugin_online else 'false' }}"
+          class="badge {{ 'badge-online' if server.plugin_online else 'badge-offline' }}">
+      {{ 'Plugin verbunden' if server.plugin_online else 'Plugin nicht verbunden' }}</span>
   </div>
+  <div class="message" id="plugin-message-{{ server.id }}"></div>
 
-  <details {% if not server.plugin_online %}open{% endif %}>
+  <details id="setup-{{ server.id }}" {% if not server.plugin_online %}open{% endif %}>
     <summary>Plugin einrichten</summary>
     <ol class="steps">
       <li>
@@ -95,6 +94,36 @@ port: {{ plugin_port }}</pre>
 {% endblock %}
 {% block scripts %}
 <script>
+  // Live plugin status: poll while the page is visible.
+  const POLL_INTERVAL_MS = 5000;
+  async function pollStatus() {
+    if (document.hidden) return;
+    let data;
+    try {
+      const response = await fetch("/api/servers/status");
+      if (!response.ok) return;
+      data = await response.json();
+    } catch (e) {
+      return;
+    }
+    for (const server of data.servers) {
+      const badge = document.getElementById("plugin-badge-" + server.id);
+      if (!badge) continue;
+      const wasOnline = badge.dataset.online === "true";
+      badge.dataset.online = server.plugin_online ? "true" : "false";
+      badge.className = "badge " + (server.plugin_online ? "badge-online" : "badge-offline");
+      badge.textContent = server.plugin_online ? "Plugin verbunden" : "Plugin nicht verbunden";
+      document.getElementById("player-count-" + server.id).textContent = server.player_count;
+      if (server.plugin_online && !wasOnline) {
+        document.getElementById("setup-" + server.id).open = false;
+        showMessage(document.getElementById("plugin-message-" + server.id),
+                    "Das Plugin ist verbunden. Die Spieler und Statistiken erscheinen gleich auf deiner Serverseite.", "success");
+      }
+    }
+  }
+  setInterval(pollStatus, POLL_INTERVAL_MS);
+  document.addEventListener("visibilitychange", pollStatus);
+
   async function copyConfig(id, button) {
     await navigator.clipboard.writeText(document.getElementById("config-" + id).textContent);
     button.textContent = "Kopiert!";

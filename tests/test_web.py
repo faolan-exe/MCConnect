@@ -489,3 +489,18 @@ def test_fonts_can_be_embedded_from_subdomains(client):
     assert response.status_code == 200
     assert response.headers["Access-Control-Allow-Origin"] == "*"
     assert "Access-Control-Allow-Origin" not in client.get("/static/css/admin.css", **on(None)).headers
+
+
+def test_servers_status_polling(admin_client, db, server, other_server):
+    data = admin_client.get("/api/servers/status", **on(None)).json["servers"]
+    assert {s["id"]: s["plugin_online"] for s in data} == {server["id"]: False, other_server["id"]: False}
+    db.set_plugin_connected(server["id"], True)
+    db.ensure_player_on_server(server["id"], PLAYER_UUID)
+    data = {s["id"]: s for s in admin_client.get("/api/servers/status", **on(None)).json["servers"]}
+    assert data[server["id"]]["plugin_online"] is True and data[server["id"]]["player_count"] == 1
+    page = admin_client.get("/manage", **on(None)).data.decode()
+    assert f'id="plugin-badge-{server["id"]}" data-online="true"' in page
+
+
+def test_servers_status_requires_login(client):
+    assert client.get("/api/servers/status", **on(None)).status_code == 401

@@ -559,6 +559,14 @@ def create_server_api():
     return {"id": server_id, "subdomain": subdomain}, 201
 
 
+@main_bp.route("/api/servers/status")
+@admin_required
+def servers_status_api():
+    """Polled by the manage page to show when a plugin connects."""
+    return {"servers": [{"id": s["id"], "plugin_online": bool(s["plugin_online"]), "player_count": s["player_count"]}
+                        for s in db().get_servers_by_owner(session["admin_id"])]}
+
+
 @main_bp.route("/api/servers/<int:server_id>/update", methods=["POST"])
 @admin_required
 def update_server_api(server_id):

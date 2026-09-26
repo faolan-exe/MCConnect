@@ -52,7 +52,10 @@ public final class MCDataLink extends JavaPlugin {
     private String key;
     private String host;
     private int port;
-    private File statsDir;
+    private File worldFolder;
+    /** Found lazily: the folder only exists once the game has saved stats. */
+    private volatile File statsDir;
+    private volatile boolean missingStatsLogged;
 
     @Override
     public void onEnable() {
@@ -65,7 +68,8 @@ public final class MCDataLink extends JavaPlugin {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
-        statsDir = findStatsDir();
+        List<World> worlds = getServer().getWorlds();
+        worldFolder = worlds.isEmpty() ? new File(getServer().getWorldContainer(), "world") : worlds.get(0).getWorldFolder();
 
         worker = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "MCDataLink-worker");
@@ -286,11 +290,9 @@ public final class MCDataLink extends JavaPlugin {
     }
 
     private void sendAllPlayerStats() {
-        File[] files = statsDir.listFiles((dir, name) -> name.endsWith(".json"));
-        if (files == null) {
-            getLogger().warning("Stats folder not found: " + statsDir);
-            return;
-        }
+        File dir = statsDir();
+        File[] files = dir == null ? null : dir.listFiles((d, name) -> name.endsWith(".json"));
+        if (files == null) return;
         int sent = 0;
         for (File file : files) {
             UUID uuid = parseUuid(file.getName().substring(0, file.getName().length() - ".json".length()));
@@ -301,7 +303,9 @@ public final class MCDataLink extends JavaPlugin {
 
     private boolean sendPlayerStats(UUID uuid) {
         if (!authenticated) return false;
-        File file = new File(statsDir, uuid + ".json");
+        File dir = statsDir();
+        if (dir == null) return false;
+        File file = new File(dir, uuid + ".json");
         if (!file.isFile()) return false;
         try {
             String json = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
@@ -322,10 +326,20 @@ public final class MCDataLink extends JavaPlugin {
 
     // ------------------------------------------------------------------ helpers
 
-    private File findStatsDir() {
-        List<World> worlds = getServer().getWorlds();
-        File worldFolder = worlds.isEmpty() ? new File(getServer().getWorldContainer(), "world") : worlds.get(0).getWorldFolder();
-        return new File(worldFolder, "stats");
+    /** The folder with the players' stats files, or null if the game has not written any yet. */
+    private File statsDir() {
+        File cached = statsDir;
+        if (cached != null && cached.isDirectory()) return cached;
+        File found = StatsLocator.find(worldFolder, getServer().getWorldContainer());
+        if (found != null) {
+            getLogger().info("Using player stats from " + found);
+            statsDir = found;
+        } else if (!missingStatsLogged) {
+            missingStatsLogged = true;
+            getLogger().info("No player stats in " + worldFolder + " yet. Minecraft writes them when the world is saved;"
+                    + " they will be sent then.");
+        }
+        return found;
     }
 
     private void runOnMainThread(Runnable task) {
