@@ -263,7 +263,7 @@
             </div>
             <div class="downloadButton">
               <button
-                onclick='forceDownload("https://crafatar.com/skins/{{uuid}}", "Skin-{{user_name}}.png");'
+                onclick='forceDownload("https://mc-heads.net/skin/{{uuid}}", "Skin-{{user_name}}.png");'
                 style="width: 40px; height: 40px"
               >
                 <svg
@@ -416,7 +416,7 @@
         },
         document.getElementById("mySkinContainer")
       );
-      skinRender.render("{{user_name}}");
+      skinRender.render({ url: "https://mc-heads.net/skin/{{uuid}}" });
     </script>
 
     <script>
