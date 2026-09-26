@@ -83,6 +83,8 @@ services:
     # Reverse proxy (NPM) forwards to <LXC-IP>:8000. Set WEB_BIND=127.0.0.1 when using the traefik profile.
     ports:
       - "${WEB_BIND:-0.0.0.0}:8000:8000"
+    volumes:
+      - uploads:/app/uploads  # server images
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/healthz', headers={'Host': '${MCC_DOMAIN}'}))"]
       interval: 30s
@@ -136,6 +138,7 @@ services:
 
 volumes:
   db_data:
+  uploads:
   letsencrypt:
 
 networks:

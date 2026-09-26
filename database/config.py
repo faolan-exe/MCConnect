@@ -47,3 +47,6 @@ LEGAL_NAME = _env("MCC_LEGAL_NAME")
 LEGAL_ADDRESS = [line.strip() for line in _env("MCC_LEGAL_ADDRESS", "").split(";") if line.strip()]
 LEGAL_EMAIL = _env("MCC_LEGAL_EMAIL")
 LEGAL_PHONE = _env("MCC_LEGAL_PHONE")
+
+# Uploaded server images (banner, gallery).
+UPLOAD_DIR = _env("MCC_UPLOAD_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads"))

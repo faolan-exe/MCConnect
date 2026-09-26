@@ -22,3 +22,4 @@ database/credentials.txt
 __pycache__/
 .env
 deploy/backups/
+uploads/

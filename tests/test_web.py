@@ -485,7 +485,7 @@ def test_admin_login_with_email(client, admin_id):
 
 
 def test_fonts_can_be_embedded_from_subdomains(client):
-    response = client.get("/static/fonts/pixelify-sans.woff2", headers={"Origin": f"http://testdomain.{BASE}"}, **on(None))
+    response = client.get("/static/fonts/chakra-petch-700.woff2", headers={"Origin": f"http://testdomain.{BASE}"}, **on(None))
     assert response.status_code == 200
     assert response.headers["Access-Control-Allow-Origin"] == "*"
     assert "Access-Control-Allow-Origin" not in client.get("/static/css/admin.css", **on(None)).headers
@@ -554,3 +554,118 @@ def test_whitelist_server_page_hides_address(client, db, admin_id):
         body = client.get(path, **on("private")).data.decode()
         assert "secret.example.com" not in body
     assert "Whitelist" in client.get("/", **on("private")).data.decode()
+
+
+# ------------------------------------------------------------------ server images
+
+import io
+import os
+
+
+def png_bytes(size=(64, 32), color=(200, 30, 30)):
+    from PIL import Image
+    buffer = io.BytesIO()
+    Image.new("RGB", size, color).save(buffer, "PNG")
+    return buffer.getvalue()
+
+
+@pytest.fixture
+def upload_dir(tmp_path, monkeypatch):
+    from database import config
+    monkeypatch.setattr(config, "UPLOAD_DIR", str(tmp_path))
+    return tmp_path
+
+
+def upload(client, server_id, kind="gallery", data=None, filename="bild.png", headers=None):
+    return client.post(f"/api/servers/{server_id}/images",
+                       data={"kind": kind, "image": (io.BytesIO(data or png_bytes()), filename)},
+                       content_type="multipart/form-data", headers=headers or {}, **on(None))
+
+
+def test_upload_gallery_image_and_show_it(admin_client, db, server, upload_dir):
+    response = upload(admin_client, server["id"])
+    assert response.status_code == 201
+    files = os.listdir(upload_dir)
+    assert len(files) == 1 and files[0].endswith(".webp")
+    assert response.json["url"] == f"http://{BASE}/uploads/{files[0]}"
+
+    served = admin_client.get(f"/uploads/{files[0]}", **on(None))
+    assert served.status_code == 200 and served.data[:4] == b"RIFF"  # re-encoded as WebP
+    page = admin_client.get("/", **on("testdomain")).data.decode()
+    assert f"/uploads/{files[0]}" in page and "Eindrücke" in page
+
+
+def test_upload_strips_metadata(admin_client, server, upload_dir):
+    from PIL import Image
+    buffer = io.BytesIO()
+    exif = Image.Exif()
+    exif[0x010F] = "SecretCamera"  # Make
+    Image.new("RGB", (40, 40)).save(buffer, "JPEG", exif=exif)
+    assert upload(admin_client, server["id"], data=buffer.getvalue(), filename="x.jpg").status_code == 201
+    stored = Image.open(upload_dir / os.listdir(upload_dir)[0])
+    assert "SecretCamera" not in str(stored.getexif())
+
+
+def test_banner_replaces_old_file_and_is_downscaled(admin_client, db, server, upload_dir):
+    from PIL import Image
+    upload(admin_client, server["id"], kind="banner", data=png_bytes((3000, 1000)))
+    first = os.listdir(upload_dir)
+    assert Image.open(upload_dir / first[0]).size == (2400, 800)
+    upload(admin_client, server["id"], kind="banner")
+    second = os.listdir(upload_dir)
+    assert len(second) == 1 and second != first
+    assert f"/uploads/{second[0]}" in admin_client.get("/", **on("testdomain")).data.decode()
+
+
+def test_upload_rejects_non_images(admin_client, server, upload_dir):
+    for data, name in [(b"<?php echo 1; ?>", "shell.png"), (b"GIF89a" + b"x" * 20, "broken.gif")]:
+        response = upload(admin_client, server["id"], data=data, filename=name)
+        assert response.status_code == 400
+    assert os.listdir(upload_dir) == []
+
+
+def test_upload_too_large(admin_client, server, upload_dir):
+    response = upload(admin_client, server["id"], data=b"x" * (11 * 1024 * 1024))
+    assert response.status_code == 413 and "zu groß" in response.json["error"]
+
+
+def test_gallery_limit(admin_client, db, admin_id, server, upload_dir):
+    from database.databaseManagerV2 import MAX_GALLERY_IMAGES
+    for i in range(MAX_GALLERY_IMAGES):
+        db.add_server_image(server["id"], admin_id, "gallery", f"{i:032x}.webp")
+    response = upload(admin_client, server["id"])
+    assert response.status_code == 400 and "voll" in response.json["error"]
+    assert os.listdir(upload_dir) == []  # the processed file was removed again
+
+
+def test_upload_security(client, admin_client, db, server, upload_dir):
+    assert upload(admin_client, server["id"], headers={"Origin": "https://evil.example"}).status_code == 403
+    assert upload(admin_client, server["id"], headers={"Origin": f"http://{BASE}"}).status_code == 201
+    other = create_app(db, {"TESTING": True, "SECRET_KEY": "test", "SERVER_NAME": BASE}).test_client()
+    assert upload(other, server["id"]).status_code == 401
+    # other JSON APIs still refuse form posts
+    assert admin_client.post(f"/api/servers/{server['id']}/update", data={"server_name": "x"},
+                             **on(None)).status_code == 415
+
+
+def test_upload_to_foreign_server(client, db, server, upload_dir):
+    db.add_server_admin("eve", "secret123", "eve@example.com", email_verified=True)
+    client.post("/api/login", json={"username": "eve", "password": "secret123"}, **on(None))
+    assert upload(client, server["id"]).status_code == 404
+    assert os.listdir(upload_dir) == []
+
+
+def test_delete_image_and_server_removes_files(admin_client, db, server, upload_dir):
+    image_id = upload(admin_client, server["id"]).json["id"]
+    upload(admin_client, server["id"], kind="banner")
+    assert admin_client.post(f"/api/servers/{server['id']}/images/{image_id}/delete", json={},
+                             **on(None)).status_code == 200
+    assert len(os.listdir(upload_dir)) == 1
+    admin_client.post(f"/api/servers/{server['id']}/delete", json={"confirm": "testdomain"}, **on(None))
+    assert os.listdir(upload_dir) == []
+
+
+def test_uploads_route_only_serves_generated_names(client, upload_dir):
+    (upload_dir / "secret.txt").write_text("x")
+    assert client.get("/uploads/secret.txt", **on(None)).status_code == 404
+    assert client.get("/uploads/..%2Fsecret.txt", **on(None)).status_code == 404

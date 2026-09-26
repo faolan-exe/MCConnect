@@ -16,9 +16,14 @@
   font-weight: 700; font-style: normal; font-display: swap;
 }
 @font-face {
-  font-family: "Pixelify Sans";
-  src: url("../fonts/pixelify-sans.woff2") format("woff2");
-  font-weight: 400 700; font-style: normal; font-display: swap;
+  font-family: "Chakra Petch";
+  src: url("../fonts/chakra-petch-500.woff2") format("woff2");
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Chakra Petch";
+  src: url("../fonts/chakra-petch-700.woff2") format("woff2");
+  font-weight: 700; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: "JetBrains Mono";
@@ -27,6 +32,6 @@
 }
 :root {
   --font-body: "Atkinson Hyperlegible", "Verdana", sans-serif;
-  --font-display: "Pixelify Sans", "Atkinson Hyperlegible", sans-serif;
+  --font-display: "Chakra Petch", "Atkinson Hyperlegible", sans-serif;
   --font-mono: "JetBrains Mono", "Menlo", monospace;
 }

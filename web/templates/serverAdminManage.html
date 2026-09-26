@@ -87,6 +87,48 @@ port: {{ plugin_port }}</pre>
     </form>
   </details>
 
+  <details {% if not server.images.banner and not server.images.gallery and server.plugin_online %}open{% endif %}>
+    <summary>Bilder</summary>
+    <p class="hint">JPG, PNG, WebP oder GIF, bis 10 MB. Bilder werden verkleinert und ohne Metadaten gespeichert.</p>
+
+    <h3 class="images-title">Titelbild</h3>
+    <p class="hint" style="margin-top: 0">Großes Bild oben auf deiner Serverseite, am besten im Querformat (z.&nbsp;B. 2400 × 1200).</p>
+    <div class="banner-preview">
+      {% if server.images.banner %}
+      <img src="{{ url_for('main.uploaded_image', filename=server.images.banner) }}" alt="Titelbild" />
+      {% else %}
+      <span class="hint">Noch kein Titelbild</span>
+      {% endif %}
+    </div>
+    <div class="btn-row" style="margin-top: 10px">
+      <label class="btn btn-secondary upload-button">
+        {{ "Titelbild ersetzen" if server.images.banner else "Titelbild hochladen" }}
+        <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden
+               onchange="uploadImages({{ server.id }}, 'banner', this)" />
+      </label>
+    </div>
+
+    <h3 class="images-title">Galerie <span class="hint">({{ server.images.gallery | length }} / {{ max_gallery_images }})</span></h3>
+    <div class="gallery-admin">
+      {% for image in server.images.gallery %}
+      <figure>
+        <img src="{{ url_for('main.uploaded_image', filename=image.filename) }}" alt="Galeriebild {{ loop.index }}" />
+        <button type="button" class="btn btn-secondary" onclick="deleteImage({{ server.id }}, {{ image.id }})">Entfernen</button>
+      </figure>
+      {% endfor %}
+    </div>
+    {% if server.images.gallery | length < max_gallery_images %}
+    <div class="btn-row" style="margin-top: 10px">
+      <label class="btn btn-secondary upload-button">
+        Bilder hinzufügen
+        <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden
+               onchange="uploadImages({{ server.id }}, 'gallery', this)" />
+      </label>
+    </div>
+    {% endif %}
+    <div class="message" id="image-message-{{ server.id }}"></div>
+  </details>
+
   <details>
     <summary>Gefahrenzone</summary>
     <p>Ein neuer Key trennt das Plugin, bis du die neue <code>config.yml</code> einträgst.</p>
@@ -158,6 +200,36 @@ port: {{ plugin_port }}</pre>
     showMessage(form.querySelector(".message"),
                 result.ok ? "Gespeichert." : (result.data.error || "Speichern fehlgeschlagen."),
                 result.ok ? "success" : "error");
+  }
+
+  async function uploadImages(serverId, kind, input) {
+    const message = document.getElementById("image-message-" + serverId);
+    const files = Array.from(input.files);
+    for (let i = 0; i < files.length; i++) {
+      showMessage(message, `Lade hoch … (${i + 1}/${files.length})`, "success");
+      const form = new FormData();
+      form.append("kind", kind);
+      form.append("image", files[i]);
+      const response = await fetch(`/api/servers/${serverId}/images`, { method: "POST", body: form });
+      if (!response.ok) {
+        let error = "Hochladen fehlgeschlagen.";
+        try { error = (await response.json()).error || error; } catch (e) {}
+        showMessage(message, `${files[i].name}: ${error}`, "error");
+        input.value = "";
+        return;
+      }
+    }
+    window.location.hash = "server-" + serverId;
+    window.location.reload();
+  }
+
+  async function deleteImage(serverId, imageId) {
+    const result = await postJson(`/api/servers/${serverId}/images/${imageId}/delete`);
+    if (result.ok) {
+      window.location.reload();
+    } else {
+      showMessage(document.getElementById("image-message-" + serverId), "Entfernen fehlgeschlagen.", "error");
+    }
   }
 
   async function regenerateKey(id) {

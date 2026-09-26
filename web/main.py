@@ -23,12 +23,13 @@ if PROJECT_ROOT not in sys.path:
 import psycopg2.errors
 from colorlogx import get_logger
 from flask import (Blueprint, Flask, Response, abort, current_app, g, redirect, render_template,
-                   request, send_file, session, stream_with_context)
+                   request, send_file, send_from_directory, session, stream_with_context, url_for)
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from database import config
-from database.databaseManagerV2 import DatabaseManager
+from database.databaseManagerV2 import MAX_GALLERY_IMAGES, DatabaseManager
 from database.stats import format_time
+from web.uploads import FILENAME_RE, MAX_UPLOAD_BYTES, InvalidImage, delete_images, save_image
 
 logger = get_logger("webServer")
 
@@ -113,7 +114,11 @@ def inject_server_context():
 
 @server_bp.route("/")
 def subdomain_index_route():
-    return render_template("index-subpage.html")
+    images = db().get_server_images(g.server["id"])
+    return render_template("index-subpage.html",
+                           player_total=len(db().get_all_player_ids_from_subdomain(g.subdomain)),
+                           banner_url=image_url(images["banner"]) if images["banner"] else None,
+                           gallery_urls=[image_url(image["filename"]) for image in images["gallery"]])
 
 
 @server_bp.route("/login", methods=["GET", "POST"])
@@ -328,15 +333,27 @@ def inject_main_context():
     return {"admin_username": session.get("admin_username") if current_admin_id() else None}
 
 
-def admin_required(view):
-    """Pages redirect to /login, API calls (JSON only, which also blocks cross-site forms) get 401/415."""
+def admin_required(view=None, *, allow_upload=False):
+    """
+    Pages redirect to /login, API calls get 401. POST API calls must be JSON, which
+    browsers cannot send cross-site without CORS. Upload endpoints (allow_upload)
+    accept multipart forms instead and check the Origin header.
+    """
+    if view is None:
+        return functools.partial(admin_required, allow_upload=allow_upload)
+
     @functools.wraps(view)
     def wrapper(*args, **kwargs):
         is_api = request.path.startswith("/api/")
         if not current_admin_id():
             return ({"error": "not logged in"}, 401) if is_api else redirect("/login")
-        if is_api and request.method == "POST" and not request.is_json:
-            return {"error": "json required"}, 415
+        if is_api and request.method == "POST":
+            if allow_upload and request.mimetype == "multipart/form-data":
+                origin = request.headers.get("Origin")
+                if origin and urlparse(origin).netloc != request.host:
+                    return {"error": "cross-site upload refused"}, 403
+            elif not request.is_json:
+                return {"error": "json required"}, 415
         return view(*args, **kwargs)
     return wrapper
 
@@ -362,8 +379,11 @@ def create_new_server():
 @main_bp.route("/manage")
 @admin_required
 def manage_server():
+    servers = db().get_servers_by_owner(session["admin_id"])
+    for server in servers:
+        server["images"] = db().get_server_images(server["id"])
     return render_template("serverAdminManage.html",
-                           servers=db().get_servers_by_owner(session["admin_id"]),
+                           servers=servers, max_gallery_images=MAX_GALLERY_IMAGES,
                            base_domain=current_app.config["SERVER_NAME"],
                            plugin_host=config.PLUGIN_PUBLIC_HOST, plugin_port=config.PLUGIN_PUBLIC_PORT,
                            plugin_available=plugin_jar_path() is not None)
@@ -612,8 +632,53 @@ def delete_server_api(server_id):
         abort(404)
     if (request.get_json(silent=True) or {}).get("confirm") != servers[server_id]["subdomain"]:
         return {"error": "Zur Bestätigung die Subdomain eingeben."}, 400
-    db().delete_server(server_id, session["admin_id"])
+    delete_images(db().delete_server(server_id, session["admin_id"]) or [], config.UPLOAD_DIR)
     return ("", 200)
+
+
+@main_bp.route("/api/servers/<int:server_id>/images", methods=["POST"])
+@admin_required(allow_upload=True)
+def upload_server_image_api(server_id):
+    kind = request.form.get("kind")
+    file = request.files.get("image")
+    if kind not in ("banner", "gallery") or file is None:
+        return {"error": "Bild und Art (banner/gallery) angeben."}, 400
+    if server_id not in {s["id"] for s in db().get_servers_by_owner(session["admin_id"])}:
+        abort(404)
+    try:
+        filename = save_image(file.stream, kind, config.UPLOAD_DIR)
+    except InvalidImage as e:
+        return {"error": str(e)}, 400
+    result = db().add_server_image(server_id, session["admin_id"], kind, filename)
+    if result is None:
+        delete_images([filename], config.UPLOAD_DIR)
+        return {"error": f"Die Galerie ist voll (maximal {MAX_GALLERY_IMAGES} Bilder)."}, 400
+    image_id, replaced = result
+    delete_images(replaced, config.UPLOAD_DIR)
+    return {"id": image_id, "url": image_url(filename)}, 201
+
+
+@main_bp.route("/api/servers/<int:server_id>/images/<int:image_id>/delete", methods=["POST"])
+@admin_required
+def delete_server_image_api(server_id, image_id):
+    filename = db().delete_server_image(image_id, session["admin_id"])
+    if filename is None:
+        abort(404)
+    delete_images([filename], config.UPLOAD_DIR)
+    return ("", 200)
+
+
+def image_url(filename):
+    """Absolute URL: images are served from the main domain, also on server subdomains."""
+    return url_for("main.uploaded_image", filename=filename, _external=True)
+
+
+@main_bp.route("/uploads/<filename>")
+def uploaded_image(filename):
+    if not FILENAME_RE.match(filename):
+        abort(404)
+    # names are random and never reused, so the files can be cached forever
+    return send_from_directory(config.UPLOAD_DIR, filename, max_age=31536000)
 
 
 ################################ APP FACTORY #################################
@@ -621,6 +686,7 @@ def delete_server_api(server_id):
 def create_app(db_manager=None, config_overrides=None):
     app = Flask(__name__, subdomain_matching=True)
     app.config.update(
+        MAX_CONTENT_LENGTH=MAX_UPLOAD_BYTES,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         PREFERRED_URL_SCHEME=config.PUBLIC_SCHEME,
@@ -644,6 +710,10 @@ def create_app(db_manager=None, config_overrides=None):
         from database.SMTPMailer import SMTPMailer
         app.extensions["mcconnect_mailer"] = SMTPMailer(config.SMTP_HOST, config.SMTP_PORT,
                                                         config.SMTP_USER, config.SMTP_PASSWORD)
+
+    @app.errorhandler(413)
+    def too_large(error):
+        return {"error": f"Die Datei ist zu groß (maximal {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)."}, 413
 
     @app.after_request
     def allow_font_embedding(response):

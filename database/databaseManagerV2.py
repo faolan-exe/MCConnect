@@ -37,7 +37,18 @@ MIGRATIONS = {
         "ALTER TABLE servers ADD COLUMN whitelist boolean NOT NULL DEFAULT false",
         "ALTER TABLE servers ALTER COLUMN mc_server_domain DROP NOT NULL",
     ],
+    5: [
+        # Images for the server start page. The files live in the upload folder.
+        """CREATE TABLE server_images(
+             id serial PRIMARY KEY,
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             kind text NOT NULL CHECK (kind IN ('banner', 'gallery')),
+             filename text NOT NULL UNIQUE,
+             created_at timestamptz NOT NULL DEFAULT now())""",
+        "CREATE INDEX server_images_server_idx ON server_images (server_id, kind)",
+    ],
 }
+MAX_GALLERY_IMAGES = 12
 SCHEMA_VERSION = max(MIGRATIONS, default=1)
 # A plugin counts as online if it was seen within this time (it sends a heartbeat every 5 seconds).
 PLUGIN_ONLINE_SECONDS = 90
@@ -671,8 +682,61 @@ class DatabaseManager:
                                 (generate_secure_token(64), server_id, owner_id))
 
     def delete_server(self, server_id, owner_id):
-        """Delete the server with all its player data. Returns True if deleted."""
-        return self._execute("DELETE FROM servers WHERE id = %s AND owner_id = %s", (server_id, owner_id)) > 0
+        """
+        Delete the server with all its player data. Returns the filenames of its images
+        (to be removed from disk), or None if the server does not exist / is not owned.
+        """
+        with self._cursor() as cur:
+            cur.execute("SELECT filename FROM server_images WHERE server_id = %s", (server_id,))
+            filenames = [row[0] for row in cur.fetchall()]
+            cur.execute("DELETE FROM servers WHERE id = %s AND owner_id = %s", (server_id, owner_id))
+            if cur.rowcount == 0:
+                return None
+        return filenames
+
+    ###----------------------------- Server images ------------------------------------###
+
+    def add_server_image(self, server_id, owner_id, kind, filename):
+        """
+        Register an uploaded image. A new banner replaces the old one; the gallery holds
+        at most MAX_GALLERY_IMAGES. Returns (image_id, replaced_filenames), or None if the
+        server is not owned by owner_id or the gallery is full.
+        """
+        with self._cursor() as cur:
+            # lock the server row so concurrent uploads cannot exceed the limit
+            cur.execute("SELECT id FROM servers WHERE id = %s AND owner_id = %s FOR UPDATE", (server_id, owner_id))
+            if cur.fetchone() is None:
+                return None
+            replaced = []
+            if kind == "banner":
+                cur.execute("DELETE FROM server_images WHERE server_id = %s AND kind = 'banner' RETURNING filename",
+                            (server_id,))
+                replaced = [row[0] for row in cur.fetchall()]
+            else:
+                cur.execute("SELECT count(*) FROM server_images WHERE server_id = %s AND kind = 'gallery'", (server_id,))
+                if cur.fetchone()[0] >= MAX_GALLERY_IMAGES:
+                    return None
+            cur.execute("INSERT INTO server_images (server_id, kind, filename) VALUES (%s, %s, %s) RETURNING id",
+                        (server_id, kind, filename))
+            return cur.fetchone()[0], replaced
+
+    def get_server_images(self, server_id):
+        """{"banner": filename or None, "gallery": [{"id", "filename"}, ...]} in upload order."""
+        rows = self._fetchall("SELECT id, kind, filename FROM server_images WHERE server_id = %s ORDER BY id",
+                              (server_id,))
+        images = {"banner": None, "gallery": []}
+        for image_id, kind, filename in rows:
+            if kind == "banner":
+                images["banner"] = filename
+            else:
+                images["gallery"].append({"id": image_id, "filename": filename})
+        return images
+
+    def delete_server_image(self, image_id, owner_id):
+        """Delete one image of a server owned by owner_id. Returns its filename or None."""
+        return self._fetchvalue("""DELETE FROM server_images si USING servers s
+                                   WHERE si.id = %s AND si.server_id = s.id AND s.owner_id = %s
+                                   RETURNING si.filename""", (image_id, owner_id))
 
     ###----------------------------- Minecraft stats ------------------------------------###
 

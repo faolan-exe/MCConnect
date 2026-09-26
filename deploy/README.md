@@ -165,9 +165,15 @@ cd deploy && docker compose up -d --build
 
 ## 9. Backups
 
-Der `backup`-Container schreibt jeden Tag einen Dump nach `/opt/mcconnect/deploy/backups/` und
-behält 14 Tage. Nimm den LXC zusätzlich in deine Proxmox-Backups auf, oder kopiere das Verzeichnis
-regelmäßig auf einen anderen Rechner.
+Der `backup`-Container schreibt jeden Tag einen Dump der Datenbank nach
+`/opt/mcconnect/deploy/backups/` und behält 14 Tage. Die hochgeladenen Serverbilder liegen im
+Docker-Volume `mcconnect_uploads` und sind **nicht** im Dump enthalten. Nimm deshalb den ganzen LXC
+in deine Proxmox-Backups auf. Alternativ sicherst du das Volume selbst:
+
+```bash
+docker run --rm -v mcconnect_uploads:/uploads -v "$PWD/backups":/backup alpine \
+  tar czf /backup/uploads-$(date +%F).tar.gz -C /uploads .
+```
 
 Wiederherstellen:
 

@@ -10,7 +10,8 @@ RUN mvn -q -B package && cp target/MCDataLink-*.jar /build/MCDataLink.jar
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    MCC_PLUGIN_JAR=/app/plugin/MCDataLink.jar
+    MCC_PLUGIN_JAR=/app/plugin/MCDataLink.jar \
+    MCC_UPLOAD_DIR=/app/uploads
 WORKDIR /app
 
 COPY requirements.txt .
@@ -21,7 +22,7 @@ COPY mc_socket ./mc_socket
 COPY web ./web
 COPY --from=plugin /build/MCDataLink.jar ./plugin/MCDataLink.jar
 
-RUN useradd --system --create-home --uid 1000 mcconnect && mkdir -p logs && chown mcconnect logs
+RUN useradd --system --create-home --uid 1000 mcconnect && mkdir -p logs uploads && chown mcconnect logs uploads
 USER mcconnect
 
 EXPOSE 8000 9991

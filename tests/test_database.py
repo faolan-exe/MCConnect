@@ -284,6 +284,7 @@ def test_prefixes(db, player_id):
 def test_migration_from_version_1(db):
     with db._cursor() as cur:
         # back to schema version 1
+        cur.execute("DROP TABLE server_images")
         cur.execute("ALTER TABLE servers DROP COLUMN whitelist")
         cur.execute("ALTER TABLE servers ALTER COLUMN mc_server_domain SET NOT NULL")
         cur.execute("DROP TABLE password_reset")
@@ -338,7 +339,7 @@ def test_update_regenerate_delete_only_for_owner(db, admin_id, server):
     intruder = db.add_server_admin("eve", "secret123", "eve@example.com")
     assert db.update_server(server["id"], intruder, server_name="Hacked") is False
     assert db.regenerate_server_key(server["id"], intruder) is None
-    assert db.delete_server(server["id"], intruder) is False
+    assert db.delete_server(server["id"], intruder) is None
 
     assert db.update_server(server["id"], admin_id, server_name="New", server_key="x" * 64) is True
     info = db.get_server_information_dict("testdomain")
@@ -350,7 +351,7 @@ def test_update_regenerate_delete_only_for_owner(db, admin_id, server):
     assert db.get_server_id_by_auth_key(server["key"]) is None
 
     db.ensure_player_on_server(server["id"], PLAYER_UUID)
-    assert db.delete_server(server["id"], admin_id) is True
+    assert db.delete_server(server["id"], admin_id) == []
     assert db.get_server_information_dict("testdomain") is None
     assert db._fetchvalue("SELECT count(*) FROM player_server_info") == 0
 
@@ -490,3 +491,29 @@ def test_whitelist_server_without_address(db, admin_id):
     assert info["id"] == server_id and info["whitelist"] is True and info["mc_server_domain"] is None
     assert db.update_server(server_id, admin_id, whitelist=False, mc_server_domain="play.example.com") is True
     assert db.get_server_information_dict("private")["whitelist"] is False
+
+
+
+# ------------------------------------------------------------------ server images
+
+def test_server_images(db, admin_id, server):
+    from database.databaseManagerV2 import MAX_GALLERY_IMAGES
+    image_id, replaced = db.add_server_image(server["id"], admin_id, "banner", "a" * 32 + ".webp")
+    assert replaced == []
+    _, replaced = db.add_server_image(server["id"], admin_id, "banner", "b" * 32 + ".webp")
+    assert replaced == ["a" * 32 + ".webp"]
+    for i in range(MAX_GALLERY_IMAGES):
+        assert db.add_server_image(server["id"], admin_id, "gallery", f"{i:032x}.webp") is not None
+    assert db.add_server_image(server["id"], admin_id, "gallery", "f" * 32 + ".webp") is None  # full
+    images = db.get_server_images(server["id"])
+    assert images["banner"] == "b" * 32 + ".webp" and len(images["gallery"]) == MAX_GALLERY_IMAGES
+
+    intruder = db.add_server_admin("eve", "secret123", "eve@example.com")
+    first = images["gallery"][0]
+    assert db.add_server_image(server["id"], intruder, "gallery", "e" * 32 + ".webp") is None
+    assert db.delete_server_image(first["id"], intruder) is None
+    assert db.delete_server_image(first["id"], admin_id) == first["filename"]
+
+    filenames = db.delete_server(server["id"], admin_id)
+    assert len(filenames) == MAX_GALLERY_IMAGES  # banner + 11 gallery images
+    assert db._fetchvalue("SELECT count(*) FROM server_images") == 0

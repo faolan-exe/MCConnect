@@ -5,6 +5,8 @@
     <meta charset="UTF-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
     <title>{{ server_name }}</title>
+    <meta name="description" content="{{ server_description_short }}"/>
+    {% if banner_url %}<meta property="og:image" content="{{ banner_url }}"/>{% endif %}
 
     <link href="{{ url_for('static', filename='css/header.css') }}" rel="stylesheet"/>
     <link href="{{ url_for('static', filename='css/fonts.css') }}" rel="stylesheet"/>
@@ -12,60 +14,98 @@
     <link href="{{ url_for('static', filename='images/favicon.ico') }}" rel="icon" type="image/vnd.microsoft.icon"/>
 </head>
 
-<body>
+<body class="srv">
     {% include 'header.html' %}
 
-    <main class="srv">
-        <h1>{{ server_name }}</h1>
-        <p class="srv-tagline">{{ server_description_short }}</p>
+    <main class="srv-main">
+        <section class="srv-hero" {% if banner_url %}style="background-image: url('{{ banner_url }}')"{% endif %}>
+            <div class="srv-wrap srv-hero-inner">
+                {% if whitelist %}
+                <span class="srv-chip srv-chip-whitelist"><span class="srv-dot"></span>Whitelist</span>
+                {% else %}
+                <span class="srv-chip"><span class="srv-dot"></span>Öffentlich</span>
+                {% endif %}
+                <h1>{{ server_name }}</h1>
+                <p class="srv-tagline">{{ server_description_short }}</p>
 
-        <section class="srv-panel">
-            <dl class="srv-facts">
-                <div>
-                    <dt>Zugang</dt>
-                    <dd>
-                        {% if whitelist %}
-                        <span class="srv-tag srv-tag-whitelist">Whitelist</span>
-                        {% else %}
-                        <span class="srv-tag srv-tag-public">Öffentlich</span>
-                        {% endif %}
-                    </dd>
+                <div class="srv-actions">
+                    {% if not whitelist and mc_server_domain %}
+                    <button class="srv-btn srv-btn-primary" type="button" id="copy-address"
+                            data-address="{{ mc_server_domain }}">
+                        <span id="copy-label">Adresse kopieren</span> <code>{{ mc_server_domain }}</code>
+                    </button>
+                    {% endif %}
+                    {% if discord_url %}
+                    <a class="srv-btn srv-btn-discord" href="{{ discord_url }}" target="_blank" rel="noopener noreferrer">Discord beitreten</a>
+                    {% endif %}
+                    <a class="srv-btn srv-btn-ghost" href="/spieler">Spieler &amp; Statistiken</a>
                 </div>
-                {% if not whitelist and mc_server_domain %}
-                <div>
-                    <dt>Adresse</dt>
-                    <dd class="srv-address">
-                        <code id="server-address">{{ mc_server_domain }}</code>
-                        <button class="srv-btn srv-btn-small" type="button" id="copy-address">Kopieren</button>
-                    </dd>
+            </div>
+        </section>
+
+        <div class="srv-wrap">
+            <div class="srv-numbers">
+                <div class="srv-number">
+                    <strong class="srv-live"><span id="player-count">–</span></strong>
+                    <span class="srv-number-label">gerade online</span>
                 </div>
-                {% endif %}
-                <div>
-                    <dt>Gerade online</dt>
-                    <dd><span id="player-count">–</span> Spieler</dd>
+                <div class="srv-number">
+                    <strong>{{ player_total }}</strong>
+                    <span class="srv-number-label">Spieler insgesamt</span>
                 </div>
-                {% if discord_url %}
-                <div>
-                    <dt>Discord</dt>
-                    <dd><a href="{{ discord_url }}" target="_blank" rel="noopener noreferrer">Server beitreten</a></dd>
+                <div class="srv-number">
+                    <strong>{{ "Whitelist" if whitelist else "Offen" }}</strong>
+                    <span class="srv-number-label">{{ "nur mit Freischaltung" if whitelist else "jeder kann mitspielen" }}</span>
                 </div>
-                {% endif %}
-            </dl>
-            {% if whitelist %}
-            <p class="srv-note">
-                Auf diesem Server spielen nur Spieler, die auf der Whitelist stehen.
-                {% if discord_url %}Frag im Discord nach, wenn du mitspielen möchtest.{% else %}Frag die Admins, wenn du mitspielen möchtest.{% endif %}
-            </p>
+            </div>
+
+            {% if gallery_urls %}
+            <section class="srv-section">
+                <h2>Eindrücke</h2>
+                <div class="srv-gallery">
+                    {% for url in gallery_urls %}
+                    <button type="button" data-full="{{ url }}" aria-label="Bild {{ loop.index }} vergrößern">
+                        <img src="{{ url }}" alt="Bild {{ loop.index }} von {{ server_name }}" loading="lazy"/>
+                    </button>
+                    {% endfor %}
+                </div>
+            </section>
             {% endif %}
-        </section>
 
-        <section class="srv-panel">
-            <h2>Über den Server</h2>
-            <p class="srv-description">{{ server_description_long }}</p>
-        </section>
+            <section class="srv-section srv-columns">
+                <div class="srv-card">
+                    <h2>Über den Server</h2>
+                    <p class="srv-description">{{ server_description_long }}</p>
+                </div>
+                <div class="srv-card srv-join">
+                    <h3>So kommst du drauf</h3>
+                    {% if whitelist %}
+                    <p>Auf diesem Server spielen nur Spieler auf der Whitelist.
+                        {% if discord_url %}Frag im Discord nach, wenn du mitspielen möchtest.{% else %}Frag die Admins, wenn du mitspielen möchtest.{% endif %}</p>
+                    {% if discord_url %}
+                    <a class="srv-btn srv-btn-discord" href="{{ discord_url }}" target="_blank" rel="noopener noreferrer">Zum Discord</a>
+                    {% endif %}
+                    {% elif mc_server_domain %}
+                    <ol>
+                        <li>Minecraft Java Edition starten</li>
+                        <li><em>Mehrspieler</em> → <em>Server hinzufügen</em></li>
+                        <li>Als Adresse <code>{{ mc_server_domain }}</code> eintragen</li>
+                    </ol>
+                    <p>Danach siehst du dich hier in der Spielerliste.</p>
+                    {% endif %}
+                </div>
+            </section>
 
-        <a class="srv-btn srv-btn-primary" href="/spieler">Spieler &amp; Statistiken ansehen</a>
+            <div class="srv-cta">
+                <a class="srv-btn srv-btn-primary" href="/spieler">Alle Spieler &amp; Statistiken ansehen</a>
+            </div>
+        </div>
     </main>
+
+    <dialog class="srv-lightbox" id="lightbox">
+        <form method="dialog"><button type="submit">Schließen</button></form>
+        <img id="lightbox-image" alt=""/>
+    </dialog>
 
     <footer>
         <nav>
@@ -86,11 +126,23 @@
         const copyButton = document.getElementById("copy-address");
         if (copyButton) {
             copyButton.addEventListener("click", async () => {
-                await navigator.clipboard.writeText(document.getElementById("server-address").textContent);
-                copyButton.textContent = "Kopiert";
-                setTimeout(() => (copyButton.textContent = "Kopieren"), 2000);
+                await navigator.clipboard.writeText(copyButton.dataset.address);
+                const label = document.getElementById("copy-label");
+                label.textContent = "Kopiert:";
+                setTimeout(() => (label.textContent = "Adresse kopieren"), 2000);
             });
         }
+
+        const lightbox = document.getElementById("lightbox");
+        document.querySelectorAll(".srv-gallery button").forEach((button) => {
+            button.addEventListener("click", () => {
+                document.getElementById("lightbox-image").src = button.dataset.full;
+                lightbox.showModal();
+            });
+        });
+        lightbox.addEventListener("click", (event) => {
+            if (event.target === lightbox) lightbox.close();  // click on the backdrop
+        });
     </script>
 </body>
 
