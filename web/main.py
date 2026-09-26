@@ -6,6 +6,8 @@ Server pages (<subdomain>.SERVER_NAME): player list, player stats, player login.
 Run for development:  python web/main.py
 Run in production:    gunicorn 'web.main:create_app()'
 """
+import functools
+import glob
 import json
 import os
 import re
@@ -21,7 +23,8 @@ if PROJECT_ROOT not in sys.path:
 import psycopg2.errors
 from colorlogx import get_logger
 from flask import (Blueprint, Flask, Response, abort, current_app, g, redirect, render_template,
-                   request, session, stream_with_context)
+                   request, send_file, session, stream_with_context)
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from database import config
 from database.databaseManagerV2 import DatabaseManager
@@ -32,6 +35,9 @@ logger = get_logger("webServer")
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MIN_PASSWORD_LENGTH = 8
+SUBDOMAIN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$")
+RESERVED_SUBDOMAINS = {"www", "mc", "api", "admin", "app", "mail", "smtp", "static", "plugin", "connect",
+                       "socket", "traefik", "dashboard", "status", "help", "support", "login", "manage"}
 SSE_INTERVAL_SECONDS = 2
 # SSE streams end after this time; the browser's EventSource reconnects on its own.
 # Keeps worker threads from being blocked forever by forgotten tabs.
@@ -183,6 +189,9 @@ def minecraft_login_api():
             return _login_error("Invalid username", "Dieser Spieler war noch nie auf diesem Server.")
         if not db().get_online_status_by_player_id(player_id):
             return _login_error("You are offline", "Du musst auf dem Server online sein, um dich einzuloggen.")
+        if not db().is_plugin_online(g.server["id"]):
+            return _login_error("Server not connected",
+                                "Der Minecraft-Server ist gerade nicht mit MCConnect verbunden. Versuche es später erneut.")
         db().add_login_entry_from_player_id(player_id, secrets.randbelow(900000) + 100000)
         session["login_player_id"] = str(player_id)
         session["login_server_id"] = g.server["id"]
@@ -267,7 +276,48 @@ def stream_player_info(player_name):
     return sse_response(player_info)
 
 
+
+
+################################ LEGAL PAGES (all domains) #################################
+
+def render_legal(page):
+    return render_template(f"legal_{page}.html", legal={
+        "name": config.LEGAL_NAME, "address": config.LEGAL_ADDRESS,
+        "email": config.LEGAL_EMAIL, "phone": config.LEGAL_PHONE,
+    })
+
+
+@main_bp.route("/impressum")
+@server_bp.route("/impressum")
+def impressum():
+    return render_legal("impressum")
+
+
+@main_bp.route("/datenschutz")
+@server_bp.route("/datenschutz")
+def datenschutz():
+    return render_legal("datenschutz")
+
+
 ################################ MAIN DOMAIN #################################
+
+@main_bp.context_processor
+def inject_main_context():
+    return {"admin_username": session.get("admin_username")}
+
+
+def admin_required(view):
+    """Pages redirect to /login, API calls (JSON only, which also blocks cross-site forms) get 401/415."""
+    @functools.wraps(view)
+    def wrapper(*args, **kwargs):
+        is_api = request.path.startswith("/api/")
+        if not session.get("admin_id"):
+            return ({"error": "not logged in"}, 401) if is_api else redirect("/login")
+        if is_api and request.method == "POST" and not request.is_json:
+            return {"error": "json required"}, 415
+        return view(*args, **kwargs)
+    return wrapper
+
 
 @main_bp.route("/")
 def main_index_route():
@@ -276,21 +326,25 @@ def main_index_route():
 
 @main_bp.route("/login")
 def server_admin_login():
+    if session.get("admin_id"):
+        return redirect("/manage")
     return render_template("serverAdminLogin.html")
 
 
 @main_bp.route("/create")
+@admin_required
 def create_new_server():
-    if not session.get("admin_id"):
-        return redirect("/login")
-    return render_template("serverAdminCreate.html")
+    return render_template("serverAdminCreate.html", base_domain=current_app.config["SERVER_NAME"])
 
 
 @main_bp.route("/manage")
+@admin_required
 def manage_server():
-    if not session.get("admin_id"):
-        return redirect("/login")
-    return render_template("serverAdminManage.html")
+    return render_template("serverAdminManage.html",
+                           servers=db().get_servers_by_owner(session["admin_id"]),
+                           base_domain=current_app.config["SERVER_NAME"],
+                           plugin_host=config.PLUGIN_PUBLIC_HOST, plugin_port=config.PLUGIN_PUBLIC_PORT,
+                           plugin_available=plugin_jar_path() is not None)
 
 
 @main_bp.route("/healthz")
@@ -305,6 +359,23 @@ def stream_total_player_count():
     return sse_response(database.get_online_player_count_total)
 
 
+def plugin_jar_path():
+    if config.PLUGIN_JAR:
+        return config.PLUGIN_JAR if os.path.isfile(config.PLUGIN_JAR) else None
+    builds = sorted(glob.glob(os.path.join(PROJECT_ROOT, "java plugin", "MCDataLink", "target", "MCDataLink-*.jar")))
+    return builds[-1] if builds else None
+
+
+@main_bp.route("/download/MCDataLink.jar")
+def download_plugin():
+    path = plugin_jar_path()
+    if path is None:
+        abort(404)
+    return send_file(path, as_attachment=True, download_name="MCDataLink.jar")
+
+
+################################ SERVER ADMIN API #################################
+
 @main_bp.route("/api/signup", methods=["POST"])
 def signup():
     data = request.get_json(silent=True) or {}
@@ -312,23 +383,23 @@ def signup():
     email = (data.get("email") or "").strip()
     password = data.get("password") or ""
     if not USERNAME_RE.match(username):
-        return {"error": "invalid username"}, 400
+        return {"error": "Der Benutzername muss 3-32 Zeichen lang sein (Buchstaben, Zahlen, _ . -)."}, 400
     if not EMAIL_RE.match(email):
-        return {"error": "invalid email"}, 400
+        return {"error": "Die E-Mail-Adresse ist ungültig."}, 400
     if len(password) < MIN_PASSWORD_LENGTH:
-        return {"error": "password too short"}, 400
+        return {"error": f"Das Passwort muss mindestens {MIN_PASSWORD_LENGTH} Zeichen lang sein."}, 400
 
     try:
         admin_id = db().add_server_admin(username, password, email)
     except psycopg2.errors.UniqueViolation:
-        return {"error": "username or email already taken"}, 409
+        return {"error": "Benutzername oder E-Mail-Adresse ist bereits vergeben."}, 409
     token = db().create_email_verification(admin_id)
     link = f"{config.PUBLIC_SCHEME}://{current_app.config['SERVER_NAME']}/verify_email/{username}/{token}"
     mailer = current_app.extensions.get("mcconnect_mailer")
     if mailer:
         mailer.send_email(email, "MCConnect: E-Mail bestätigen",
                           f'<p>Hallo {username},</p><p>bitte bestätige deine E-Mail-Adresse: '
-                          f'<a href="{link}">{link}</a></p>')
+                          f'<a href="{link}">{link}</a></p><p>Der Link ist 24 Stunden gültig.</p>')
     else:
         logger.warning(f"No SMTP configured, verification link for {username}: {link}")
     return ("", 200)
@@ -342,6 +413,7 @@ def server_login_api():
         session.clear()
         session["admin_id"] = db().get_admin_id_by_username(username)
         session["admin_username"] = username
+        session.permanent = True
         return ("", 200)
     return ("", 400)
 
@@ -354,9 +426,88 @@ def logout():
 
 @main_bp.route("/verify_email/<username>/<token>")
 def verify_email(username, token):
-    if db().verify_signupcode(username, token):
-        return ("E-Mail bestätigt, du kannst dich jetzt einloggen.", 200)
-    return ("Der Link ist ungültig oder abgelaufen.", 400)
+    ok = db().verify_signupcode(username, token)
+    return render_template("message.html", ok=ok,
+                           title="E-Mail bestätigt" if ok else "Link ungültig",
+                           text="Du kannst dich jetzt einloggen." if ok else
+                           "Der Link ist ungültig oder abgelaufen. Registriere dich bitte erneut."), 200 if ok else 400
+
+
+def _validate_server_fields(data, creating):
+    """Return (fields, error). Only fields present in data are validated (all are required when creating)."""
+    fields, specs = {}, {
+        "server_name": (1, 64), "mc_server_domain": (1, 253),
+        "server_description_short": (1, 200), "server_description_long": (1, 5000), "discord_url": (0, 300),
+    }
+    for key, (min_len, max_len) in specs.items():
+        if key not in data and not creating:
+            continue
+        value = str(data.get(key) or "").strip()
+        if not min_len <= len(value) <= max_len:
+            return None, f"Feld '{key}' muss {min_len}-{max_len} Zeichen lang sein."
+        fields[key] = value
+    if " " in fields.get("mc_server_domain", ""):
+        return None, "Die Server-Adresse darf keine Leerzeichen enthalten."
+    discord = fields.get("discord_url")
+    if discord and not re.match(r"^https://(discord\.gg|discord\.com|www\.discord\.com)/\S+$", discord):
+        return None, "Der Discord-Link muss mit https://discord.gg/ oder https://discord.com/ beginnen."
+    if "discord_url" in fields and not discord:
+        fields["discord_url"] = None
+    return fields, None
+
+
+@main_bp.route("/api/servers", methods=["POST"])
+@admin_required
+def create_server_api():
+    data = request.get_json(silent=True) or {}
+    subdomain = str(data.get("subdomain") or "").strip().lower()
+    if not SUBDOMAIN_RE.match(subdomain):
+        return {"error": "Die Subdomain muss 3-32 Zeichen lang sein (a-z, 0-9, -)."}, 400
+    if subdomain in RESERVED_SUBDOMAINS:
+        return {"error": "Diese Subdomain ist reserviert."}, 400
+    fields, error = _validate_server_fields(data, creating=True)
+    if error:
+        return {"error": error}, 400
+    try:
+        server_id = db().add_server(session["admin_id"], subdomain, fields["mc_server_domain"], fields["server_name"],
+                                    server_description_short=fields["server_description_short"],
+                                    server_description_long=fields["server_description_long"],
+                                    discord_url=fields["discord_url"])
+    except psycopg2.errors.UniqueViolation:
+        return {"error": "Diese Subdomain ist bereits vergeben."}, 409
+    return {"id": server_id, "subdomain": subdomain}, 201
+
+
+@main_bp.route("/api/servers/<int:server_id>/update", methods=["POST"])
+@admin_required
+def update_server_api(server_id):
+    fields, error = _validate_server_fields(request.get_json(silent=True) or {}, creating=False)
+    if error:
+        return {"error": error}, 400
+    if not db().update_server(server_id, session["admin_id"], **fields):
+        abort(404)
+    return ("", 200)
+
+
+@main_bp.route("/api/servers/<int:server_id>/regenerate_key", methods=["POST"])
+@admin_required
+def regenerate_key_api(server_id):
+    key = db().regenerate_server_key(server_id, session["admin_id"])
+    if key is None:
+        abort(404)
+    return {"server_key": key}
+
+
+@main_bp.route("/api/servers/<int:server_id>/delete", methods=["POST"])
+@admin_required
+def delete_server_api(server_id):
+    servers = {s["id"]: s for s in db().get_servers_by_owner(session["admin_id"])}
+    if server_id not in servers:
+        abort(404)
+    if (request.get_json(silent=True) or {}).get("confirm") != servers[server_id]["subdomain"]:
+        return {"error": "Zur Bestätigung die Subdomain eingeben."}, 400
+    db().delete_server(server_id, session["admin_id"])
+    return ("", 200)
 
 
 ################################ APP FACTORY #################################
@@ -366,6 +517,10 @@ def create_app(db_manager=None, config_overrides=None):
     app.config.update(
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
+        PREFERRED_URL_SCHEME=config.PUBLIC_SCHEME,
+        FEATURE_PREFIXES=False,      # prefix pages are not implemented yet
+        FEATURE_ADMIN_PANEL=False,   # in-game admin panel (/users) is not implemented yet
+        PROXY_FIX=False,             # set FLASK_PROXY_FIX=true behind traefik/nginx
     )
     app.config.from_pyfile(os.path.join(app.root_path, "config.py"), silent=True)
     app.config.from_pyfile(os.path.join(app.root_path, "instance", "config.py"), silent=True)
@@ -375,6 +530,8 @@ def create_app(db_manager=None, config_overrides=None):
         app.config["SERVER_NAME"] = config.BASE_DOMAIN
     if not app.config.get("SECRET_KEY"):
         raise RuntimeError("No SECRET_KEY configured (web/instance/config.py or FLASK_SECRET_KEY)")
+    if app.config["PROXY_FIX"]:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
     app.extensions["mcconnect_db"] = db_manager or DatabaseManager()
     if config.SMTP_HOST:

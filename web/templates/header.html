@@ -75,6 +75,7 @@
               </button>
             </div>
           </li>
+          {% if config.FEATURE_PREFIXES %}
           <li>
             <div class="dropdown">
               <button
@@ -88,7 +89,8 @@
               </div>
             </div>
           </li>
-          {% if perm <= 1 %}
+          {% endif %}
+          {% if config.FEATURE_ADMIN_PANEL and perm <= 1 %}
           <li>
             <div class="dropdown">
               <button

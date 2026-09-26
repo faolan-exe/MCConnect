@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Meine Server – MCConnect{% endblock %}
+{% block content %}
+<div class="server-head" style="margin-bottom: 24px">
+  <div>
+    <h1>Meine Server</h1>
+    <p class="lead" style="margin: 0">Verbinde deinen Server mit dem Plugin und verwalte die Serverseite.</p>
+  </div>
+  <a class="btn" href="/create">Server hinzufügen</a>
+</div>
+
+{% if not servers %}
+<div class="card">
+  <h2>Noch kein Server</h2>
+  <p>Lege deinen ersten Server an, um den Plugin-Key zu bekommen.</p>
+  <a class="btn" href="/create">Server hinzufügen</a>
+</div>
+{% endif %}
+
+{% for server in servers %}
+{% set url = config.PREFERRED_URL_SCHEME ~ "://" ~ server.subdomain ~ "." ~ base_domain %}
+<div class="card" id="server-{{ server.id }}">
+  <div class="server-head">
+    <div>
+      <h2>{{ server.server_name }}</h2>
+      <p class="meta"><a href="{{ url }}" target="_blank">{{ server.subdomain }}.{{ base_domain }}</a>
+        · {{ server.player_count }} Spieler bekannt</p>
+    </div>
+    {% if server.plugin_online %}
+    <span class="badge badge-online">Plugin verbunden</span>
+    {% else %}
+    <span class="badge badge-offline">Plugin nicht verbunden</span>
+    {% endif %}
+  </div>
+
+  <details {% if not server.plugin_online %}open{% endif %}>
+    <summary>Plugin einrichten</summary>
+    <ol class="steps">
+      <li>
+        {% if plugin_available %}
+        <a href="/download/MCDataLink.jar">MCDataLink.jar herunterladen</a>
+        {% else %}
+        MCDataLink.jar (Download gerade nicht verfügbar)
+        {% endif %}
+        und in den <code>plugins</code>-Ordner deines Servers legen (Spigot/Paper 1.13+).
+      </li>
+      <li>Server einmal starten, danach <code>plugins/MCDataLink/config.yml</code> so befüllen:
+        <pre id="config-{{ server.id }}">key: {{ server.server_key }}
+host: {{ plugin_host }}
+port: {{ plugin_port }}</pre>
+        <div class="btn-row" style="margin-top: 8px">
+          <button class="btn btn-secondary" type="button" onclick="copyConfig({{ server.id }}, this)">Kopieren</button>
+        </div>
+      </li>
+      <li>Server neu starten. Sobald das Plugin verbunden ist, erscheint hier „Plugin verbunden“.</li>
+    </ol>
+    <p class="hint">Der Key ist geheim. Wenn er in falsche Hände gerät, erzeuge einen neuen.</p>
+  </details>
+
+  <details>
+    <summary>Serverseite bearbeiten</summary>
+    <form onsubmit="updateServer(event, {{ server.id }})">
+      <label>Name des Servers</label>
+      <input name="server_name" required maxlength="64" value="{{ server.server_name }}" />
+      <label>Adresse zum Verbinden</label>
+      <input name="mc_server_domain" required maxlength="253" value="{{ server.mc_server_domain }}" />
+      <label>Kurzbeschreibung</label>
+      <input name="server_description_short" required maxlength="200" value="{{ server.server_description_short }}" />
+      <label>Beschreibung</label>
+      <textarea name="server_description_long" required maxlength="5000">{{ server.server_description_long }}</textarea>
+      <label>Discord-Einladung <span class="hint">(optional)</span></label>
+      <input name="discord_url" type="url" maxlength="300" value="{{ server.discord_url or '' }}" />
+      <div class="btn-row"><button class="btn" type="submit">Speichern</button></div>
+      <div class="message"></div>
+    </form>
+  </details>
+
+  <details>
+    <summary>Gefahrenzone</summary>
+    <p>Ein neuer Key trennt das Plugin, bis du die neue <code>config.yml</code> einträgst.</p>
+    <div class="btn-row" style="margin-top: 0">
+      <button class="btn btn-secondary" type="button" onclick="regenerateKey({{ server.id }})">Neuen Key erzeugen</button>
+    </div>
+    <p style="margin-top: 20px">Löschen entfernt den Server mit allen Spielerdaten und Statistiken endgültig.
+      Gib zur Bestätigung <code>{{ server.subdomain }}</code> ein.</p>
+    <div class="input-suffix">
+      <input id="confirm-{{ server.id }}" placeholder="{{ server.subdomain }}" />
+      <button class="btn btn-danger" style="border-radius: 0 8px 8px 0" type="button"
+              onclick="deleteServer({{ server.id }})">Löschen</button>
+    </div>
+    <div class="message" id="danger-message-{{ server.id }}"></div>
+  </details>
+</div>
+{% endfor %}
+{% endblock %}
+{% block scripts %}
+<script>
+  async function copyConfig(id, button) {
+    await navigator.clipboard.writeText(document.getElementById("config-" + id).textContent);
+    button.textContent = "Kopiert!";
+    setTimeout(() => (button.textContent = "Kopieren"), 2000);
+  }
+
+  async function updateServer(event, id) {
+    event.preventDefault();
+    const form = event.target;
+    const body = Object.fromEntries(new FormData(form).entries());
+    const result = await postJson(`/api/servers/${id}/update`, body);
+    showMessage(form.querySelector(".message"),
+                result.ok ? "Gespeichert." : (result.data.error || "Speichern fehlgeschlagen."),
+                result.ok ? "success" : "error");
+  }
+
+  async function regenerateKey(id) {
+    const result = await postJson(`/api/servers/${id}/regenerate_key`);
+    if (result.ok) {
+      window.location.reload();
+    } else {
+      showMessage(document.getElementById("danger-message-" + id), "Das hat nicht geklappt.", "error");
+    }
+  }
+
+  async function deleteServer(id) {
+    const result = await postJson(`/api/servers/${id}/delete`, {
+      confirm: document.getElementById("confirm-" + id).value,
+    });
+    if (result.ok) {
+      window.location.reload();
+    } else {
+      showMessage(document.getElementById("danger-message-" + id),
+                  result.data.error || "Löschen fehlgeschlagen.", "error");
+    }
+  }
+</script>
+{% endblock %}

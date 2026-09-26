@@ -34,3 +34,16 @@ SMTP_HOST = _env("MCC_SMTP_HOST")
 SMTP_PORT = int(_env("MCC_SMTP_PORT", "587"))
 SMTP_USER = _env("MCC_SMTP_USER")
 SMTP_PASSWORD = _env("MCC_SMTP_PASSWORD")
+
+# Address the plugin connects to, shown on the manage page (defaults to the base domain).
+PLUGIN_PUBLIC_HOST = _env("MCC_PLUGIN_PUBLIC_HOST", BASE_DOMAIN.split(":")[0])
+PLUGIN_PUBLIC_PORT = int(_env("MCC_PLUGIN_PUBLIC_PORT", str(SOCKET_PORT)))
+# Plugin jar offered for download; defaults to the local maven build output.
+PLUGIN_JAR = _env("MCC_PLUGIN_JAR")
+
+# Operator details for the legal pages (Impressum / Datenschutz).
+# MCC_LEGAL_ADDRESS lines are separated by ";".
+LEGAL_NAME = _env("MCC_LEGAL_NAME")
+LEGAL_ADDRESS = [line.strip() for line in _env("MCC_LEGAL_ADDRESS", "").split(";") if line.strip()]
+LEGAL_EMAIL = _env("MCC_LEGAL_EMAIL")
+LEGAL_PHONE = _env("MCC_LEGAL_PHONE")

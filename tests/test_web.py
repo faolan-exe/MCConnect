@@ -32,6 +32,7 @@ def first_event(response):
 
 @pytest.fixture
 def online_player(db, server):
+    db.set_plugin_connected(server["id"], True)
     player_id = db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
     db.update_player_stats(player_id, {"stats": {
         "minecraft:mined": {"minecraft:stone": 10},
@@ -243,3 +244,140 @@ def test_manage_requires_login(client):
     response = client.get("/manage", **on(None))
     assert response.status_code == 302
     assert response.location.endswith("/login")
+
+
+# ------------------------------------------------------------------ plugin status in login
+
+def test_login_requires_connected_plugin(client, db, server, online_player):
+    db.set_plugin_connected(server["id"], False)
+    response = client.post("/api/login", json={"username": "_Tobias4444", "pin": None}, **on("testdomain"))
+    assert response.json["response"] == "Server not connected"
+
+
+# ------------------------------------------------------------------ legal pages & menu
+
+@pytest.mark.parametrize("subdomain", [None, "testdomain"])
+@pytest.mark.parametrize("page", ["/impressum", "/datenschutz"])
+def test_legal_pages(client, server, subdomain, page):
+    assert client.get(page, **on(subdomain)).status_code == 200
+
+
+def test_impressum_shows_configured_operator(client, monkeypatch):
+    from database import config
+    monkeypatch.setattr(config, "LEGAL_NAME", "Max Muster")
+    monkeypatch.setattr(config, "LEGAL_ADDRESS", ["Weg 1", "12345 Stadt"])
+    monkeypatch.setattr(config, "LEGAL_EMAIL", "max@example.com")
+    body = client.get("/impressum", **on(None)).data.decode()
+    assert "Max Muster" in body and "12345 Stadt" in body and "nicht konfiguriert" not in body
+
+
+def test_unfinished_menu_items_are_hidden(client, server):
+    body = client.get("/", **on("testdomain")).data.decode()
+    assert "/add_pref" not in body and "/users" not in body
+
+
+def test_menu_items_can_be_enabled(db, server):
+    app = create_app(db, {"TESTING": True, "SECRET_KEY": "t", "SERVER_NAME": BASE, "FEATURE_PREFIXES": True})
+    assert "/add_pref" in app.test_client().get("/", **on("testdomain")).data.decode()
+
+
+def test_server_description_is_escaped(client, db, admin_id):
+    db.add_server(admin_id, "xss", "x.example.com", "X", server_description_long="<script>alert(1)</script>\nline2")
+    body = client.get("/", **on("xss")).data.decode()
+    assert "<script>alert(1)</script>" not in body
+    assert "&lt;script&gt;" in body
+
+
+# ------------------------------------------------------------------ server admin area
+
+@pytest.fixture
+def admin_client(client, admin_id):
+    assert client.post("/api/login", json={"username": "tobi", "password": "testPassword"}, **on(None)).status_code == 200
+    return client
+
+
+NEW_SERVER = {"subdomain": "survival", "server_name": "Survival", "mc_server_domain": "play.example.com",
+              "server_description_short": "short", "server_description_long": "long",
+              "discord_url": "https://discord.gg/abc"}
+
+
+def test_admin_pages_require_login(client):
+    assert client.get("/create", **on(None)).status_code == 302
+    assert client.post("/api/servers", json=NEW_SERVER, **on(None)).status_code == 401
+
+
+def test_admin_api_requires_json(admin_client):
+    assert admin_client.post("/api/servers", data=NEW_SERVER, **on(None)).status_code == 415
+
+
+def test_create_server(admin_client, db, admin_id):
+    response = admin_client.post("/api/servers", json=dict(NEW_SERVER, subdomain="Survival"), **on(None))
+    assert response.status_code == 201
+    assert response.json["subdomain"] == "survival"
+    info = db.get_server_information_dict("survival")
+    assert info["owner_id"] == admin_id and info["discord_url"] == "https://discord.gg/abc"
+    assert admin_client.get("/", **on("survival")).status_code == 200
+
+    manage = admin_client.get("/manage", **on(None)).data.decode()
+    key = db._fetchvalue("SELECT server_key FROM servers WHERE subdomain = 'survival'")
+    assert key in manage and "Plugin nicht verbunden" in manage
+    assert admin_client.post("/api/servers", json=NEW_SERVER, **on(None)).status_code == 409
+
+
+@pytest.mark.parametrize("changes", [
+    {"subdomain": "ab"}, {"subdomain": "-bad-"}, {"subdomain": "www"}, {"subdomain": "a.b.c"},
+    {"server_name": ""}, {"mc_server_domain": "has space"},
+    {"discord_url": "javascript:alert(1)"}, {"discord_url": "https://evil.com/x"},
+    {"server_description_short": "x" * 201},
+])
+def test_create_server_validation(admin_client, changes):
+    assert admin_client.post("/api/servers", json=dict(NEW_SERVER, **changes), **on(None)).status_code == 400
+
+
+def test_update_server(admin_client, db, server):
+    response = admin_client.post(f"/api/servers/{server['id']}/update",
+                                 json={"server_name": "Renamed", "discord_url": ""}, **on(None))
+    assert response.status_code == 200
+    info = db.get_server_information_dict("testdomain")
+    assert info["server_name"] == "Renamed" and info["discord_url"] is None
+    assert admin_client.post(f"/api/servers/{server['id']}/update", json={"discord_url": "javascript:x"},
+                             **on(None)).status_code == 400
+
+
+def test_regenerate_key(admin_client, db, server):
+    response = admin_client.post(f"/api/servers/{server['id']}/regenerate_key", json={}, **on(None))
+    assert response.status_code == 200
+    assert db.get_server_id_by_auth_key(response.json["server_key"]) == server["id"]
+
+
+def test_delete_server_needs_confirmation(admin_client, db, server):
+    url = f"/api/servers/{server['id']}/delete"
+    assert admin_client.post(url, json={"confirm": "wrong"}, **on(None)).status_code == 400
+    assert admin_client.post(url, json={"confirm": "testdomain"}, **on(None)).status_code == 200
+    assert db.get_server_information_dict("testdomain") is None
+
+
+def test_cannot_touch_servers_of_other_admins(client, db, server):
+    db.add_server_admin("eve", "secret123", "eve@example.com", email_verified=True)
+    client.post("/api/login", json={"username": "eve", "password": "secret123"}, **on(None))
+    for action, body in [("update", {"server_name": "x"}), ("regenerate_key", {}), ("delete", {"confirm": "testdomain"})]:
+        assert client.post(f"/api/servers/{server['id']}/{action}", json=body, **on(None)).status_code == 404
+    assert server["key"] not in client.get("/manage", **on(None)).data.decode()
+
+
+def test_plugin_download(client, monkeypatch, tmp_path):
+    from database import config
+    monkeypatch.setattr(config, "PLUGIN_JAR", str(tmp_path / "missing.jar"))
+    assert client.get("/download/MCDataLink.jar", **on(None)).status_code == 404
+    jar = tmp_path / "MCDataLink-3.0.jar"
+    jar.write_bytes(b"PK jar")
+    monkeypatch.setattr(config, "PLUGIN_JAR", str(jar))
+    response = client.get("/download/MCDataLink.jar", **on(None))
+    assert response.status_code == 200 and response.data == b"PK jar"
+    assert "attachment" in response.headers["Content-Disposition"]
+
+
+def test_proxy_fix_uses_forwarded_scheme(db, server):
+    app = create_app(db, {"TESTING": True, "SECRET_KEY": "t", "SERVER_NAME": BASE, "PROXY_FIX": True})
+    body = app.test_client().get("/", headers={"X-Forwarded-Proto": "https"}, **on("testdomain")).data.decode()
+    assert f"https://{BASE}/static/" in body

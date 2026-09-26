@@ -4,7 +4,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from database import stats
-from database.databaseManagerV2 import (DatabaseManager, DatabaseNotInitializedError, MAX_LOGIN_ATTEMPTS)
+from database.databaseManagerV2 import (DatabaseManager, DatabaseNotInitializedError, MAX_LOGIN_ATTEMPTS,
+                                         SCHEMA_VERSION)
 from tests.conftest import OTHER_UUID, PLAYER_UUID, TEST_DB_CONFIG, FakeMinecraft
 
 
@@ -16,7 +17,7 @@ def test_schema_version_mismatch_is_rejected(db):
             DatabaseManager(db_config=TEST_DB_CONFIG, minecraft=FakeMinecraft()).close()
     finally:
         with db._cursor() as cur:
-            cur.execute("UPDATE schema_version SET version = 1")
+            cur.execute("UPDATE schema_version SET version = %s", (SCHEMA_VERSION,))
 
 
 def test_lookup_tables_are_filled(db):
@@ -276,3 +277,73 @@ def test_prefixes(db, player_id):
     db.update_prefix_text_by_prefix_id(prefix_id, "NEW")
     assert db.get_prefix_text_by_prefix_id(prefix_id) == "NEW"
     assert db.get_members_from_prefix_id(prefix_id) == [player_id]
+
+
+# ------------------------------------------------------------------ migrations & server admin
+
+def test_migration_from_version_1(db):
+    with db._cursor() as cur:
+        cur.execute("ALTER TABLE servers DROP COLUMN plugin_connected, DROP COLUMN plugin_last_seen")
+        cur.execute("UPDATE schema_version SET version = 1")
+    db.migrate()
+    assert db.get_schema_version() == SCHEMA_VERSION
+    assert db._fetchvalue("SELECT count(*) FROM information_schema.columns "
+                          "WHERE table_name = 'servers' AND column_name LIKE 'plugin_%%'") == 2
+    db.migrate()  # nothing left to do
+    assert db.get_schema_version() == SCHEMA_VERSION
+
+
+def test_foreign_tables_without_version_are_rejected(db):
+    with db._cursor() as cur:
+        cur.execute("ALTER TABLE schema_version RENAME TO schema_version_tmp")
+    try:
+        with pytest.raises(DatabaseNotInitializedError):
+            DatabaseManager(db_config=TEST_DB_CONFIG, minecraft=FakeMinecraft()).close()
+    finally:
+        with db._cursor() as cur:
+            cur.execute("ALTER TABLE schema_version_tmp RENAME TO schema_version")
+
+
+def test_plugin_online_status(db, server):
+    assert db.is_plugin_online(server["id"]) is False
+    db.set_plugin_connected(server["id"], True)
+    assert db.is_plugin_online(server["id"]) is True
+    with db._cursor() as cur:
+        cur.execute("UPDATE servers SET plugin_last_seen = now() - interval '5 minutes'")
+    assert db.is_plugin_online(server["id"]) is False  # connected flag is stale
+    db.touch_plugin(server["id"])
+    assert db.is_plugin_online(server["id"]) is True
+    db.set_plugin_connected(server["id"], False)
+    assert db.is_plugin_online(server["id"]) is False
+
+
+def test_servers_by_owner(db, admin_id, server, other_server):
+    db.ensure_player_on_server(server["id"], PLAYER_UUID)
+    servers = db.get_servers_by_owner(admin_id)
+    assert [s["subdomain"] for s in servers] == ["testdomain", "other"]
+    assert servers[0]["server_key"] == server["key"]
+    assert servers[0]["player_count"] == 1
+    assert servers[0]["plugin_online"] is False
+    other_admin = db.add_server_admin("eve", "secret123", "eve@example.com")
+    assert db.get_servers_by_owner(other_admin) == []
+
+
+def test_update_regenerate_delete_only_for_owner(db, admin_id, server):
+    intruder = db.add_server_admin("eve", "secret123", "eve@example.com")
+    assert db.update_server(server["id"], intruder, server_name="Hacked") is False
+    assert db.regenerate_server_key(server["id"], intruder) is None
+    assert db.delete_server(server["id"], intruder) is False
+
+    assert db.update_server(server["id"], admin_id, server_name="New", server_key="x" * 64) is True
+    info = db.get_server_information_dict("testdomain")
+    assert info["server_name"] == "New"
+    assert db.get_server_id_by_auth_key(server["key"]) == server["id"]  # key is not an editable field
+
+    new_key = db.regenerate_server_key(server["id"], admin_id)
+    assert new_key != server["key"] and len(new_key) == 64
+    assert db.get_server_id_by_auth_key(server["key"]) is None
+
+    db.ensure_player_on_server(server["id"], PLAYER_UUID)
+    assert db.delete_server(server["id"], admin_id) is True
+    assert db.get_server_information_dict("testdomain") is None
+    assert db._fetchvalue("SELECT count(*) FROM player_server_info") == 0

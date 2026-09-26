@@ -1,103 +1,69 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Login to your Account</title>
-    <link
-      href="{{ url_for('static', filename='css/header.css') }}"
-      rel="stylesheet"
-    />
-    <link
-      href="{{ url_for('static', filename='css/index.css') }}"
-      rel="stylesheet"
-    />
-    <link
-      rel="stylesheet"
-      href="{{ url_for('static', filename='css/responsiveIndex.css') }}"
-    />
-    <link
-      href="{{ url_for('static', filename='images/favicon.ico') }}"
-      rel="icon"
-      type="image/vnd.microsoft.icon"
-    />
-  </head>
-  <body>
-    <p>Sign up</p>
-    <input type="text" placeholder="Username" id="usernameS" />
-    <input type="password" placeholder="Password" id="passwordS" />
-    <input type="password" placeholder="Password wiederholen" id="password2" />
-    <input type="text" placeholder="E-Mail" id="email" />
-    <button id="signup">Sign up</button>
-    <p>Sign in</p>
-    <input type="text" placeholder="Username" id="usernameL" />
-    <input type="password" placeholder="Password" id="passwordL" />
-    <button id="login">Sign in</button>
-    <button id="reset">Passwort vergessen</button>
+{% extends "base.html" %}
+{% block title %}Login – MCConnect{% endblock %}
+{% block content %}
+<h1>Login für Server-Admins</h1>
+<p class="lead">Melde dich an, um deine Server zu verwalten, oder erstelle einen neuen Account.</p>
+<div class="grid-2">
+  <form class="card" id="login-form">
+    <h2>Einloggen</h2>
+    <label for="usernameL">Benutzername</label>
+    <input id="usernameL" autocomplete="username" required />
+    <label for="passwordL">Passwort</label>
+    <input id="passwordL" type="password" autocomplete="current-password" required />
+    <div class="btn-row"><button class="btn" type="submit">Einloggen</button></div>
+    <div class="message" id="login-message"></div>
+  </form>
 
-    <script>
-      function validateForm(password, password2, email) {
-        emailReg = /[a-zA-Z0-9_\.\+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-\.]+/;
-        if (password != password2) {
-          alert("Passwörter stimmen nicht überein");
-          return false;
-        }
-        if (!email.match(emailReg)) {
-          alert("E-Mail ist nicht gültig");
-          return false;
-        }
-        if (password.length < 8) {
-          alert("Passwort muss mindestens 8 Zeichen lang sein");
-          return false;
-        }
-        return true;
-      }
-      document.getElementById("signup").addEventListener("click", function () {
-        let password = document.getElementById("passwordS").value;
-        let password2 = document.getElementById("password2").value;
-        let email = document.getElementById("email").value;
-        let username = document.getElementById("usernameS").value;
-        if (validateForm(password, password2, email)) {
-          fetch("/api/signup", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              username: username,
-              password: password,
-              email: email,
-            }),
-          }).then((response) => {
-            if (response.status == 200) {
-              alert("Account wurde erstellt, bitte email überprüfen");
-            } else {
-              alert("Account konnte nicht erstellt werden");
-            }
-          });
-        }
-      });
-      document.getElementById("login").addEventListener("click", function () {
-        let password = document.getElementById("passwordL").value;
-        let username = document.getElementById("usernameL").value;
-        fetch("/api/login", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            username: username,
-            password: password,
-          }),
-        }).then((response) => {
-          if (response.status == 200) {
-            alert("Login erfolgreich! Redirect...");
-            window.location.href = "/";
-          } else {
-            alert("Anmeldung fehlgeschlagen!\n Überprüfen Sie Ihren Benutzernamen und Passwort und aktivieren Sie Ihr Konto bevor Sie sich einloggen.");
-          }
-        });
-      });
-    </script>
-  </body>
-</html>
+  <form class="card" id="signup-form">
+    <h2>Registrieren</h2>
+    <label for="usernameS">Benutzername <span class="hint">(3–32 Zeichen)</span></label>
+    <input id="usernameS" autocomplete="username" required />
+    <label for="email">E-Mail</label>
+    <input id="email" type="email" autocomplete="email" required />
+    <label for="passwordS">Passwort <span class="hint">(mindestens 8 Zeichen)</span></label>
+    <input id="passwordS" type="password" autocomplete="new-password" required />
+    <label for="password2">Passwort wiederholen</label>
+    <input id="password2" type="password" autocomplete="new-password" required />
+    <div class="btn-row"><button class="btn" type="submit">Account erstellen</button></div>
+    <div class="message" id="signup-message"></div>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  document.getElementById("login-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const message = document.getElementById("login-message");
+    const result = await postJson("/api/login", {
+      username: document.getElementById("usernameL").value,
+      password: document.getElementById("passwordL").value,
+    });
+    if (result.ok) {
+      window.location.href = "/manage";
+    } else {
+      showMessage(message, "Login fehlgeschlagen. Prüfe Benutzername und Passwort und ob du deine E-Mail-Adresse bestätigt hast.", "error");
+    }
+  });
+
+  document.getElementById("signup-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const message = document.getElementById("signup-message");
+    const password = document.getElementById("passwordS").value;
+    if (password !== document.getElementById("password2").value) {
+      showMessage(message, "Die Passwörter stimmen nicht überein.", "error");
+      return;
+    }
+    const result = await postJson("/api/signup", {
+      username: document.getElementById("usernameS").value,
+      email: document.getElementById("email").value,
+      password: password,
+    });
+    if (result.ok) {
+      event.target.reset();
+      showMessage(message, "Account erstellt! Wir haben dir eine E-Mail geschickt – bestätige deine Adresse und logge dich dann ein.", "success");
+    } else {
+      showMessage(message, result.data.error || "Der Account konnte nicht erstellt werden.", "error");
+    }
+  });
+</script>
+{% endblock %}

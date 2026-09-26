@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}MCConnect{% endblock %}</title>
+    <link href="{{ url_for('static', filename='css/admin.css') }}" rel="stylesheet" />
+    <link href="{{ url_for('static', filename='images/favicon.ico') }}" rel="icon" type="image/vnd.microsoft.icon" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="inner">
+        <a class="brand" href="/">
+          <img src="{{ url_for('static', filename='images/logo2.png') }}" alt="" />
+          {% block brand %}MCConnect{% endblock %}
+        </a>
+        <nav class="site-nav">
+          {% block nav %}
+          {% if admin_username %}
+          <a href="/manage">Meine Server</a>
+          <a href="/create">Server hinzufügen</a>
+          <button type="button" onclick="adminLogout()">Logout ({{ admin_username }})</button>
+          {% else %}
+          <a href="/login">Login / Registrieren</a>
+          {% endif %}
+          {% endblock %}
+        </nav>
+      </div>
+    </header>
+
+    <main>{% block content %}{% endblock %}</main>
+
+    <footer class="site-footer">
+      <div class="inner">
+        <a href="/impressum">Impressum</a>
+        <a href="/datenschutz">Datenschutz</a>
+      </div>
+    </footer>
+
+    <script>
+      async function postJson(url, body) {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body || {}),
+        });
+        let data = {};
+        try { data = await response.json(); } catch (e) {}
+        return { ok: response.ok, status: response.status, data };
+      }
+      function showMessage(element, text, kind) {
+        element.textContent = text;
+        element.className = "message " + kind;
+      }
+      async function adminLogout() {
+        await postJson("/api/logout");
+        window.location.href = "/";
+      }
+    </script>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

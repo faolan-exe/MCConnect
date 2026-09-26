@@ -16,7 +16,18 @@ from . import config
 from . import stats as stats_mod
 from .minecraft import Minecraft
 
-SCHEMA_VERSION = 1
+# Changes on top of queries/schema.sql (which is version 1). Never edit an applied
+# migration, add a new one instead.
+MIGRATIONS = {
+    2: [
+        "ALTER TABLE servers ADD COLUMN plugin_connected boolean NOT NULL DEFAULT false",
+        "ALTER TABLE servers ADD COLUMN plugin_last_seen timestamptz",
+    ],
+}
+SCHEMA_VERSION = max(MIGRATIONS, default=1)
+# A plugin counts as online if it was seen within this time (it sends a heartbeat every 5 seconds).
+PLUGIN_ONLINE_SECONDS = 90
+MIGRATION_LOCK_ID = 7_412_001
 
 LOWEST_WEB_ACCESS_LEVEL = 0
 DEFAULT_WEB_ACCESS_LEVEL = 3
@@ -58,8 +69,8 @@ class DatabaseManager:
 
     def __init__(self, db_config=None, minecraft=None, auto_init=True, check_schema=True, timezone=None):
         """
-        auto_init: create the schema if the database is completely empty.
-        check_schema: raise DatabaseNotInitializedError unless the schema version matches.
+        auto_init: create the schema if the database is empty and apply pending migrations.
+        check_schema: raise DatabaseNotInitializedError unless the schema is up to date.
         """
         self.db_config = dict(db_config or config.DB_CONFIG)
         self.timezone = timezone or config.TIMEZONE
@@ -74,15 +85,19 @@ class DatabaseManager:
             return
 
         version = self.get_schema_version()
-        if version is None and auto_init and not self._has_tables():
-            logger.warning("Empty database found, initializing schema")
-            self.init_database()
-            version = SCHEMA_VERSION
-        if version != SCHEMA_VERSION:
+        if version is None and self._has_tables():
             raise DatabaseNotInitializedError(
-                f"Database schema version is {version}, expected {SCHEMA_VERSION}. "
-                "Run `python -m database.manage init` (or `reset` for a dev database)."
-            )
+                "The database contains tables but no MCConnect schema version. "
+                "Use an empty database or `python -m database.manage reset --yes` for a dev database.")
+        if version is not None and version > SCHEMA_VERSION:
+            raise DatabaseNotInitializedError(
+                f"Database schema version {version} is newer than this code ({SCHEMA_VERSION}).")
+        if version != SCHEMA_VERSION:
+            if not auto_init:
+                raise DatabaseNotInitializedError(
+                    f"Database schema version is {version}, expected {SCHEMA_VERSION}. "
+                    "Run `python -m database.manage init`.")
+            self.migrate()
         self._load_lookups()
 
     def close(self):
@@ -135,8 +150,33 @@ class DatabaseManager:
             return None
         return self._fetchvalue("SELECT max(version) FROM schema_version")
 
+    def migrate(self):
+        """
+        Create the schema in an empty database and/or apply pending migrations.
+        Safe to call from several processes at once (advisory lock).
+        """
+        with self._cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(%s)", (MIGRATION_LOCK_ID,))
+            cur.execute("SELECT to_regclass('public.schema_version') IS NOT NULL")
+            version = None
+            if cur.fetchone()[0]:
+                cur.execute("SELECT max(version) FROM schema_version")
+                version = cur.fetchone()[0]
+            if version is None:
+                self._create_base_schema(cur)
+                version = 1
+            for target in range(version + 1, SCHEMA_VERSION + 1):
+                for statement in MIGRATIONS[target]:
+                    cur.execute(statement)
+                cur.execute("UPDATE schema_version SET version = %s", (target,))
+                logger.info(f"Migrated database to schema version {target}")
+        self._load_lookups()
+
     def init_database(self):
         """Create all tables and fill the static lookup data. The database must be empty."""
+        self.migrate()
+
+    def _create_base_schema(self, cur):
         with open(SCHEMA_FILE, "r") as f:
             schema = f.read()
         with open(BLOCKS_FILE, "r") as f:
@@ -145,17 +185,15 @@ class DatabaseManager:
             items = [item["id"] for item in json.load(f)]
 
         block_set = set(blocks)
-        with self._cursor() as cur:
-            cur.execute(schema)
-            cur.executemany("INSERT INTO block_lookup (name) VALUES (%s) ON CONFLICT DO NOTHING",
-                            [(b,) for b in blocks])
-            cur.executemany("INSERT INTO item_lookup (name) VALUES (%s) ON CONFLICT DO NOTHING",
-                            [(i,) for i in items if i not in block_set])
-            cur.executemany("INSERT INTO ban_reasons (reason, ban_duration_in_days) VALUES (%s, %s)",
-                            BAN_REASONS)
-            cur.execute("INSERT INTO schema_version (version) VALUES (%s)", (SCHEMA_VERSION,))
-        logger.info(f"Database initialized (schema version {SCHEMA_VERSION})")
-        self._load_lookups()
+        cur.execute(schema)
+        cur.executemany("INSERT INTO block_lookup (name) VALUES (%s) ON CONFLICT DO NOTHING",
+                        [(b,) for b in blocks])
+        cur.executemany("INSERT INTO item_lookup (name) VALUES (%s) ON CONFLICT DO NOTHING",
+                        [(i,) for i in items if i not in block_set])
+        cur.executemany("INSERT INTO ban_reasons (reason, ban_duration_in_days) VALUES (%s, %s)",
+                        BAN_REASONS)
+        cur.execute("INSERT INTO schema_version (version) VALUES (1)")
+        logger.info("Created database schema (version 1)")
 
     def reset_database(self):
         """WARNING: drops every table and recreates an empty schema."""
@@ -462,6 +500,50 @@ class DatabaseManager:
             info = dict(zip([d[0] for d in cur.description], row))
         info.pop("server_key", None)
         return info
+
+    def set_plugin_connected(self, server_id, connected):
+        self._execute("UPDATE servers SET plugin_connected = %s, plugin_last_seen = now() WHERE id = %s",
+                      (connected, server_id))
+
+    def touch_plugin(self, server_id):
+        """Record that the plugin of the server is still alive."""
+        self._execute("UPDATE servers SET plugin_last_seen = now() WHERE id = %s", (server_id,))
+
+    def is_plugin_online(self, server_id):
+        return bool(self._fetchvalue(
+            """SELECT plugin_connected AND plugin_last_seen > now() - make_interval(secs => %s)
+               FROM servers WHERE id = %s""", (PLUGIN_ONLINE_SECONDS, server_id)))
+
+    def get_servers_by_owner(self, owner_id):
+        """All servers of an admin (including the key) as dicts, plus plugin_online and player_count."""
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT s.*,
+                       s.plugin_connected AND s.plugin_last_seen > now() - make_interval(secs => %s) AS plugin_online,
+                       (SELECT count(*) FROM player_server_info psi WHERE psi.server_id = s.id) AS player_count
+                FROM servers s WHERE s.owner_id = %s ORDER BY s.created_at""", (PLUGIN_ONLINE_SECONDS, owner_id))
+            columns = [d[0] for d in cur.description]
+            return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+    def update_server(self, server_id, owner_id, **fields):
+        """Update editable server fields; only succeeds for the owner. Returns True if updated."""
+        allowed = {"server_name", "mc_server_domain", "discord_url",
+                   "server_description_short", "server_description_long"}
+        fields = {k: v for k, v in fields.items() if k in allowed}
+        if not fields:
+            return False
+        assignments = ", ".join(f"{column} = %s" for column in fields)
+        return self._execute(f"UPDATE servers SET {assignments} WHERE id = %s AND owner_id = %s",
+                             (*fields.values(), server_id, owner_id)) > 0
+
+    def regenerate_server_key(self, server_id, owner_id):
+        """Give the server a new key (the old plugin config stops working). Returns the key or None."""
+        return self._fetchvalue("UPDATE servers SET server_key = %s WHERE id = %s AND owner_id = %s RETURNING server_key",
+                                (generate_secure_token(64), server_id, owner_id))
+
+    def delete_server(self, server_id, owner_id):
+        """Delete the server with all its player data. Returns True if deleted."""
+        return self._execute("DELETE FROM servers WHERE id = %s AND owner_id = %s", (server_id, owner_id)) > 0
 
     ###----------------------------- Minecraft stats ------------------------------------###
 

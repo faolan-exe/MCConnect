@@ -1,107 +1,46 @@
-<!DOCTYPE html>
-<html id="top" lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta content="IE=edge" http-equiv="X-UA-Compatible" />
-    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
-    <title>Startseite</title>
+{% extends "base.html" %}
+{% block title %}MCConnect – Statistiken für deinen Minecraft-Server{% endblock %}
+{% block content %}
+<section class="hero" style="margin-bottom: 24px">
+  <h1>Dein Minecraft-Server im Web</h1>
+  <p class="lead">
+    MCConnect zeigt Spielerliste, Online-Status und detaillierte Statistiken deines Servers
+    auf einer eigenen Seite – mit einem kleinen Plugin, ohne Datenbank-Setup.
+  </p>
+  <div class="stat-pill">Gerade online auf allen Servern: <strong id="player-count">–</strong></div>
+  <div class="btn-row" style="justify-content: center">
+    {% if admin_username %}
+    <a class="btn" href="/manage">Zu meinen Servern</a>
+    {% else %}
+    <a class="btn" href="/login">Server hinzufügen</a>
+    {% endif %}
+  </div>
+</section>
 
-    <link
-      href="{{ url_for('static', filename='css/header.css') }}"
-      rel="stylesheet"
-    />
-    <link
-      href="{{ url_for('static', filename='css/index.css') }}"
-      rel="stylesheet"
-    />
-    <link
-      rel="stylesheet"
-      href="{{ url_for('static', filename='css/responsiveIndex.css') }}"
-    />
-    <link
-      href="{{ url_for('static', filename='images/favicon.ico') }}"
-      rel="icon"
-      type="image/vnd.microsoft.icon"
-    />
-
-    <style>
-      body {
-        font-family: "Arial", sans-serif;
-        background-color: #d0d0d0 !important;
-        color: #333;
-        text-align: center;
-      }
-
-      header {
-        text-align: left;
-      }
-
-      h1 {
-        color: #004080;
-      }
-
-      #server-info {
-        background-color: #fff;
-        border: 1px solid #ddd;
-        padding: 20px;
-        margin-top: 20px;
-        border-radius: 12px;
-      }
-
-      a {
-        color: #0066cc;
-        text-decoration: none;
-      }
-
-      a:hover {
-        text-decoration: underline;
-      }
-    </style>
-  </head>
-
-  <body>
-    <header>this is another header</header>
-
-    <div class="content">
-      <div class="container-util">
-        <div class="text">
-          <h1>Willkommen auf meinem Minecraft-Server!!!!!!!!!!!!!!!!!!!</h1>
-
-          <div id="server-info">
-            <p>
-              Willkommen!<br />Schaue die hier mein Projekt an. Lorem ipsum
-              dolor sit amet consectetur adipisicing elit. Unde beatae,
-              voluptatem, repellat suscipit iure itaque maiores neque ex minus
-              quia voluptate quidem quas. Deserunt, aliquid esse? Ex blanditiis
-              porro ab dicta in excepturi odio, sequi vitae ullam recusandae
-              illo dolorem eligendi aliquid necessitatibus nulla animi molestiae
-              hic maxime, quam voluptates deleniti saepe harum. Et cum, ut
-              beatae unde iusto natus!
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-    <footer>
-      <nav>
-        <ul>
-          <li><a href="/verschiedenes/impressum.html">Impressum</a></li>
-          <li><a href="/verschiedenes/datenschutz.html">Datenschutz</a></li>
-          <li><a href="/verschiedenes/kontakt.html">Kontakt</a></li>
-          <li><a href="#">🡅</a></li>
-        </ul>
-      </nav>
-    </footer>
-
-    <script>
-      const eventSource = new EventSource("/api/player_count");
-
-      eventSource.onmessage = (event) => {
-        console.log(event.data.replaceAll("'", '"'));
-        const parsedArray = JSON.parse(event.data.replaceAll("'", '"'));
-        console.log(parsedArray);
-        document.getElementById("player-count").innerText = parsedArray;
-      };
-    </script>
-  </body>
-</html>
+<div class="grid-2">
+  <div class="card">
+    <h2>Eigene Serverseite</h2>
+    <p>Jeder Server bekommt eine eigene Subdomain mit Beschreibung, Discord-Link und Live-Spielerzahl.</p>
+  </div>
+  <div class="card">
+    <h2>Spieler &amp; Statistiken</h2>
+    <p>Alle Spieler mit Online-Status, Spielzeit, Toden und Statistiken zu Blöcken, Items, Tools, Rüstung und Mobs.</p>
+  </div>
+  <div class="card">
+    <h2>Login per Ingame-PIN</h2>
+    <p>Spieler melden sich ohne Passwort an: Die PIN kommt direkt in den Minecraft-Chat.</p>
+  </div>
+  <div class="card">
+    <h2>In 3 Minuten eingerichtet</h2>
+    <p>Account anlegen, Server hinzufügen, Plugin mit deinem Key installieren – fertig. Läuft auf Spigot und Paper ab 1.13.</p>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  const eventSource = new EventSource("/api/player_count");
+  eventSource.onmessage = (event) => {
+    document.getElementById("player-count").innerText = JSON.parse(event.data);
+  };
+</script>
+{% endblock %}

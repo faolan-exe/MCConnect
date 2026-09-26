@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} – MCConnect{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>{{ title }}</h1>
+  <p>{{ text }}</p>
+  <div class="btn-row"><a class="btn" href="/login">Zum Login</a></div>
+</div>
+{% endblock %}

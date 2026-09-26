@@ -53,6 +53,8 @@ MAX_MESSAGE_SIZE = 16 * 1024 * 1024
 HEARTBEAT_SEND_INTERVAL = 5
 HEARTBEAT_TIMEOUT = 20
 MAX_UNAUTHORIZED_MESSAGES = 5
+# How often the "plugin alive" timestamp is written to the database.
+PLUGIN_TOUCH_INTERVAL = 30
 
 
 class ProtocolError(Exception):
@@ -206,7 +208,7 @@ class SocketServer:
     def handle_client_connection(self, conn, addr):
         client = ClientConnection(conn, addr)
         logger.info(f"{addr} connected")
-        last_received = last_sent = time.monotonic()
+        last_received = last_sent = last_touch = time.monotonic()
         unauthorized_messages = 0
         try:
             while not self._stop.is_set():
@@ -223,6 +225,9 @@ class SocketServer:
                     continue
                 data = recv_msg(conn)
                 last_received = time.monotonic()
+                if client.server_id is not None and last_received - last_touch >= PLUGIN_TOUCH_INTERVAL:
+                    self.db.touch_plugin(client.server_id)
+                    last_touch = last_received
                 logger.debug(f"[{addr}] <- {data[:200]}")
 
                 if data == "!BEAT":
@@ -264,6 +269,7 @@ class SocketServer:
             old.close()
         # The plugin re-sends JOIN for everyone online after auth.
         self.db.set_all_players_offline(server_id)
+        self.db.set_plugin_connected(server_id, True)
         logger.info(f"{client.addr} authenticated as server {server_id}")
         client.send("success|100")
         client.send("!sendAllPlayerStats")
@@ -278,6 +284,7 @@ class SocketServer:
             del self.active_connections[client.server_id]
         try:
             self.db.set_all_players_offline(client.server_id)
+            self.db.set_plugin_connected(client.server_id, False)
         except Exception:
             logger.exception(f"Could not mark players of server {client.server_id} offline")
 

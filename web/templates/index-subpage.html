@@ -57,8 +57,7 @@
         <h1>Willkommen auf meinem Minecraft-Server!</h1>
 
         <div id="server-info">
-            <p>{{ server_description_long | safe}}</p>
-            <p>Oder schaue dir die <a href="/about">technischen Details</a> vom Server an!</p>
+            <p style="white-space: pre-line">{{ server_description_long }}</p>
         </div>
     </div>
     <div class="nft">
@@ -77,12 +76,14 @@
         </div>
       </div>
       <hr />
+      {% if discord_url %}
       <div class='creator'>
         <div class='wrapper'>
           <img src="https://cdn-icons-png.flaticon.com/512/3670/3670157.png" alt="Discord" />
         </div>
-        <p><ins>Discord:</ins> <a style="color:white" target="_blank" href="{{discord_url}}">Join Server</a> </p>
+        <p><ins>Discord:</ins> <a style="color:white" target="_blank" href="{{discord_url}}" rel="noopener noreferrer">Join Server</a> </p>
       </div>
+      {% endif %}
     </div>
   </div>
   </div>
@@ -91,9 +92,8 @@
     <footer>
         <nav>
             <ul>
-                <li><a href="/verschiedenes/impressum.html">Impressum</a></li>
-                <li><a href="/verschiedenes/datenschutz.html">Datenschutz</a></li>
-                <li><a href="/verschiedenes/kontakt.html">Kontakt</a></li>
+                <li><a href="/impressum">Impressum</a></li>
+                <li><a href="/datenschutz">Datenschutz</a></li>
                 <li><a href="#">🡅</a></li>
             </ul>
         </nav>

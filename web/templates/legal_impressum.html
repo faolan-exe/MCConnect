@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Impressum – MCConnect{% endblock %}
+{% block nav %}<a href="/">Zurück</a>{% endblock %}
+{% block content %}
+<div class="card legal">
+  <h1>Impressum</h1>
+  {% if not legal.name or not legal.address or not legal.email %}
+  <p class="warning">Die Betreiberangaben sind noch nicht konfiguriert
+    (<code>MCC_LEGAL_NAME</code>, <code>MCC_LEGAL_ADDRESS</code>, <code>MCC_LEGAL_EMAIL</code>).</p>
+  {% else %}
+  <h2>Angaben gemäß § 5 DDG</h2>
+  <p>
+    {{ legal.name }}<br />
+    {% for line in legal.address %}{{ line }}<br />{% endfor %}
+  </p>
+
+  <h2>Kontakt</h2>
+  <p>
+    E-Mail: <a href="mailto:{{ legal.email }}">{{ legal.email }}</a>
+    {% if legal.phone %}<br />Telefon: {{ legal.phone }}{% endif %}
+  </p>
+
+  <h2>Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV</h2>
+  <p>
+    {{ legal.name }}<br />
+    {% for line in legal.address %}{{ line }}<br />{% endfor %}
+  </p>
+
+  <h2>Inhalte der Serverseiten</h2>
+  <p>
+    Die Beschreibungen auf den Seiten der einzelnen Minecraft-Server
+    (<em>&lt;server&gt;.{{ config.SERVER_NAME }}</em>) werden von den jeweiligen Serverbetreibern erstellt.
+    Für diese Inhalte sind die Serverbetreiber verantwortlich. Bei Hinweisen auf rechtswidrige Inhalte
+    entfernen wir diese umgehend.
+  </p>
+
+  <h2>Kein offizielles Minecraft-Produkt</h2>
+  <p>
+    MCConnect ist kein offizielles Minecraft-Produkt und steht in keiner Verbindung zu Mojang oder Microsoft.
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

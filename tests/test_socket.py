@@ -75,6 +75,7 @@ def test_framing_roundtrip():
 def test_auth_success(db, server, plugin, socket_server):
     plugin().auth(server["key"])
     assert server["id"] in socket_server.active_connections
+    assert db.is_plugin_online(server["id"]) is True
 
 
 def test_auth_wrong_key(server, plugin):
@@ -172,6 +173,7 @@ def test_disconnect_marks_players_offline(db, server, plugin, socket_server):
     assert client.is_closed()
     wait_for(lambda: db.get_online_player_count_from_subdomain("testdomain") == 0)
     wait_for(lambda: server["id"] not in socket_server.active_connections)
+    wait_for(lambda: db.is_plugin_online(server["id"]) is False)
 
 
 def test_reconnect_replaces_old_connection(db, server, plugin, socket_server):

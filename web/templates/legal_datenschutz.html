@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Datenschutz – MCConnect{% endblock %}
+{% block nav %}<a href="/">Zurück</a>{% endblock %}
+{% block content %}
+<div class="card legal">
+  <h1>Datenschutzerklärung</h1>
+
+  <h2>1. Verantwortlicher</h2>
+  {% if legal.name and legal.address and legal.email %}
+  <p>
+    {{ legal.name }}<br />
+    {% for line in legal.address %}{{ line }}<br />{% endfor %}
+    E-Mail: <a href="mailto:{{ legal.email }}">{{ legal.email }}</a>
+  </p>
+  {% else %}
+  <p class="warning">Die Betreiberangaben sind noch nicht konfiguriert.</p>
+  {% endif %}
+
+  <h2>2. Was MCConnect ist</h2>
+  <p>
+    MCConnect stellt für Minecraft-Server eine Webseite mit Spielerliste, Online-Status und Spielstatistiken bereit.
+    Die Daten werden von einem Plugin übermittelt, das der jeweilige Serverbetreiber auf seinem Minecraft-Server
+    installiert.
+  </p>
+
+  <h2>3. Daten von Minecraft-Spielern</h2>
+  <p>Wenn du auf einem Server spielst, der mit MCConnect verbunden ist, verarbeiten wir:</p>
+  <ul>
+    <li>deine Minecraft-UUID und deinen Spielernamen,</li>
+    <li>deinen Online-Status sowie Zeitpunkt des ersten und letzten Besuchs auf dem Server,</li>
+    <li>die Spielstatistiken, die der Minecraft-Server selbst aufzeichnet (z.&nbsp;B. abgebaute Blöcke,
+      Spielzeit, Tode, besiegte Mobs).</li>
+  </ul>
+  <p>
+    Diese Daten werden auf der Seite des jeweiligen Servers öffentlich angezeigt. Rechtsgrundlage ist unser
+    berechtigtes Interesse und das des Serverbetreibers, der Community eines Servers Statistiken bereitzustellen
+    (Art. 6 Abs. 1 lit. f DSGVO). Spielernamen, UUIDs und Statistiken sind in Minecraft ohnehin für andere Spieler
+    sichtbar. Du kannst jederzeit widersprechen; dann entfernen wir deine Daten (Kontakt siehe oben).
+    Die Daten werden gespeichert, solange der Server bei MCConnect registriert ist; löscht der Serverbetreiber
+    seinen Server, werden alle zugehörigen Spielerdaten gelöscht.
+  </p>
+  <p>
+    Um zu einer UUID den aktuellen Spielernamen zu ermitteln, fragen wir diesen bei Bedarf bei
+    <em>playerdb.co</em> ab. Dabei wird nur die UUID übermittelt.
+  </p>
+
+  <h2>4. Login für Spieler</h2>
+  <p>
+    Beim Login auf einer Serverseite erzeugen wir eine sechsstellige PIN, die dir über das Plugin im
+    Minecraft-Chat angezeigt wird. Die PIN wird nach der Anmeldung, spätestens nach 5 Minuten, gelöscht.
+  </p>
+
+  <h2>5. Accounts von Serverbetreibern</h2>
+  <p>
+    Für einen Account speichern wir Benutzername, E-Mail-Adresse und das Passwort ausschließlich als
+    kryptografischen Hash (Argon2), außerdem die Angaben zu den angelegten Servern.
+    Rechtsgrundlage ist die Erfüllung des Nutzungsverhältnisses (Art. 6 Abs. 1 lit. b DSGVO).
+    Zur Bestätigung der E-Mail-Adresse senden wir eine E-Mail über den E-Mail-Dienst unseres Hosters
+    (STRATO AG, Berlin). Accounts werden auf Anfrage gelöscht.
+  </p>
+
+  <h2>6. Cookies</h2>
+  <p>
+    Wir verwenden ausschließlich ein technisch notwendiges Sitzungs-Cookie, um dich nach dem Login angemeldet zu
+    halten (§ 25 Abs. 2 Nr. 2 TDDDG). Es gibt kein Tracking und keine Analyse-Tools.
+  </p>
+
+  <h2>7. Server-Logs</h2>
+  <p>
+    Beim Aufruf der Seiten verarbeitet unser Server technisch bedingt deine IP-Adresse, um die Seite ausliefern zu
+    können (Art. 6 Abs. 1 lit. f DSGVO). Wir speichern keine Zugriffsprotokolle mit IP-Adressen.
+  </p>
+
+  <h2>8. Externe Inhalte</h2>
+  <p>
+    Einige Inhalte werden direkt von Drittanbietern geladen. Dabei erhält der jeweilige Anbieter deine IP-Adresse:
+  </p>
+  <ul>
+    <li><em>mc-heads.net</em> – Spielerköpfe und Skins,</li>
+    <li><em>cdn.jsdelivr.net</em>, <em>cdnjs.cloudflare.com</em>, <em>ajax.googleapis.com</em> – JavaScript- und
+      CSS-Bibliotheken,</li>
+    <li><em>images.unsplash.com</em>, <em>cdn-icons-png.flaticon.com</em> – Bilder auf den Serverseiten.</li>
+  </ul>
+  <p>Rechtsgrundlage ist unser berechtigtes Interesse an einer funktionsfähigen Darstellung (Art. 6 Abs. 1 lit. f DSGVO).</p>
+
+  <h2>9. Deine Rechte</h2>
+  <p>
+    Du hast das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit
+    und Widerspruch (Art. 15–21 DSGVO). Wende dich dazu an die oben genannte Adresse. Außerdem kannst du dich bei
+    einer Datenschutz-Aufsichtsbehörde beschweren.
+  </p>
+</div>
+{% endblock %}

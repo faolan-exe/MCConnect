@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Server hinzufügen – MCConnect{% endblock %}
+{% block content %}
+<h1>Server hinzufügen</h1>
+<p class="lead">Nach dem Anlegen bekommst du den Key für das Plugin.</p>
+<form class="card" id="create-form">
+  <label for="subdomain">Subdomain <span class="hint">– die Adresse deiner Serverseite (a-z, 0-9, -)</span></label>
+  <div class="input-suffix">
+    <input id="subdomain" required minlength="3" maxlength="32" pattern="[a-z0-9][a-z0-9-]{1,30}[a-z0-9]" placeholder="meinserver" />
+    <span>.{{ base_domain }}</span>
+  </div>
+
+  <label for="server_name">Name des Servers</label>
+  <input id="server_name" required maxlength="64" placeholder="Mein Survival-Server" />
+
+  <label for="mc_server_domain">Adresse zum Verbinden <span class="hint">– was Spieler in Minecraft eingeben</span></label>
+  <input id="mc_server_domain" required maxlength="253" placeholder="play.meinserver.de" />
+
+  <label for="server_description_short">Kurzbeschreibung <span class="hint">(max. 200 Zeichen)</span></label>
+  <input id="server_description_short" required maxlength="200" placeholder="Vanilla Survival seit 2020" />
+
+  <label for="server_description_long">Beschreibung</label>
+  <textarea id="server_description_long" required maxlength="5000" placeholder="Worum geht es auf deinem Server?"></textarea>
+
+  <label for="discord_url">Discord-Einladung <span class="hint">(optional)</span></label>
+  <input id="discord_url" type="url" maxlength="300" placeholder="https://discord.gg/..." />
+
+  <div class="btn-row">
+    <button class="btn" type="submit">Server anlegen</button>
+    <a class="btn btn-secondary" href="/manage">Abbrechen</a>
+  </div>
+  <div class="message" id="create-message"></div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+  const FIELDS = ["subdomain", "server_name", "mc_server_domain", "server_description_short",
+                  "server_description_long", "discord_url"];
+  document.getElementById("subdomain").addEventListener("input", (e) => {
+    e.target.value = e.target.value.toLowerCase();
+  });
+  document.getElementById("create-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const body = {};
+    FIELDS.forEach((f) => (body[f] = document.getElementById(f).value));
+    const result = await postJson("/api/servers", body);
+    if (result.ok) {
+      window.location.href = "/manage#server-" + result.data.id;
+    } else {
+      showMessage(document.getElementById("create-message"),
+                  result.data.error || "Der Server konnte nicht angelegt werden.", "error");
+    }
+  });
+</script>
+{% endblock %}
