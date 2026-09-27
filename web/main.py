@@ -15,7 +15,7 @@ import secrets
 import sys
 import time
 import uuid as uuid_mod
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -139,9 +139,10 @@ def inject_server_context():
 @server_bp.route("/")
 def subdomain_index_route():
     images = db().get_server_images(g.server["id"])
-    records = []
+    records, recap = [], None
     if current_app.config["FEATURE_RANKINGS"]:
         players = db().get_server_metrics(g.server["id"])
+        recap = weekly_recap(g.server["id"], players)
         for key in metrics_mod.RECORD_METRICS:
             metric = metrics_mod.METRICS_BY_KEY[key]
             best = max(players, key=lambda p: p["values"][key], default=None)
@@ -150,7 +151,7 @@ def subdomain_index_route():
                                 "text": metrics_mod.format_value(metric, best["values"][key])})
     return render_template("index-subpage.html",
                            player_total=len(db().get_all_player_ids_from_subdomain(g.subdomain)),
-                           records=records,
+                           records=records, recap=recap,
                            banner_url=image_url(images["banner"]) if images["banner"] else None,
                            gallery_urls=[image_url(image["filename"]) for image in images["gallery"]])
 
@@ -256,6 +257,84 @@ def rankings_page():
     return render_template("rangliste.html", groups=groups, period=period, periods=PERIODS,
                            hint=period_hint(g.server["id"], PERIODS[period]),
                            prefixes=db().get_all_worn_prefixes(g.server["id"]))
+
+
+WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+MONTHS = ["Jan.", "Feb.", "März", "Apr.", "Mai", "Juni", "Juli", "Aug.", "Sep.", "Okt.", "Nov.", "Dez."]
+# Sequential green ramp for the peak time heatmap (light = few players, dark = many).
+HEATMAP_RAMP = ["#e3f5e9", "#bde6cb", "#8fd4a8", "#5fc084", "#35a862", "#1f8f47", "#146b34"]
+RECAP_METRICS = (("play_time", "Spieler der Woche", "am längsten online"), ("blocks_mined", "Baumeister", "Blöcke abgebaut"),
+                 ("mob_kills", "Monsterjäger", "Mobs getötet"), ("diamonds", "Diamantenfieber", "Diamanterz abgebaut"))
+
+
+def weekly_recap(server_id, players):
+    """The best players of the last full week (Monday to Sunday), or None without complete data."""
+    today = db().get_today()
+    end = today - timedelta(days=today.weekday() + 1)  # last Sunday
+    start = end - timedelta(days=6)
+    first = db().get_snapshot_start(server_id)
+    if first is None or first >= start:
+        return None  # the baseline before the week is missing
+    gains = db().get_metrics_between(server_id, start, end)
+    by_id = {p["player_id"]: p for p in players}
+    tiles = []
+    for key, title, what in RECAP_METRICS:
+        metric = metrics_mod.METRICS_BY_KEY[key]
+        best = max(((pid, values.get(key, 0)) for pid, values in gains.items() if pid in by_id),
+                   key=lambda item: (item[1], by_id[item[0]]["name"].lower()), default=None)
+        if best and best[1] > 0:
+            player = by_id[best[0]]
+            tiles.append({"title": title, "name": player["name"], "uuid": player["uuid"],
+                          "text": f"{metrics_mod.format_value(metric, best[1])} {what}"})
+    if not tiles:
+        return None
+    play_time = sum(values.get("play_time", 0) for values in gains.values())
+    return {"week": start.isocalendar()[1], "start": start.strftime("%d.%m."), "end": end.strftime("%d.%m.%Y"),
+            "tiles": tiles, "active": db().get_active_players_between(server_id, start, end),
+            "new": db().get_new_players_between(server_id, start, end),
+            "play_time": format_time(play_time / 20)}
+
+
+@server_bp.route("/server-statistik")
+@feature_rankings_required
+def server_stats_page():
+    server_id = g.server["id"]
+    players = db().get_server_metrics(server_id)
+    today = db().get_today()
+    totals = {m.key: sum(p["values"][m.key] for p in players) for m in metrics_mod.METRICS}
+    groups = [(label, [(m, metrics_mod.format_value(m, totals[m.key])) for m in metrics_mod.METRICS if m.group == key])
+              for key, label in metrics_mod.GROUPS]
+    peak, peak_at = db().get_online_peak(server_id)
+
+    fmt_time = lambda ts: ts.strftime("%d.%m. %H:%M")
+    online = {
+        "day": [{"t": fmt_time(t), "v": n} for t, n in db().get_online_history(server_id, 24, 15)],
+        "week": [{"t": f"{WEEKDAYS[t.weekday()]} {fmt_time(t)}", "v": n}
+                 for t, n in db().get_online_history(server_id, 24 * 7, 60)],
+    }
+    matrix = db().get_peak_times(server_id)
+    top = max(max(row) for row in matrix)
+    heatmap = [{"day": WEEKDAYS[d], "cells": [{
+        "hour": h, "value": v,
+        "color": HEATMAP_RAMP[min(len(HEATMAP_RAMP) - 1, int(v / top * len(HEATMAP_RAMP)))] if v and top else None,
+        "tip": f"{WEEKDAYS[d]} {h}–{h + 1} Uhr: Ø {v:.1f} Spieler".replace(".", ","),
+    } for h, v in enumerate(row)]} for d, row in enumerate(matrix)]
+
+    daily = [{"label": d.strftime("%d.%m."), "tip": d.strftime("%d.%m.%Y"),
+              "value": None if v is None else round(v / 20 / 3600, 2),
+              "text": "keine Daten" if v is None else format_time(v / 20)}
+             for d, v in db().get_server_daily_gain(server_id, "play_time", 30)]
+    months = [{"label": MONTHS[m.month - 1], "tip": f"{MONTHS[m.month - 1]} {m.year}", "value": n,
+               "text": f"{n} neue Spieler" if n != 1 else "1 neuer Spieler"}
+              for m, n in db().get_new_players_per_month(server_id)]
+    return render_template(
+        "server_statistik.html", groups=groups, player_count=len(players),
+        online_now=sum(p["online"] for p in players),
+        new_players=db().get_new_players_between(server_id, today - timedelta(days=29), today),
+        play_time_total=metrics_mod.format_value(metrics_mod.METRICS_BY_KEY["play_time"], totals["play_time"]),
+        peak=peak, peak_at=peak_at.strftime("%d.%m.%Y, %H:%M Uhr") if peak_at else None,
+        online=online, heatmap=heatmap, heatmap_ramp=HEATMAP_RAMP, heatmap_top=top,
+        daily=daily if any(d["value"] is not None for d in daily) else None, months=months)
 
 
 def best_indexes(values, lower_is_better):
@@ -397,11 +476,12 @@ def player_extras(player_id):
     for i in range(1, len(dates)):
         before, after = cumulative[i - 1], cumulative[i]
         seconds = None if before is None or after is None else max(0, after - before) / 20
-        days.append({"date": dates[i].isoformat(), "hours": None if seconds is None else round(seconds / 3600, 2),
-                     "text": "keine Daten" if seconds is None else format_time(seconds)})
-    if any(day["hours"] is not None for day in days):
-        extras["activity"] = {"days": days, "total": format_time(sum((d["hours"] or 0) * 3600 for d in days)),
-                              "active_days": sum(1 for d in days if d["hours"])}
+        days.append({"label": dates[i].strftime("%d.%m."), "tip": dates[i].strftime("%d.%m.%Y"),
+                     "value": None if seconds is None else round(seconds / 3600, 2),
+                     "text": "keine Daten" if seconds is None else format_time(seconds) if seconds else "nicht online"})
+    if any(day["value"] is not None for day in days):
+        extras["activity"] = {"days": days, "total": format_time(sum((d["value"] or 0) * 3600 for d in days)),
+                              "active_days": sum(1 for d in days if d["value"])}
     return extras
 
 
@@ -452,7 +532,24 @@ def prefix_join_page():
 @moderator_required
 def moderation_page():
     return render_template("moderation.html", ban_reasons=db().get_ban_reasons(), bans_api="/api/mod",
-                           players=db().get_players_overview_from_subdomain(g.subdomain))
+                           players=db().get_players_overview_from_subdomain(g.subdomain),
+                           activity=player_activity(g.server["id"]))
+
+
+def player_activity(server_id):
+    """All players with first/last seen and play time, longest absent first (for moderators)."""
+    details = db().get_player_list_details(server_id)
+    play_time = metrics_mod.METRICS_BY_KEY["play_time"]
+    rows = []
+    for p in db().get_server_metrics(server_id):
+        info = details[p["player_id"]]
+        last = None if p["online"] else info["last_seen"]
+        rows.append({"name": p["name"], "uuid": p["uuid"], "online": p["online"], "banned": info["banned"],
+                     "last_seen": last, "first_seen": info["first_seen"],
+                     "play_time": metrics_mod.format_value(play_time, p["values"]["play_time"])})
+    far_past = datetime.min.replace(tzinfo=timezone.utc)
+    rows.sort(key=lambda r: (r["online"], r["last_seen"] or far_past))
+    return rows
 
 
 @server_bp.route("/api/prefix/save", methods=["POST"])

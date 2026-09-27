@@ -11,7 +11,7 @@
     <link href="{{ url_for('static', filename='css/header.css') }}" rel="stylesheet"/>
     <link href="{{ url_for('static', filename='css/fonts.css') }}" rel="stylesheet"/>
     <link href="{{ url_for('static', filename='css/server.css') }}" rel="stylesheet"/>
-    {% if records %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endif %}
+    {% if records or recap %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endif %}
     <link href="{{ url_for('static', filename='images/favicon.ico') }}" rel="icon" type="image/vnd.microsoft.icon"/>
 </head>
 
@@ -59,6 +59,29 @@
                     <span class="srv-number-label">{{ "nur mit Freischaltung" if whitelist else "jeder kann mitspielen" }}</span>
                 </div>
             </div>
+
+            {% if recap %}
+            <section class="srv-section rc-card" aria-labelledby="recap-title">
+                <div class="rc-head">
+                    <h2 id="recap-title">Rückblick KW {{ recap.week }}</h2>
+                    <span class="rc-sub">{{ recap.start }}–{{ recap.end }}</span>
+                </div>
+                <div class="rc-sum">
+                    <span><strong>{{ recap.active }}</strong> Spieler waren online</span>
+                    <span><strong>{{ recap.new }}</strong> {{ "neuer Spieler" if recap.new == 1 else "neue Spieler" }}</span>
+                    <span><strong>{{ recap.play_time }}</strong> zusammen gespielt</span>
+                </div>
+                <div class="rc-tiles">
+                    {% for tile in recap.tiles %}
+                    <a class="rc-tile" href="/spieler?player={{ tile.name | urlencode }}">
+                        <span class="rc-tile-title">{{ tile.title }}</span>
+                        <span class="rc-tile-who"><img src="https://mc-heads.net/avatar/{{ tile.uuid }}/32" alt="" width="24" height="24" loading="lazy"/><span>{{ tile.name }}</span></span>
+                        <span class="rc-tile-text">{{ tile.text }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
 
             {% if records %}
             <section class="srv-section">

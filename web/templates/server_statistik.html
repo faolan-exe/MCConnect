@@ -1,0 +1,105 @@
+{% extends "server_base.html" %}
+{% block title %}Server-Statistik · {{ server_name }}{% endblock %}
+{% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block page_class %}srv-page-wide{% endblock %}
+{% block content %}
+<h1>Server-Statistik</h1>
+<p class="srv-lead">Alles über {{ server_name }} auf einen Blick: wann was los ist und was alle zusammen geschafft haben.</p>
+
+<div class="ss-numbers">
+  <div class="st-record"><span class="st-record-label">Spieler</span><span class="st-record-value">{{ player_count }}</span>
+    <span class="ss-note">{{ new_players }} neu in den letzten 30 Tagen</span></div>
+  <div class="st-record"><span class="st-record-label">Gerade online</span><span class="st-record-value ss-live">{{ online_now }}</span>
+    <span class="ss-note">von {{ player_count }}</span></div>
+  <div class="st-record"><span class="st-record-label">Rekord gleichzeitig</span><span class="st-record-value">{{ peak }}</span>
+    <span class="ss-note">{{ peak_at or "noch keine Daten" }}</span></div>
+  <div class="st-record"><span class="st-record-label">Spielzeit aller</span><span class="st-record-value">{{ play_time_total }}</span>
+    <span class="ss-note">zusammengerechnet</span></div>
+</div>
+
+<section class="st-group">
+  <h2>Online-Verlauf</h2>
+  <div class="srv-card ss-card" id="online">
+    <div class="cmp-chart-controls">
+      <nav class="st-periods" aria-label="Zeitraum">
+        <button type="button" data-range="day" aria-pressed="true">24 Stunden</button>
+        <button type="button" data-range="week" aria-pressed="false">7 Tage</button>
+      </nav>
+    </div>
+    <p class="cmp-chart-sub">Spieler, die im jeweiligen Zeitabschnitt online waren.</p>
+    <div class="cmp-chart" id="online-chart"></div>
+  </div>
+</section>
+
+<section class="st-group">
+  <h2>Stoßzeiten</h2>
+  <div class="srv-card ss-card">
+    <p class="cmp-chart-sub">Durchschnittlich online pro Wochentag und Stunde, über die letzten 8 Wochen.</p>
+    {% if heatmap_top %}
+    <div class="ss-heat-wrap">
+      <table class="ss-heat">
+        <thead><tr><th></th>{% for h in range(24) %}<th scope="col">{{ h if h % 6 == 0 else "" }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for row in heatmap %}
+          <tr>
+            <th scope="row">{{ row.day }}</th>
+            {% for cell in row.cells %}
+            <td tabindex="0" data-tip="{{ cell.tip }}" aria-label="{{ cell.tip }}"{% if cell.color %} style="--heat: {{ cell.color }}"{% endif %}></td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="ss-legend" aria-hidden="true">
+      <span>weniger</span>
+      <span class="ss-legend-cell" style="--heat: #eef1ee"></span>
+      {% for color in heatmap_ramp %}<span class="ss-legend-cell" style="--heat: {{ color }}"></span>{% endfor %}
+      <span>mehr (bis Ø {{ "%.1f" | format(heatmap_top) | replace(".", ",") }})</span>
+    </div>
+    {% else %}
+    <p class="st-empty">Stoßzeiten werden ab jetzt aufgezeichnet. Schau in ein paar Tagen wieder vorbei.</p>
+    {% endif %}
+  </div>
+</section>
+
+<div class="ss-two">
+  <section class="st-group">
+    <h2>Spielzeit pro Tag</h2>
+    <div class="srv-card ss-card">
+      {% if daily %}
+      <script id="daily-data" type="application/json">{{ daily | tojson }}</script>
+      <p class="cmp-chart-sub">Alle Spieler zusammen, letzte 30 Tage.</p>
+      <div class="pi-chart" data-bar-chart="daily-data" data-unit="h" aria-label="Spielzeit aller Spieler pro Tag"></div>
+      {% else %}
+      <p class="st-empty">Wird ab jetzt täglich aufgezeichnet.</p>
+      {% endif %}
+    </div>
+  </section>
+  <section class="st-group">
+    <h2>Neue Spieler</h2>
+    <div class="srv-card ss-card">
+      <script id="months-data" type="application/json">{{ months | tojson }}</script>
+      <p class="cmp-chart-sub">Erster Login pro Monat, letzte 12 Monate.</p>
+      <div class="pi-chart" data-bar-chart="months-data" data-every="2" aria-label="Neue Spieler pro Monat"></div>
+    </div>
+  </section>
+</div>
+
+{% for label, items in groups %}
+<section class="st-group">
+  <h2>Alle zusammen · {{ label }}</h2>
+  <div class="ss-totals">
+    {% for metric, text in items %}
+    <div class="ss-total"><span>{{ metric.label }}</span><strong>{{ text }}</strong></div>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% endblock %}
+
+{% block scripts %}
+<script id="online-data" type="application/json">{{ online | tojson }}</script>
+<script src="{{ url_for('static', filename='bar-chart.js') }}"></script>
+<script src="{{ url_for('static', filename='online-chart.js') }}"></script>
+{% endblock %}

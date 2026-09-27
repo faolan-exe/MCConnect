@@ -80,8 +80,21 @@ MIGRATIONS = {
              value bigint NOT NULL,
              PRIMARY KEY (player_id, metric, day))""",
     ],
+    8: [
+        # One row per stay on the server (join to quit), for the online history and peak times.
+        """CREATE TABLE player_sessions(
+             id bigserial PRIMARY KEY,
+             player_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             started_at timestamptz NOT NULL DEFAULT now(),
+             ended_at timestamptz,
+             CHECK (ended_at IS NULL OR ended_at >= started_at))""",
+        "CREATE INDEX player_sessions_player_idx ON player_sessions (player_id, started_at)",
+        "CREATE INDEX player_sessions_started_idx ON player_sessions (started_at)",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
+# A session that ended less than this ago is continued on the next join (plugin reconnects).
+SESSION_MERGE_SECONDS = 120
 # Snapshots older than this are deleted (the newest older one of each metric is kept as baseline).
 SNAPSHOT_RETENTION_DAYS = 90
 SCHEMA_VERSION = max(MIGRATIONS, default=1)
@@ -502,16 +515,34 @@ class DatabaseManager:
     def register_player_join(self, server_id, mojang_uuid, name=None):
         """Mark the player online on the server, creating it if needed. Returns the player_id."""
         player_id = self.ensure_player_on_server(server_id, mojang_uuid, name)
-        self._execute("""UPDATE player_server_info
-                         SET online = true, first_seen = COALESCE(first_seen, now()), last_seen = now()
-                         WHERE player_id = %s""", (player_id,))
+        with self._cursor() as cur:
+            cur.execute("""UPDATE player_server_info
+                           SET online = true, first_seen = COALESCE(first_seen, now()), last_seen = now()
+                           WHERE player_id = %s""", (player_id,))
+            cur.execute("SELECT 1 FROM player_sessions WHERE player_id = %s AND ended_at IS NULL", (player_id,))
+            if cur.fetchone() is None:
+                # continue a session that just ended (plugin reconnect), otherwise start a new one
+                cur.execute("""UPDATE player_sessions SET ended_at = NULL
+                               WHERE id = (SELECT id FROM player_sessions WHERE player_id = %s
+                                           ORDER BY started_at DESC LIMIT 1)
+                                 AND ended_at > now() - %s * interval '1 second'""",
+                            (player_id, SESSION_MERGE_SECONDS))
+                if cur.rowcount == 0:
+                    cur.execute("INSERT INTO player_sessions (player_id) VALUES (%s)", (player_id,))
         return player_id
 
     def register_player_quit(self, server_id, mojang_uuid):
         """Mark the player offline. Returns False if the player is unknown on this server."""
-        return self._execute("""UPDATE player_server_info SET online = false, last_seen = now()
-                                WHERE mojang_uuid = %s AND server_id = %s""",
-                             (mojang_uuid, server_id)) > 0
+        with self._cursor() as cur:
+            cur.execute("""UPDATE player_server_info SET online = false, last_seen = now()
+                           WHERE mojang_uuid = %s AND server_id = %s RETURNING player_id""",
+                        (mojang_uuid, server_id))
+            row = cur.fetchone()
+            if row is None:
+                return False
+            cur.execute("UPDATE player_sessions SET ended_at = now() WHERE player_id = %s AND ended_at IS NULL",
+                        (row[0],))
+        return True
 
     def update_player_status_from_mojang_uuid_and_server_id(self, mojang_uuid, server_id, status):
         if status == "online":
@@ -519,8 +550,13 @@ class DatabaseManager:
         return self.register_player_quit(server_id, mojang_uuid)
 
     def set_all_players_offline(self, server_id):
-        return self._execute("""UPDATE player_server_info SET online = false, last_seen = now()
-                                WHERE server_id = %s AND online""", (server_id,))
+        with self._cursor() as cur:
+            cur.execute("""UPDATE player_sessions ps SET ended_at = now() FROM player_server_info psi
+                           WHERE psi.player_id = ps.player_id AND psi.server_id = %s AND ps.ended_at IS NULL""",
+                        (server_id,))
+            cur.execute("""UPDATE player_server_info SET online = false, last_seen = now()
+                           WHERE server_id = %s AND online""", (server_id,))
+            return cur.rowcount
 
     def update_online_status_by_player_id(self, player_id, online_status):
         self._execute("UPDATE player_server_info SET online = %s WHERE player_id = %s",
@@ -1097,6 +1133,127 @@ class DatabaseManager:
                                      WHERE player_id = %s AND category = %s AND object = ANY(%s)""",
                                   (player_id, category, list(objects)))
         return dict(rows)
+
+    ###----------------------------- Server statistics (sessions) ------------------------------------###
+
+    def get_today(self):
+        """Today in the database time zone (config.TIMEZONE)."""
+        return self._fetchvalue("SELECT current_date")
+
+    _SERVER_SESSIONS = """SELECT ps.player_id, ps.started_at, COALESCE(ps.ended_at, now()) AS ended_at
+                          FROM player_sessions ps JOIN player_server_info psi ON psi.player_id = ps.player_id
+                          WHERE psi.server_id = %s"""
+
+    def get_online_history(self, server_id, hours, bucket_minutes):
+        """[(bucket start, players online)] for the last `hours` hours. A player counts for a
+        bucket if they were online at any time in it."""
+        return self._fetchall(f"""
+            WITH buckets AS (
+                SELECT generate_series(date_trunc('hour', now()) - %s * interval '1 hour',
+                                       now(), %s * interval '1 minute') AS start),
+            s AS ({self._SERVER_SESSIONS} AND COALESCE(ps.ended_at, now()) > now() - %s * interval '1 hour' - interval '1 hour')
+            SELECT b.start, count(DISTINCT s.player_id)
+            FROM buckets b LEFT JOIN s ON s.started_at < b.start + %s * interval '1 minute' AND s.ended_at > b.start
+            GROUP BY b.start ORDER BY b.start""", (hours, bucket_minutes, server_id, hours, bucket_minutes))
+
+    def get_peak_times(self, server_id, weeks=8):
+        """7x24 matrix [weekday 0=Monday][hour] of the average number of players online
+        in that hour over the last `weeks` weeks (only weeks with any data count)."""
+        rows = self._fetchall(f"""
+            WITH hours AS (
+                SELECT generate_series(date_trunc('hour', now()) - %s * interval '1 week',
+                                       date_trunc('hour', now()) - interval '1 hour', interval '1 hour') AS start),
+            s AS ({self._SERVER_SESSIONS} AND COALESCE(ps.ended_at, now()) > now() - %s * interval '1 week'),
+            counted AS (
+                SELECT h.start, count(DISTINCT s.player_id) AS online
+                FROM hours h LEFT JOIN s ON s.started_at < h.start + interval '1 hour' AND s.ended_at > h.start
+                WHERE h.start >= (SELECT date_trunc('hour', min(started_at)) FROM s)
+                GROUP BY h.start)
+            SELECT extract(isodow FROM start)::int - 1, extract(hour FROM start)::int, avg(online)
+            FROM counted GROUP BY 1, 2""", (weeks, server_id, weeks))
+        matrix = [[0.0] * 24 for _ in range(7)]
+        for weekday, hour, online in rows:
+            matrix[weekday][hour] = round(float(online), 2)
+        return matrix
+
+    def get_online_peak(self, server_id):
+        """(most players online at the same time, when) over all sessions, or (0, None)."""
+        row = self._fetchone(f"""
+            WITH s AS ({self._SERVER_SESSIONS}),
+            events AS (SELECT started_at AS at, 1 AS delta FROM s UNION ALL SELECT ended_at, -1 FROM s),
+            running AS (SELECT at, sum(delta) OVER (ORDER BY at, delta ROWS UNBOUNDED PRECEDING) AS online FROM events)
+            SELECT online, at FROM running ORDER BY online DESC, at DESC LIMIT 1""", (server_id,))
+        return (int(row[0]), row[1]) if row else (0, None)
+
+    def get_new_players_per_month(self, server_id, months=12):
+        """[(first day of month, new players)] for the last `months` months including the current one."""
+        return self._fetchall("""
+            SELECT m.month::date, count(psi.player_id)
+            FROM generate_series(date_trunc('month', now()) - (%s - 1) * interval '1 month',
+                                 date_trunc('month', now()), interval '1 month') AS m(month)
+            LEFT JOIN player_server_info psi ON psi.server_id = %s
+                 AND date_trunc('month', psi.first_seen) = m.month
+            GROUP BY m.month ORDER BY m.month""", (months, server_id))
+
+    def get_server_daily_gain(self, server_id, metric, days=30):
+        """[(day, gain of all players together)] of the last `days` days from the snapshots
+        (None for days without any data)."""
+        rows = self._fetchall("""
+            SELECT s.player_id, s.day, s.value FROM stat_snapshots s
+            JOIN player_server_info psi ON psi.player_id = s.player_id
+            WHERE psi.server_id = %s AND s.metric = %s ORDER BY s.player_id, s.day""", (server_id, metric))
+        today = self._fetchvalue("SELECT current_date")
+        dates = [today - timedelta(days=offset) for offset in range(days, -1, -1)]
+        per_player = {}
+        for player_id, day, value in rows:
+            per_player.setdefault(player_id, []).append((day, value))
+        totals = [None] * len(dates)
+        for points in per_player.values():
+            index, last, values = 0, None, []
+            for date in dates:
+                while index < len(points) and points[index][0] <= date:
+                    last = points[index][1]
+                    index += 1
+                values.append(last)
+            for i in range(1, len(dates)):
+                if values[i - 1] is not None and values[i] is not None:
+                    totals[i] = (totals[i] or 0) + max(0, values[i] - values[i - 1])
+        return list(zip(dates[1:], totals[1:]))
+
+    def get_metrics_between(self, server_id, start, end):
+        """
+        {player_id: {metric: gain}} between the end of the day before `start` and the end of
+        `end` (dates), from the snapshots. Players without a snapshot up to `end` are left out;
+        without one before `start` the first snapshot is the baseline.
+        """
+        rows = self._fetchall("""
+            WITH s AS (SELECT s.player_id, s.metric, s.day, s.value FROM stat_snapshots s
+                       JOIN player_server_info psi ON psi.player_id = s.player_id
+                       WHERE psi.server_id = %s AND s.day <= %s),
+            at_end AS (SELECT DISTINCT ON (player_id, metric) player_id, metric, value FROM s
+                       ORDER BY player_id, metric, day DESC),
+            at_start AS (SELECT DISTINCT ON (player_id, metric) player_id, metric, value FROM s
+                         ORDER BY player_id, metric, day < %s DESC,
+                                  CASE WHEN day < %s THEN day END DESC NULLS LAST, day)
+            SELECT e.player_id, e.metric, e.value - b.value
+            FROM at_end e JOIN at_start b USING (player_id, metric)""", (server_id, end, start, start))
+        result = {}
+        for player_id, metric, gain in rows:
+            result.setdefault(str(player_id), {})[metric] = max(0, gain)
+        return result
+
+    def get_active_players_between(self, server_id, start, end):
+        """Number of players that were online between the start of `start` and the end of `end` (dates)."""
+        return self._fetchvalue(f"""
+            WITH s AS ({self._SERVER_SESSIONS})
+            SELECT count(DISTINCT player_id) FROM s
+            WHERE started_at < (%s::date + 1)::timestamptz AND ended_at > %s::date::timestamptz""",
+                                (server_id, end, start))
+
+    def get_new_players_between(self, server_id, start, end):
+        return self._fetchvalue("""SELECT count(*) FROM player_server_info WHERE server_id = %s
+                                   AND first_seen >= %s::date::timestamptz AND first_seen < (%s::date + 1)::timestamptz""",
+                                (server_id, start, end))
 
     def get_snapshot_start(self, server_id):
         """The day of the first snapshot on the server, or None."""

@@ -347,7 +347,7 @@
               <div><strong>{{ extras.activity.total }}</strong>gespielt</div>
               <div><strong>{{ extras.activity.active_days }} von 30</strong>Tagen aktiv</div>
             </div>
-            <div class="pi-chart" id="activity-chart"></div>
+            <div class="pi-chart" data-bar-chart="activity-data" data-unit="h" aria-label="Spielzeit pro Tag in den letzten 30 Tagen"></div>
           </div>
           {% endif %}
 
@@ -455,7 +455,7 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
     {% if extras.activity %}
     <script id="activity-data" type="application/json">{{ extras.activity.days | tojson }}</script>
-    <script src="{{ url_for('static', filename='activity-chart.js') }}"></script>
+    <script src="{{ url_for('static', filename='bar-chart.js') }}"></script>
     {% endif %}
 
     <script>
