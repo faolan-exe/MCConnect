@@ -42,10 +42,42 @@ def test_award_only_new_tiers(db, server):
 
 def test_new_achievement_is_announced_in_game(db, server, plugin):
     client = plugin().auth(server["key"])
+    assert client.request(f"!JOIN~{PLAYER_UUID}|_Tobias4444") == "success|101"
     assert client.request(f"!STATS~{PLAYER_UUID}|{json.dumps(custom(deaths=10))}") == "success|102"
     player_id = db.get_player_id_from_mojang_uuid_and_server_id(PLAYER_UUID, server["id"])
     name = db.get_player_name_from_player_id(player_id)
     assert client.recv() == f"!broadcast~gold|★ {name} hat den Erfolg »Pechvogel« (Bronze) erreicht!"
+
+
+def test_stats_of_offline_players_award_silently(db, server, plugin, client):
+    """The plugin sends the stats of all players when it connects: old tiers are no news."""
+    connection = plugin().auth(server["key"])
+    assert connection.request(f"!STATS~{PLAYER_UUID}|{json.dumps(custom(deaths=10))}") == "success|102"
+    assert connection.request("!UNKNOWN~x") == "error|004"  # no broadcast in between
+    player_id = db.get_player_id_from_mojang_uuid_and_server_id(PLAYER_UUID, server["id"])
+    assert ("unlucky", 0) in db.get_player_achievements(player_id)  # stored nevertheless
+    events = client.get("/api/feed", **on("testdomain")).json["events"]
+    assert all(e["kind"] != "achievement" for e in events)
+
+
+def test_achievement_right_after_quit_counts(db, server):
+    player_id = db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
+    db.register_player_quit(server["id"], PLAYER_UUID)
+    db.update_player_stats(player_id, custom(deaths=10))  # stats arrive shortly after the quit
+    assert db.award_achievements(player_id) == [(A["unlucky"], 0)]
+
+
+def test_migration_marks_old_catch_up_achievements_silent(db, server):
+    from database.databaseManagerV2 import MIGRATIONS
+    player_id = db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
+    db.update_player_stats(player_id, custom(deaths=60))
+    db.award_achievements(player_id)
+    with db._cursor() as cur:  # the silver tier was stored during a sync long after the session
+        cur.execute("""UPDATE player_achievements SET silent = false,
+                       earned_at = now() + interval '1 hour' WHERE tier = 1""")
+        cur.execute(MIGRATIONS[11][1])
+        cur.execute("SELECT tier, silent FROM player_achievements ORDER BY tier")
+        assert cur.fetchall() == [(0, False), (1, True)]
 
 
 def test_many_achievements_at_once_are_not_announced(db, server, plugin):

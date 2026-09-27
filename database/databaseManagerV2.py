@@ -126,10 +126,22 @@ MIGRATIONS = {
              PRIMARY KEY (player_id, favorite_id),
              CHECK (player_id <> favorite_id))""",
     ],
+    11: [
+        # Tiers reached while the player was not playing (first sync of old stats, e.g. after an
+        # update) are stored silently: no feed entry and no chat announcement.
+        "ALTER TABLE player_achievements ADD COLUMN silent boolean NOT NULL DEFAULT false",
+        """UPDATE player_achievements pa SET silent = NOT EXISTS (
+             SELECT 1 FROM player_sessions ps WHERE ps.player_id = pa.player_id
+               AND ps.started_at <= pa.earned_at
+               AND COALESCE(ps.ended_at, now()) >= pa.earned_at - interval '10 minutes')""",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
 SESSION_MERGE_SECONDS = 120
+# An achievement counts as reached while playing if the player is online or left at most this
+# long ago (the plugin sends the stats shortly after a quit). Otherwise it is stored silently.
+ACHIEVEMENT_ACTIVE_MINUTES = 10
 # Snapshots older than this are deleted (the newest older one of each metric is kept as baseline).
 SNAPSHOT_RETENTION_DAYS = 90
 SCHEMA_VERSION = max(MIGRATIONS, default=1)
@@ -1333,7 +1345,7 @@ class DatabaseManager:
         """
         Latest events of a server, newest first: [{"at", "kind", "name", "uuid", "detail", "tier"}].
         kind: join, new, achievement, competition_start, competition_end. Players who hide their
-        stats and bulk achievements (more than 2 at once, e.g. the first sync) are left out.
+        stats, silent achievements and bulks (more than 2 at once) are left out.
         """
         rows = self._fetchall("""
             WITH visible AS (
@@ -1344,7 +1356,7 @@ class DatabaseManager:
                 SELECT pa.player_id, pa.achievement, pa.tier, pa.earned_at,
                        count(*) OVER (PARTITION BY pa.player_id, pa.earned_at) AS at_once
                 FROM player_achievements pa JOIN visible v USING (player_id)
-                WHERE pa.earned_at > now() - %s * interval '1 day')
+                WHERE pa.earned_at > now() - %s * interval '1 day' AND NOT pa.silent)
             SELECT at, kind, name, uuid, detail, tier FROM (
                 SELECT ps.started_at AS at,
                        CASE WHEN ps.started_at - v.first_seen < interval '1 minute' THEN 'new' ELSE 'join' END AS kind,
@@ -1373,19 +1385,27 @@ class DatabaseManager:
         return {m.key: int(v) for m, v in zip(metrics_mod.METRICS, row)}
 
     def award_achievements(self, player_id):
-        """Store the newly reached achievement tiers of a player. Returns [(achievement, tier)] of the new ones."""
+        """
+        Store the newly reached achievement tiers of a player. Returns [(achievement, tier)] of the
+        new ones reached while playing (to announce); others are stored silently.
+        """
         values = self.get_player_metrics(player_id)
         reached = [(a.key, tier) for a in achievements_mod.ACHIEVEMENTS
                    for tier in range(achievements_mod.tier_of(a, values[a.metric]) + 1)]
         if not reached:
             return []
         with self._cursor() as cur:
-            cur.execute("""INSERT INTO player_achievements (player_id, achievement, tier)
-                           SELECT %s, key, tier FROM unnest(%s::text[], %s::smallint[]) AS r(key, tier)
-                           ON CONFLICT DO NOTHING RETURNING achievement, tier""",
-                        (player_id, [k for k, _ in reached], [t for _, t in reached]))
+            cur.execute("""
+                INSERT INTO player_achievements (player_id, achievement, tier, silent)
+                SELECT %s, key, tier, NOT EXISTS (
+                    SELECT 1 FROM player_sessions ps WHERE ps.player_id = %s
+                      AND COALESCE(ps.ended_at, now()) >= now() - %s * interval '1 minute')
+                FROM unnest(%s::text[], %s::smallint[]) AS r(key, tier)
+                ON CONFLICT DO NOTHING RETURNING achievement, tier, silent""",
+                        (player_id, player_id, ACHIEVEMENT_ACTIVE_MINUTES,
+                         [k for k, _ in reached], [t for _, t in reached]))
             rows = cur.fetchall()
-        return [(achievements_mod.ACHIEVEMENTS_BY_KEY[key], tier) for key, tier in rows]
+        return [(achievements_mod.ACHIEVEMENTS_BY_KEY[key], tier) for key, tier, silent in rows if not silent]
 
     def get_player_achievements(self, player_id):
         """{(achievement key, tier): earned_at} of a player."""
