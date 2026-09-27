@@ -33,20 +33,24 @@ final class Moderation implements Listener {
     /** uuid -> end of the mute (epoch millis) and reason */
     private final Map<UUID, Long> mutedUntil = new ConcurrentHashMap<>();
     private final Map<UUID, String> muteReasons = new ConcurrentHashMap<>();
+    /** "bis 27.09. 19:14 Uhr" from MCConnect (local time zone; this JVM may run in UTC) */
+    private final Map<UUID, String> muteUntilTexts = new ConcurrentHashMap<>();
     private volatile String joinUrl = "";
 
     Moderation(MCDataLink plugin) {
         this.plugin = plugin;
     }
 
-    /** From the connection thread: until 0 = unmuted. */
-    void setMute(UUID uuid, long until, String reason) {
+    /** From the connection thread: until 0 = unmuted. untilText may be empty (older MCConnect). */
+    void setMute(UUID uuid, long until, String reason, String untilText) {
         if (until <= System.currentTimeMillis()) {
             mutedUntil.remove(uuid);
             muteReasons.remove(uuid);
+            muteUntilTexts.remove(uuid);
         } else {
             mutedUntil.put(uuid, until);
             muteReasons.put(uuid, reason == null ? "" : reason);
+            muteUntilTexts.put(uuid, untilText == null ? "" : untilText);
         }
     }
 
@@ -66,11 +70,13 @@ final class Moderation implements Listener {
         if (until <= System.currentTimeMillis()) {
             mutedUntil.remove(uuid);
             muteReasons.remove(uuid);
+            muteUntilTexts.remove(uuid);
             return null;
         }
         String reason = muteReasons.getOrDefault(uuid, "");
-        return ChatColor.RED + "Du bist stummgeschaltet bis " + new SimpleDateFormat("dd.MM. HH:mm").format(new Date(until))
-                + " Uhr" + (reason.isEmpty() ? "." : ": " + ChatColor.WHITE + reason);
+        String untilText = muteUntilTexts.getOrDefault(uuid, "");
+        if (untilText.isEmpty()) untilText = "bis " + new SimpleDateFormat("dd.MM. HH:mm").format(new Date(until)) + " Uhr";
+        return ChatColor.RED + "Du bist stummgeschaltet " + untilText + (reason.isEmpty() ? "." : ": " + ChatColor.WHITE + reason);
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)

@@ -108,12 +108,12 @@ def test_mute_in_game(db, server, game):
     db.set_moderator(server["id"], "_Tobias4444", True)
     cmd(game, PLAYER_UUID, "stumm", "Notch 10 Caps")
     mute, told, answer = game.recv(), game.recv(), game.recv()
-    assert mute.startswith(f"!mute~{OTHER_UUID}|") and mute.endswith("|Caps")
+    assert mute.startswith(f"!mute~{OTHER_UUID}|") and "|Caps|bis " in mute and mute.endswith(" Uhr")
     assert told.startswith(f"!tell~{OTHER_UUID}|&cDu bist stummgeschaltet bis ")
     assert answer.startswith(f"!tell~{PLAYER_UUID}|&aNotch ist stummgeschaltet bis ")
     assert OTHER_UUID in db.get_mutes(server["id"])
     cmd(game, PLAYER_UUID, "entstummen", "Notch")
-    assert game.recv() == f"!mute~{OTHER_UUID}|0|"
+    assert game.recv() == f"!mute~{OTHER_UUID}|0||"
     assert db.get_mutes(server["id"]) == {}
 
 

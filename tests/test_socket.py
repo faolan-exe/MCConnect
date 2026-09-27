@@ -265,7 +265,7 @@ def test_web_ban_and_unban_are_pushed_to_plugin(db, server, plugin):
     client = plugin().auth(server["key"])
     db.ensure_player_on_server(server["id"], PLAYER_UUID)
     db.notify_server_event(server["id"], "ban", uuid=PLAYER_UUID, name="_Tobias4444", end_ms=0, reason="hacking|x~y")
-    assert client.recv() == f"!ban~{PLAYER_UUID}|_Tobias4444|0|hacking/x-y"
+    assert client.recv() == f"!ban~{PLAYER_UUID}|_Tobias4444|0|hacking/x-y|dauerhaft"
     db.notify_server_event(server["id"], "unban", uuid=PLAYER_UUID, name="_Tobias4444")
     assert client.recv() == f"!unban~{PLAYER_UUID}|_Tobias4444"
 
@@ -299,8 +299,9 @@ def test_web_ban_reaches_plugin(db, server, plugin, web_client, admin_id):
                                base_url="http://mc.test")
     assert response.status_code == 200
     command, _, value = client.recv().partition("~")
-    uuid, name, end_ms, reason = value.split("|")
+    uuid, name, end_ms, reason, until = value.split("|")
     assert (command, uuid, name, reason) == ("!ban", PLAYER_UUID, "_Tobias4444", "Gebannt")
+    assert until.startswith("bis ") and until.endswith(" Uhr")  # local time for the kick message
     assert int(end_ms) > time.time() * 1000
 
 

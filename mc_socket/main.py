@@ -27,7 +27,8 @@ Server -> plugin:
     !sendAllPlayerStats          request stats of every known player
     !loginPin~<uuid>~<pin>       show the website login pin to the player
     !prefix~<uuid>|<color>|<text>  show a prefix (empty color and text: remove it)
-    !ban~<uuid>|<name>|<end ms, 0 = permanent>|<reason>   ban (and kick) a player
+    !ban~<uuid>|<name>|<end ms, 0 = permanent>|<reason>[|<until text>]   ban (and kick) a player; the until
+                                 text ("bis 27.09.2026 19:14 Uhr", local time zone) is shown in the kick message (3.9)
     !unban~<uuid>|<name>         lift a ban
     !broadcast~<color>|<text>    chat message to everyone (achievements, competitions, records, streaks,
                                  anniversaries, community goals, player of the week);
@@ -37,7 +38,8 @@ Server -> plugin:
     !metrics~<name>|<name>|...   metric names for the tab completion of /top and /duell (after auth)
     !whitelist~add|<name>        put a player on the server's whitelist (accepted application or invite code)
     !joininfo~<url>              where players who are not on the whitelist can apply (kick message; empty = none)
-    !mute~<uuid>|<until ms, 0 = unmuted>|<reason>   block the chat of a player (plugin 3.6)
+    !mute~<uuid>|<until ms, 0 = unmuted>|<reason>[|<until text>]   block the chat of a player (plugin 3.6);
+                                 the until text is in the local time zone (the server's JVM may run in UTC)
     success|<code> / error|<code>
 
 Error codes:
@@ -66,6 +68,7 @@ import threading
 import time
 import uuid as uuid_mod
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
@@ -384,14 +387,25 @@ class SocketServer:
         if sent:
             self.db.mark_whitelist_synced(server_id, sent)
 
-    def send_mute(self, server_id, mojang_uuid, until, reason):
+    @staticmethod
+    def until_text(until_ms, with_year=False):
+        """"bis 27.09. 19:14 Uhr" in the configured time zone ("dauerhaft" for 0)."""
+        if not until_ms:
+            return "dauerhaft"
+        local = datetime.fromtimestamp(until_ms / 1000, ZoneInfo(config.TIMEZONE))
+        return local.strftime("bis %d.%m.%Y %H:%M Uhr" if with_year else "bis %d.%m. %H:%M Uhr")
+
+    def mute_message(self, mojang_uuid, until, reason):
         until_ms = int(until.timestamp() * 1000) if until else 0
-        return self._send_to_server(server_id, f"!mute~{mojang_uuid}|{until_ms}|{self._clean(reason)}")
+        return f"!mute~{mojang_uuid}|{until_ms}|{self._clean(reason)}|{self.until_text(until_ms) if until_ms else ''}"
+
+    def send_mute(self, server_id, mojang_uuid, until, reason):
+        return self._send_to_server(server_id, self.mute_message(mojang_uuid, until, reason))
 
     def send_ban(self, server_id, ban):
         end_ms = int(ban["end"].timestamp() * 1000) if ban["end"] else 0
         if self._send_to_server(server_id, f"!ban~{ban['uuid']}|{self._clean(ban['name'])}|{end_ms}|"
-                                           f"{self._clean(ban['reason'])}"):
+                                           f"{self._clean(ban['reason'])}|{self.until_text(end_ms, True)}"):
             self.db.mark_ban_delivered(server_id, ban["uuid"])
 
     # ------------------------------------------------------------------ in-game commands
@@ -501,7 +515,7 @@ class SocketServer:
         elif kind == "ban":
             end_ms = int(event.get("end_ms") or 0)
             if self._send_to_server(server_id, f"!ban~{event['uuid']}|{self._clean(event['name'])}|{end_ms}|"
-                                               f"{self._clean(event.get('reason'))}"):
+                                               f"{self._clean(event.get('reason'))}|{self.until_text(end_ms, True)}"):
                 self.db.mark_ban_delivered(server_id, event["uuid"])
         elif kind == "unban":
             self._send_to_server(server_id, f"!unban~{event['uuid']}|{self._clean(event['name'])}")
@@ -597,7 +611,7 @@ class SocketServer:
             client.send(f"!prefix~{mojang_uuid}|{color}|{self._clean(text)}")
         client.send("!metrics~" + "|".join(commands.METRIC_NAMES))
         for mojang_uuid, (until, reason) in self.db.get_mutes(server_id).items():
-            client.send(f"!mute~{mojang_uuid}|{int(until.timestamp() * 1000)}|{self._clean(reason)}")
+            client.send(self.mute_message(mojang_uuid, until, reason))
         self.send_joininfo(server_id, only_if_set=True)
         self.sync_whitelist(server_id)
         for ban in self.db.get_undelivered_web_bans(server_id):  # banned on the website while offline

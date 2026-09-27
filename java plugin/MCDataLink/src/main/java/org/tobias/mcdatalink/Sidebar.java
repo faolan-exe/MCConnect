@@ -46,6 +46,7 @@ final class Sidebar {
         Objective objective = board.registerNewObjective(OBJECTIVE, "dummy");
         objective.setDisplayName(cut(color(title), MAX_TITLE));
         objective.setDisplaySlot(DisplaySlot.SIDEBAR);
+        hideScores(objective);
         Set<String> used = new HashSet<>();
         int score = lines.size();
         for (String line : lines) {
@@ -92,6 +93,17 @@ final class Sidebar {
             for (String entry : source.getEntries()) {
                 if (!copy.hasEntry(entry)) copy.addEntry(entry);
             }
+        }
+    }
+
+    /** Paper 1.20.3+ can hide the red score numbers on the right; older servers keep them. */
+    private static void hideScores(Objective objective) {
+        try {
+            Class<?> format = Class.forName("io.papermc.paper.scoreboard.numbers.NumberFormat");
+            Object blank = format.getMethod("blank").invoke(null);
+            objective.getClass().getMethod("numberFormat", format).invoke(objective, blank);
+        } catch (ReflectiveOperationException | LinkageError ignored) {
+            // not available on this server
         }
     }
 

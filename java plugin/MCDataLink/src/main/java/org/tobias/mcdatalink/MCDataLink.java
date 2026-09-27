@@ -242,11 +242,12 @@ public final class MCDataLink extends JavaPlugin {
                 if (uuid != null) prefixDisplay.set(uuid, fields[1], fields[2]);
                 break;
             }
-            case "!ban": {  // uuid|name|end millis (0 = permanent)|reason
+            case "!ban": {  // uuid|name|end millis (0 = permanent)|reason[|until text in the local time zone]
                 UUID uuid = fields.length >= 4 ? parseUuid(fields[0]) : null;
                 if (uuid != null) {
                     long end = parseLong(fields[2]);
-                    runOnMainThread(() -> banSync.ban(uuid, fields[1], end, fields[3]));
+                    String untilText = fields.length > 4 ? fields[4] : "";
+                    runOnMainThread(() -> banSync.ban(uuid, fields[1], end, fields[3], untilText));
                 }
                 break;
             }
@@ -276,7 +277,8 @@ public final class MCDataLink extends JavaPlugin {
             }
             case "!mute": {  // uuid|until millis (0 = unmuted)|reason
                 UUID uuid = fields.length >= 2 ? parseUuid(fields[0]) : null;
-                if (uuid != null) moderation.setMute(uuid, parseLong(fields[1]), fields.length > 2 ? fields[2] : "");
+                if (uuid != null) moderation.setMute(uuid, parseLong(fields[1]), fields.length > 2 ? fields[2] : "",
+                        fields.length > 3 ? fields[3] : "");
                 break;
             }
             case "!whitelist":  // add|name

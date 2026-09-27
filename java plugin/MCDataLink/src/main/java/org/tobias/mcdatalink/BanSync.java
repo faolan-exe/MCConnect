@@ -29,7 +29,7 @@ final class BanSync {
         return plugin.getServer().getBanList(BanList.Type.NAME);
     }
 
-    void ban(UUID uuid, String name, long endMillis, String reason) {
+    void ban(UUID uuid, String name, long endMillis, String reason, String untilText) {
         Date expires = endMillis > 0 ? new Date(endMillis) : null;
         try {
             banList().addBan(name, reason, expires, SOURCE);
@@ -38,7 +38,7 @@ final class BanSync {
             return;
         }
         Player player = plugin.getServer().getPlayer(uuid);
-        if (player != null) player.kickPlayer(kickMessage(reason, expires));
+        if (player != null) player.kickPlayer(kickMessage(reason, expires, untilText));
         plugin.getLogger().info("Banned " + name + " (from MCConnect): " + reason);
     }
 
@@ -90,8 +90,9 @@ final class BanSync {
         return json.append(']').toString();
     }
 
-    private static String kickMessage(String reason, Date expires) {
-        String until = expires == null ? "dauerhaft" : "bis " + new SimpleDateFormat("dd.MM.yyyy HH:mm").format(expires);
+    private static String kickMessage(String reason, Date expires, String untilText) {
+        String until = untilText != null && !untilText.isEmpty() ? untilText
+                : expires == null ? "dauerhaft" : "bis " + new SimpleDateFormat("dd.MM.yyyy HH:mm").format(expires);
         return ChatColor.RED + "Du wurdest gebannt" + ChatColor.RESET + "\n\n" + reason + "\n" + ChatColor.GRAY + until;
     }
 
