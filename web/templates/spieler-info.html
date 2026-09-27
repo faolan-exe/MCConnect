@@ -467,6 +467,15 @@
           </div>
           {% endif %}
 
+          {% if builds %}
+          <h2>Bauten in der Galerie</h2>
+          <div class="bg-grid bg-grid-small">
+            {% for b in builds %}
+            <a class="bg-item" href="/galerie"><img src="{{ b.url }}" alt="{{ b.title }}" loading="lazy"/><span class="bg-caption">{{ b.title }} · ♥ {{ b.likes }}</span></a>
+            {% endfor %}
+          </div>
+          {% endif %}
+
           {% if extras.highlights %}
           <h2>Highlights</h2>
           <div class="pi-tiles">
@@ -481,6 +490,66 @@
           {% endif %}
         </section>
         {% endif %}
+
+        <section class="pi-extra gb-section" id="guestbook" data-player="{{ user_name }}">
+          <h2>Gästebuch{% if guestbook %} · {{ guestbook | length }}{% endif %}</h2>
+          {% if logged_in and not is_self %}
+          <form class="gb-form">
+            <label class="st-sr" for="gb-text">Eintrag für {{ user_name }}</label>
+            <input class="mcc-input" id="gb-text" name="text" maxlength="{{ guestbook_max }}" required
+                   placeholder="Schreib {{ user_name }} etwas Nettes …"/>
+            <button class="mcc-btn mcc-btn-small" type="submit">Eintragen</button>
+          </form>
+          <div class="mcc-message" data-role="message"></div>
+          {% elif not logged_in %}
+          <p class="mcc-hint"><a href="/login?next=/spieler?player={{ user_name | urlencode }}">Log dich ein</a>, um etwas ins Gästebuch zu schreiben.</p>
+          {% endif %}
+          {% if guestbook %}
+          <ul class="gb-list">
+            {% for e in guestbook %}
+            <li class="gb-entry">
+              <img src="https://mc-heads.net/avatar/{{ e.author_uuid }}/32" alt="" width="28" height="28" loading="lazy"/>
+              <div>
+                <div class="gb-head"><a href="/spieler?player={{ e.author | urlencode }}"><b>{{ e.author }}</b></a> <span>{{ e.when }}</span></div>
+                <p>{{ e.text }}</p>
+              </div>
+              <span class="gb-actions">
+                {% if e.can_delete %}<button type="button" data-gb-delete="{{ e.id }}">Löschen</button>{% endif %}
+                {% if logged_in and not e.can_delete %}<button type="button" data-gb-report="{{ e.id }}"{% if e.reported_at %} disabled{% endif %}>{{ "Gemeldet" if e.reported_at else "Melden" }}</button>{% endif %}
+              </span>
+            </li>
+            {% endfor %}
+          </ul>
+          {% elif not (logged_in and not is_self) %}
+          <p class="st-empty">Noch keine Einträge.</p>
+          {% endif %}
+        </section>
+        <script>
+          (() => {
+            const root = document.getElementById("guestbook");
+            const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+                                                     body: JSON.stringify(body) }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }));
+            const form = root.querySelector(".gb-form");
+            if (form) form.addEventListener("submit", async (event) => {
+              event.preventDefault();
+              const result = await post("/api/guestbook", { name: root.dataset.player, text: form.elements.text.value });
+              if (result.ok) return location.reload();
+              const message = root.querySelector('[data-role="message"]');
+              message.textContent = result.data.error || "Das hat nicht geklappt.";
+              message.className = "mcc-message error";
+            });
+            root.querySelectorAll("[data-gb-delete]").forEach((button) => button.addEventListener("click", async () => {
+              if (!confirm("Eintrag wirklich löschen?")) return;
+              const result = await post("/api/guestbook/delete", { id: Number(button.dataset.gbDelete) });
+              if (result.ok) location.reload();
+            }));
+            root.querySelectorAll("[data-gb-report]").forEach((button) => button.addEventListener("click", async () => {
+              if (!confirm("Diesen Eintrag den Moderatoren melden?")) return;
+              const result = await post("/api/guestbook/report", { id: Number(button.dataset.gbReport) });
+              if (result.ok) { button.textContent = "Gemeldet"; button.disabled = true; }
+            }));
+          })();
+        </script>
 
         <br />
         <br />

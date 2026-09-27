@@ -79,6 +79,25 @@
             </section>
             {% endfor %}
 
+            {% if events or polls %}
+            <section class="srv-section cm-row">
+                {% for e in events %}
+                <a class="cm-card" href="/events">
+                    <span class="ev-date" aria-hidden="true"><span>{{ e.month }}</span><b>{{ e.day_number }}</b></span>
+                    <span class="cm-body"><span class="cm-kicker">{{ "Läuft gerade" if e.running else "Event" }}</span>
+                        <b>{{ e.title }}</b><span class="gl-meta">{{ e.day }}, {{ e.time }} Uhr · {{ e.signups }} {{ "Anmeldung" if e.signups == 1 else "Anmeldungen" }}</span></span>
+                </a>
+                {% endfor %}
+                {% for p in polls %}
+                <a class="cm-card" href="/umfragen">
+                    <span class="cm-icon" aria-hidden="true">?</span>
+                    <span class="cm-body"><span class="cm-kicker">Umfrage · bis {{ p.ends }}</span>
+                        <b>{{ p.question }}</b><span class="gl-meta">{{ p.total }} {{ "Stimme" if p.total == 1 else "Stimmen" }} – jetzt abstimmen</span></span>
+                </a>
+                {% endfor %}
+            </section>
+            {% endif %}
+
             {% if goals %}
             {% from "_goals.html" import goal_card %}
             <section class="srv-section">

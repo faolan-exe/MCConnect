@@ -96,11 +96,14 @@
           <li>
             <div class="dropdown">
               <button
-                class="dropbtn {% if request.path in ('/duelle', '/melden') %} current{% endif %}"
+                class="dropbtn {% if request.path in ('/duelle', '/melden', '/events', '/umfragen', '/galerie') %} current{% endif %}"
               >
                 ▼ Community
               </button>
               <div class="dropdown-content">
+                <a href="/events">Events</a>
+                <a href="/umfragen">Umfragen</a>
+                <a href="/galerie">Baugalerie</a>
                 <a href="/duelle">Duelle</a>
                 <a href="/melden">Etwas melden</a>
               </div>

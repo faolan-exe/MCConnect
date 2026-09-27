@@ -1,0 +1,60 @@
+{% extends "server_base.html" %}
+{% block title %}Umfragen · {{ server_name }}{% endblock %}
+{% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block page_class %}srv-page-wide{% endblock %}
+
+{% macro poll_card(p) %}
+<article class="st-board po-card" data-poll="{{ p.id }}">
+  <span class="cp-badge{% if not p.open %} du-badge-off{% endif %}">{{ "bis " ~ p.ends if p.open else "beendet" }}</span>
+  <h3>{{ p.question }}</h3>
+  <ul class="po-options">
+    {% for row in p.rows %}
+    <li>
+      {% if p.open and logged_in %}
+      <button type="button" class="po-option{% if p.my_vote == row.index %} po-mine{% endif %}" data-option="{{ row.index }}"
+              aria-pressed="{{ 'true' if p.my_vote == row.index else 'false' }}">
+      {% else %}
+      <div class="po-option{% if p.my_vote == row.index %} po-mine{% endif %}{% if not p.open and row.top %} po-winner{% endif %}">
+      {% endif %}
+        <span class="po-fill" style="width: {{ '%.1f' | format(row.share * 100) }}%"></span>
+        <span class="po-text">{{ row.text }}</span>
+        <span class="po-percent">{{ row.percent }} %</span>
+      {% if p.open and logged_in %}</button>{% else %}</div>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="gl-meta po-total">{{ p.total }} {{ "Stimme" if p.total == 1 else "Stimmen" }}{% if p.my_vote is not none and p.open %} · du kannst deine Stimme noch ändern{% endif %}</p>
+</article>
+{% endmacro %}
+
+{% block content %}
+<h1>Umfragen</h1>
+<p class="srv-lead">Stimm ab, was auf dem Server als Nächstes passiert. Im Spiel geht das mit <code>/vote</code>.</p>
+
+<section class="st-group">
+  <h2>Offen</h2>
+  {% if open_polls %}
+  <div class="st-boards po-boards">{% for p in open_polls %}{{ poll_card(p) }}{% endfor %}</div>
+  {% if not logged_in %}<p class="st-hint"><a href="/login?next=/umfragen">Log dich ein</a>, um abzustimmen.</p>{% endif %}
+  {% else %}
+  <p class="st-empty">Gerade läuft keine Umfrage.</p>
+  {% endif %}
+</section>
+
+{% if closed_polls %}
+<section class="st-group">
+  <h2>Ergebnisse</h2>
+  <div class="st-boards po-boards">{% for p in closed_polls %}{{ poll_card(p) }}{% endfor %}</div>
+</section>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+  document.querySelectorAll("[data-poll] [data-option]").forEach((button) => button.addEventListener("click", async () => {
+    const poll = button.closest("[data-poll]");
+    const result = await postJson("/api/polls/vote", { id: Number(poll.dataset.poll), option: Number(button.dataset.option) });
+    if (result.ok) location.reload();
+    else alert(result.data.error || "Das hat nicht geklappt.");
+  }));
+</script>
+{% endblock %}

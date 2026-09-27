@@ -45,7 +45,7 @@ docker compose -f docker/db/docker-compose.yml -p mcconnect up -d   # local post
 
 ## Status and next steps
 
-State of 2026-09-27 (schema version 14, plugin 3.4). Written as a handoff for the next development
+State of 2026-09-27 (schema version 15, plugin 3.5). Written as a handoff for the next development
 session; `docs/HANDOFF_spielervergleich.md` is the older handoff for the rankings feature (data model,
 stat units, screenshot workflow) and still useful as background.
 
@@ -67,7 +67,8 @@ stat units, screenshot workflow) and still useful as background.
 | Moderation | `/users` (moderators only) | server health (TPS, RAM, uptime, 24 h charts, availability), log of all moderation actions, inactive players, competitions, bans |
 | Motivation (phase 5) | `database/motivation.py` | streaks + badges 7/30/100, anniversaries (`player_milestones`), record history (`record_history`, cooldown against flip-flops), community goals (`community_goals`, `/wettbewerbe#ziele`, created on `/users`), trophies (`trophies`: competition places, player of the week), fun facts on `/server-statistik`, trophy cabinet on the player page, hall of fame `/ruhmeshalle`; news in feed and chat |
 | In game (phase 6) | `mc_socket/commands.py` | `/stats`, `/top`, `/wettbewerb`, `/duell`, `/report`, `/seitenleiste` answered by the socket server (`!CMD` → `!tell`); scoreboard sidebar (`!sidebar`, setting also on `/profil`); duels (`duels`, `/duelle`), reports (`reports`, `/melden`, list on `/users`, online moderators get a chat message) |
-| Plugin | `java plugin/MCDataLink` | 3.1 `!broadcast` (chat), 3.2 `!HEALTH` every minute, 3.3 live stats of online players every minute (`live-stats` in config.yml), 3.4 in-game commands and sidebar (`InGameCommands`, `Sidebar`) |
+| Community (phase 7) | `/events`, `/umfragen`, `/galerie`, player page | event calendar with sign up and chat reminder (`events`, `event_signups`, `/events` in game), polls (`polls`, `poll_votes`, `/vote`, result in chat), build gallery with approval and likes (`builds`, `build_likes`, uploads like the server images), guestbook on the player page (`guestbook`, report/delete); created and moderated on `/users` (jump links at the top) |
+| Plugin | `java plugin/MCDataLink` | 3.1 `!broadcast` (chat), 3.2 `!HEALTH` every minute, 3.3 live stats of online players every minute (`live-stats` in config.yml), 3.4 in-game commands and sidebar (`InGameCommands`, `Sidebar`), 3.5 `/vote` and `/events` |
 
 Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all of the above in
 `web/static/css/stats.css`.
@@ -91,7 +92,7 @@ Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all
    optional scoreboard sidebar (competition standings / own play time, switchable per player);
    duels (1 vs 1 challenge for a metric and a period, accept on the website or with `/duell`, winner in chat);
    report system (`/report` or website, with position and time, list for moderators).
-3. **Phase 7 – Community**: event calendar (start page, chat reminder, sign up), polls (moderators create,
+3. ~~**Phase 7 – Community**~~ (done, see above): event calendar (start page, chat reminder, sign up), polls (moderators create,
    vote on the website or with `/vote`), build gallery (players upload screenshots with title/coordinates,
    moderators approve, likes), guestbook on the player page (report/delete).
 4. **Phase 8 – Moderation & access**: whitelist access **either by application** (form on the website,

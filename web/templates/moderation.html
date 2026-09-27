@@ -6,6 +6,18 @@
 <h1>Verwaltung</h1>
 <p class="srv-lead">Bans von hier werden sofort im Spiel ausgeführt: Der Spieler wird gekickt und kann bis zum Ende
   des Bans nicht mehr joinen. Bans aus dem Spiel (<code>/ban</code>) erscheinen hier ebenfalls.</p>
+{% set open_reports = reports | selectattr("handled_at", "none") | list %}
+<nav class="md-nav" aria-label="Bereiche">
+  <a href="#health">Serverzustand</a>
+  <a href="#reports">Meldungen{% if open_reports %} <b>{{ open_reports | length }}</b>{% endif %}</a>
+  <a href="#builds">Galerie{% if pending_builds %} <b>{{ pending_builds | length }}</b>{% endif %}</a>
+  <a href="#guestbook">Gästebuch{% if reported_entries %} <b>{{ reported_entries | length }}</b>{% endif %}</a>
+  <a href="#events">Events</a>
+  <a href="#polls">Umfragen</a>
+  {% if competitions is not none %}<a href="#competitions">Wettbewerbe</a><a href="#goals">Ziele</a>{% endif %}
+  <a href="#log">Protokoll</a>
+  <a href="#activity">Aktivität</a>
+</nav>
 
 <section class="srv-card" id="health">
   <h2>Serverzustand</h2>
@@ -195,6 +207,115 @@
   {% endif %}
 </section>
 
+<section class="srv-card" id="builds">
+  <h2>Galerie freigeben{% if pending_builds %} · {{ pending_builds | length }}{% endif %}</h2>
+  {% if pending_builds %}
+  <ul class="md-builds">
+    {% for b in pending_builds %}
+    <li>
+      <a href="{{ b.url }}" target="_blank" rel="noopener"><img src="{{ b.url }}" alt="{{ b.title }}" loading="lazy"/></a>
+      <div><b>{{ b.title }}</b><span class="mcc-hint">von {{ b.name }} · {{ b.date }}{% if b.coordinates %} · {{ b.coordinates }}{% endif %}</span>
+        {% if b.description %}<span>{{ b.description }}</span>{% endif %}
+        <span class="md-actions">
+          <button class="mcc-btn mcc-btn-small" type="button" data-mod-post="/api/mod/builds/approve" data-id="{{ b.id }}">Freigeben</button>
+          <button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-mod-post="/api/mod/builds/delete" data-id="{{ b.id }}"
+                  data-confirm="Bild »{{ b.title }}« löschen?">Löschen</button>
+        </span></div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="st-empty">Keine Bilder warten auf Freigabe. Freigegebene Bilder kannst du direkt in der <a href="/galerie">Galerie</a> löschen.</p>
+  {% endif %}
+</section>
+
+<section class="srv-card" id="guestbook">
+  <h2>Gemeldete Gästebucheinträge{% if reported_entries %} · {{ reported_entries | length }}{% endif %}</h2>
+  {% if reported_entries %}
+  <div class="mcc-table-wrap">
+    <table class="mcc-table">
+      <thead><tr><th>Wann</th><th>Von</th><th>Auf der Seite von</th><th>Text</th><th></th></tr></thead>
+      <tbody>
+        {% for e in reported_entries %}
+        <tr>
+          <td>{{ e.when }}</td><td>{{ e.author }}</td>
+          <td><a href="/spieler?player={{ e.owner | urlencode }}#guestbook">{{ e.owner }}</a></td>
+          <td>{{ e.text }}</td>
+          <td class="md-actions">
+            <button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-mod-post="/api/mod/guestbook/keep" data-id="{{ e.id }}">Behalten</button>
+            <button class="mcc-btn mcc-btn-small" type="button" data-mod-post="/api/guestbook/delete" data-id="{{ e.id }}"
+                    data-confirm="Eintrag löschen?">Löschen</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="st-empty">Nichts gemeldet.</p>
+  {% endif %}
+</section>
+
+<section class="srv-card" id="events">
+  <h2>Events</h2>
+  <p class="mcc-hint">Stehen auf <a href="/events">/events</a> und der Startseite. 30 Minuten vorher und zum Start kommt eine Nachricht im Chat.</p>
+  <form class="mcc-form" data-mod-form="/api/mod/events">
+    <div class="mcc-row">
+      <div><label for="ev-title">Titel</label><input class="mcc-input" id="ev-title" name="title" maxlength="60" required placeholder="z. B. Bauwettbewerb am Spawn"/></div>
+      <div><label for="ev-start">Beginn</label><input class="mcc-input" id="ev-start" name="starts_at" type="datetime-local" min="{{ now_local }}" required/></div>
+    </div>
+    <label for="ev-place">Treffpunkt (optional)</label>
+    <input class="mcc-input" id="ev-place" name="place" maxlength="80" placeholder="z. B. Spawn oder X 0 Z 0"/>
+    <label for="ev-text">Beschreibung (optional)</label>
+    <textarea class="mcc-input" id="ev-text" name="description" maxlength="500" rows="2"></textarea>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Event anlegen</button></div>
+    <div class="mcc-message" data-role="message"></div>
+  </form>
+  {% if events %}
+  <div class="mcc-table-wrap" style="margin-top: 20px">
+    <table class="mcc-table">
+      <thead><tr><th>Titel</th><th>Beginn</th><th>Anmeldungen</th><th></th></tr></thead>
+      <tbody>
+        {% for e in events %}
+        <tr><td>{{ e.title }}</td><td>{{ e.day }}, {{ e.time }} Uhr</td><td>{{ e.signups }}</td>
+          <td><button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-mod-post="/api/mod/events/delete"
+                      data-id="{{ e.id }}" data-confirm="Event »{{ e.title }}« löschen?">Löschen</button></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+
+<section class="srv-card" id="polls">
+  <h2>Umfragen</h2>
+  <p class="mcc-hint">Abgestimmt wird auf <a href="/umfragen">/umfragen</a> oder im Spiel mit <code>/vote</code>. Das Ergebnis kommt am Ende in den Chat.</p>
+  <form class="mcc-form" data-mod-form="/api/mod/polls" data-options>
+    <label for="po-question">Frage</label>
+    <input class="mcc-input" id="po-question" name="question" maxlength="120" required placeholder="z. B. Welches Projekt bauen wir als Nächstes?"/>
+    <label>Antworten <span class="mcc-hint">(2 bis 8, eine pro Zeile)</span></label>
+    <textarea class="mcc-input" name="options" rows="4" required placeholder="Hafen&#10;Burg&#10;Bahnhof"></textarea>
+    <label for="po-days">Dauer</label>
+    <select class="mcc-select" id="po-days" name="days">{% for n in (1, 2, 3, 5, 7, 14, 30) %}<option value="{{ n }}"{% if n == 3 %} selected{% endif %}>{{ n }} {{ "Tag" if n == 1 else "Tage" }}</option>{% endfor %}</select>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Umfrage starten</button></div>
+    <div class="mcc-message" data-role="message"></div>
+  </form>
+  {% if polls %}
+  <div class="mcc-table-wrap" style="margin-top: 20px">
+    <table class="mcc-table">
+      <thead><tr><th>Frage</th><th>Stimmen</th><th>Ende</th><th></th></tr></thead>
+      <tbody>
+        {% for p in polls %}
+        <tr><td>{{ p.question }}</td><td>{{ p.total }}</td><td>{{ p.ends }}{% if not p.open %} (vorbei){% endif %}</td>
+          <td><button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-mod-post="/api/mod/polls/delete"
+                      data-id="{{ p.id }}" data-confirm="Umfrage löschen?">Löschen</button></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+
 <section class="srv-card" id="log">
   <h2>Protokoll</h2>
   <p class="mcc-hint">Die letzten 100 Aktionen: Bans (auch aus dem Spiel), Moderatoren, Wettbewerbe und Notizen.</p>
@@ -289,6 +410,23 @@
       else showMessage(message, result.data.error || "Löschen fehlgeschlagen.", "error");
     }));
   })();
+</script>
+<script>
+  // generic moderator buttons (POST {id}) and forms (POST the fields as JSON)
+  document.querySelectorAll("[data-mod-post]").forEach((button) => button.addEventListener("click", async () => {
+    if (button.dataset.confirm && !confirm(button.dataset.confirm)) return;
+    const result = await postJson(button.dataset.modPost, { id: Number(button.dataset.id) });
+    if (result.ok) location.reload();
+    else alert(result.data.error || "Das hat nicht geklappt.");
+  }));
+  document.querySelectorAll("[data-mod-form]").forEach((form) => form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const body = Object.fromEntries(new FormData(form));
+    if ("options" in form.dataset) body.options = body.options.split("\n").map((o) => o.trim()).filter(Boolean);
+    const result = await postJson(form.dataset.modForm, body);
+    if (result.ok) location.reload();
+    else showMessage(form.querySelector('[data-role="message"]'), result.data.error || "Das hat nicht geklappt.", "error");
+  }));
 </script>
 <script>
   document.querySelectorAll("[data-resolve]").forEach((button) => button.addEventListener("click", async () => {

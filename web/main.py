@@ -16,6 +16,7 @@ import sys
 import time
 import uuid as uuid_mod
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from urllib.parse import urlparse
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -142,6 +143,8 @@ def inject_server_context():
 def subdomain_index_route():
     images = db().get_server_images(g.server["id"])
     records, recap, competitions, goals = [], None, [], []
+    events = [event_view(e) for e in db().list_events(g.server["id"], limit=2)]
+    polls = [poll_view(p) for p in db().list_polls(g.server["id"], open_only=True, limit=2)]
     if current_app.config["FEATURE_RANKINGS"]:
         players = db().get_server_metrics(g.server["id"])
         recap = weekly_recap(g.server["id"], players)
@@ -163,6 +166,7 @@ def subdomain_index_route():
     return render_template("index-subpage.html",
                            player_total=len(db().get_all_player_ids_from_subdomain(g.subdomain)),
                            records=records, recap=recap, competitions=competitions, goals=goals,
+                           events=events, polls=polls,
                            banner_url=image_url(images["banner"]) if images["banner"] else None,
                            gallery_urls=[image_url(image["filename"]) for image in images["gallery"]])
 
@@ -218,6 +222,11 @@ def player_overview_route():
         is_favorite=bool(viewer) and not is_self and info["name"] in {f["name"] for f in db().get_favorites(viewer)},
         logged_in=bool(viewer), card_url=url_for("server.player_card", subdomain=g.subdomain, player_name=info["name"], _external=True),
         player_prefix=db().get_player_prefix(player_id),
+        guestbook=[dict(e, when=e["created_at"].strftime("%d.%m.%Y, %H:%M"),
+                        can_delete=bool(viewer) and (str(viewer) in (e["author_id"], e["player_id"]) or db().is_moderator(viewer)))
+                   for e in db().get_guestbook(player_id)],
+        builds=[build_view(b) for b in db().list_builds(g.server["id"], player_id=player_id, limit=6)],
+        guestbook_max=GUESTBOOK_MAX_LENGTH,
         banned=bool(banned), startdate=startdate, enddate=enddate,
         armor_stats=json.dumps(db().get_all_armor_stats(player_id)),
         tool_stats=json.dumps(db().get_all_tools_stats(player_id)),
@@ -236,15 +245,26 @@ def feature_rankings_required(view):
     return wrapper
 
 
-def player_required(view):
-    """Server pages that need a logged in player; POST API calls must be JSON (CSRF protection)."""
+def player_required(view=None, *, allow_upload=False):
+    """
+    Server pages that need a logged in player; POST API calls must be JSON (CSRF protection).
+    Upload endpoints (allow_upload) accept multipart forms instead and check the Origin header.
+    """
+    if view is None:
+        return functools.partial(player_required, allow_upload=allow_upload)
+
     @functools.wraps(view)
     def wrapper(*args, **kwargs):
         is_api = request.path.startswith("/api/")
         if not logged_in_player_id():
             return ({"error": "Bitte zuerst einloggen."}, 401) if is_api else redirect(f"/login?next={request.path}")
-        if is_api and request.method == "POST" and not request.is_json:
-            return {"error": "json required"}, 415
+        if is_api and request.method == "POST":
+            if allow_upload and request.mimetype == "multipart/form-data":
+                origin = request.headers.get("Origin")
+                if origin and urlparse(origin).netloc != request.host:
+                    return {"error": "cross-site upload refused"}, 403
+            elif not request.is_json:
+                return {"error": "json required"}, 415
         return view(*args, **kwargs)
     return wrapper
 
@@ -779,6 +799,205 @@ def report_page():
                            reason_max=REPORT_REASON_MAX)
 
 
+################################ COMMUNITY: events, polls, build gallery, guestbook #################################
+
+WEEKDAY_NAMES = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+
+
+def event_view(event, mine=()):
+    at = event["starts_at"]
+    now = datetime.now(timezone.utc)
+    return dict(event, day=f"{WEEKDAY_NAMES[at.weekday()]}, {at.strftime('%d.%m.%Y')}", time=at.strftime("%H:%M"),
+                date_short=at.strftime("%d.%m."), month=MONTHS[at.month - 1], day_number=at.day,
+                running=at <= now, signed_up=event["id"] in mine,
+                soon=timedelta(0) < at - now < timedelta(hours=24))
+
+
+def poll_view(poll, mine=None):
+    top = max(poll["votes"], default=0)
+    return dict(poll, ends=poll["ends_at"].strftime("%d.%m.%Y, %H:%M"), my_vote=(mine or {}).get(poll["id"]),
+                rows=[{"index": i, "text": option, "votes": v, "share": v / poll["total"] if poll["total"] else 0,
+                       "percent": round(v * 100 / poll["total"]) if poll["total"] else 0, "top": v == top and v > 0}
+                      for i, (option, v) in enumerate(zip(poll["options"], poll["votes"]))])
+
+
+def build_view(build, liked=()):
+    return dict(build, url=image_url(build["filename"]), date=build["created_at"].strftime("%d.%m.%Y"),
+                liked=build["id"] in liked)
+
+
+@server_bp.route("/events")
+def events_page():
+    viewer = logged_in_player_id()
+    mine = db().get_player_event_ids(viewer) if viewer else set()
+    upcoming = []
+    for event in db().list_events(g.server["id"]):
+        view = event_view(event, mine)
+        view["people"] = db().get_event_signups(event["id"])
+        upcoming.append(view)
+    return render_template("events.html", upcoming=upcoming, logged_in=bool(viewer),
+                           past=[event_view(e) for e in db().list_events(g.server["id"], upcoming=False, limit=10)])
+
+
+@server_bp.route("/umfragen")
+def polls_page():
+    viewer = logged_in_player_id()
+    mine = db().get_player_votes(viewer) if viewer else {}
+    polls = [poll_view(p, mine) for p in db().list_polls(g.server["id"])]
+    return render_template("umfragen.html", open_polls=[p for p in polls if p["open"]],
+                           closed_polls=[p for p in polls if not p["open"]], logged_in=bool(viewer))
+
+
+@server_bp.route("/galerie")
+def gallery_page():
+    viewer = logged_in_player_id()
+    order = "top" if request.args.get("sortierung") == "beliebt" else "new"
+    liked = db().get_liked_builds(viewer) if viewer else set()
+    mine = [build_view(b) for b in db().list_builds(g.server["id"], "pending", player_id=viewer)] if viewer else []
+    return render_template("galerie.html", builds=[build_view(b, liked) for b in db().list_builds(g.server["id"], order=order)],
+                           order=order, waiting=mine, viewer=str(viewer) if viewer else None,
+                           moderator=bool(viewer) and db().is_moderator(viewer),
+                           max_upload_mb=MAX_UPLOAD_BYTES // (1024 * 1024))
+
+
+@server_bp.route("/api/events/signup", methods=["POST"])
+@player_required
+def event_signup_api():
+    try:
+        event_id = int((request.get_json(silent=True) or {}).get("id"))
+    except (TypeError, ValueError):
+        return {"error": "Unbekanntes Event."}, 400
+    signed_up = db().toggle_event_signup(g.server["id"], event_id, logged_in_player_id())
+    if signed_up is None:
+        return {"error": "Dieses Event ist schon vorbei."}, 404
+    return {"signed_up": signed_up, "people": db().get_event_signups(event_id)}
+
+
+@server_bp.route("/api/polls/vote", methods=["POST"])
+@player_required
+def poll_vote_api():
+    data = request.get_json(silent=True) or {}
+    try:
+        poll_id, option = int(data.get("id")), int(data.get("option"))
+    except (TypeError, ValueError):
+        return {"error": "Ungültige Stimme."}, 400
+    result = db().vote(g.server["id"], poll_id, logged_in_player_id(), option)
+    if result == "closed":
+        return {"error": "Die Umfrage ist schon vorbei."}, 409
+    if result != "ok":
+        return {"error": "Ungültige Stimme."}, 400
+    return ("", 200)
+
+
+BUILD_TITLE_MAX, BUILD_TEXT_MAX, BUILD_COORDS_MAX = 60, 300, 40
+
+
+@server_bp.route("/api/builds", methods=["POST"])
+@player_required(allow_upload=True)
+def build_upload_api():
+    title = " ".join(str(request.form.get("title") or "").split())
+    description = " ".join(str(request.form.get("description") or "").split()) or None
+    coordinates = " ".join(str(request.form.get("coordinates") or "").split()) or None
+    file = request.files.get("image")
+    if not 3 <= len(title) <= BUILD_TITLE_MAX:
+        return {"error": f"Der Titel muss 3-{BUILD_TITLE_MAX} Zeichen lang sein."}, 400
+    if description and len(description) > BUILD_TEXT_MAX or coordinates and len(coordinates) > BUILD_COORDS_MAX:
+        return {"error": "Beschreibung oder Koordinaten sind zu lang."}, 400
+    if file is None:
+        return {"error": "Bitte ein Bild auswählen."}, 400
+    try:
+        filename = save_image(file.stream, "gallery", config.UPLOAD_DIR)
+    except InvalidImage as e:
+        return {"error": str(e)}, 400
+    player_id = logged_in_player_id()
+    build_id = db().add_build(g.server["id"], player_id, title, filename, description, coordinates)
+    if build_id is None:
+        delete_images([filename], config.UPLOAD_DIR)
+        return {"error": "Du hast schon genug Bilder, die auf Freigabe warten (oder heute hochgeladen). "
+                         "Warte, bis die Moderatoren sie angesehen haben."}, 429
+    moderators = db().get_online_moderator_uuids(g.server["id"])
+    if moderators:
+        db().notify_server_event(g.server["id"], "tell", uuids=moderators,
+                                 text=f"&7[Galerie] &f{db().get_player_name_from_player_id(player_id)} &7hat »{title}« "
+                                      "hochgeladen – bitte in der Verwaltung freigeben.")
+    return {"id": build_id}, 201
+
+
+@server_bp.route("/api/builds/like", methods=["POST"])
+@player_required
+def build_like_api():
+    try:
+        build_id = int((request.get_json(silent=True) or {}).get("id"))
+    except (TypeError, ValueError):
+        return {"error": "Unbekanntes Bild."}, 400
+    liked = db().toggle_build_like(g.server["id"], build_id, logged_in_player_id())
+    if liked is None:
+        return {"error": "Eigene Bilder kannst du nicht liken."}, 409
+    return {"liked": liked, "likes": db().get_build(build_id)["likes"]}
+
+
+@server_bp.route("/api/builds/delete", methods=["POST"])
+@player_required
+def build_delete_api():
+    try:
+        build_id = int((request.get_json(silent=True) or {}).get("id"))
+    except (TypeError, ValueError):
+        return {"error": "Unbekanntes Bild."}, 400
+    deleted = db().delete_build(g.server["id"], build_id, logged_in_player_id())
+    if deleted is None:
+        return {"error": "Unbekanntes Bild."}, 404
+    delete_images([deleted[1]], config.UPLOAD_DIR)
+    return ("", 200)
+
+
+GUESTBOOK_MAX_LENGTH = 300
+
+
+@server_bp.route("/api/guestbook", methods=["POST"])
+@player_required
+def guestbook_add_api():
+    data = request.get_json(silent=True) or {}
+    text = " ".join(str(data.get("text") or "").split())
+    if not 2 <= len(text) <= GUESTBOOK_MAX_LENGTH:
+        return {"error": f"Der Eintrag muss 2-{GUESTBOOK_MAX_LENGTH} Zeichen lang sein."}, 400
+    player_id = db().get_player_id_from_player_name_and_server_id(str(data.get("name") or ""), g.server["id"])
+    if player_id is None or db().is_stats_hidden(player_id):
+        return {"error": "Unbekannter Spieler."}, 404
+    if db().add_guestbook_entry(player_id, logged_in_player_id(), text) is None:
+        return {"error": "Du hast in der letzten Stunde schon genug geschrieben."}, 429
+    return ("", 200)
+
+
+@server_bp.route("/api/guestbook/delete", methods=["POST"])
+@player_required
+def guestbook_delete_api():
+    try:
+        entry_id = int((request.get_json(silent=True) or {}).get("id"))
+    except (TypeError, ValueError):
+        return {"error": "Unbekannter Eintrag."}, 400
+    viewer = logged_in_player_id()
+    moderator = db().is_moderator(viewer)
+    entry = db().delete_guestbook_entry(g.server["id"], entry_id, None if moderator else viewer)
+    if entry is None:
+        return {"error": "Unbekannter Eintrag."}, 404
+    if moderator and str(viewer) not in (entry["author_id"], entry["player_id"]):
+        db().add_mod_log(g.server["id"], db().get_player_name_from_player_id(viewer), "guestbook_delete",
+                         entry["author"], f"auf der Seite von {entry['owner']}: {entry['text'][:150]}")
+    return ("", 200)
+
+
+@server_bp.route("/api/guestbook/report", methods=["POST"])
+@player_required
+def guestbook_report_api():
+    try:
+        entry_id = int((request.get_json(silent=True) or {}).get("id"))
+    except (TypeError, ValueError):
+        return {"error": "Unbekannter Eintrag."}, 400
+    if not db().report_guestbook_entry(g.server["id"], entry_id):
+        return {"error": "Unbekannter Eintrag."}, 404
+    return ("", 200)
+
+
 BIO_MAX_LENGTH = 160
 
 
@@ -920,6 +1139,12 @@ def moderation_page():
                            goal_units={m.key: motivation.goal_unit(m) for m in metrics_mod.METRICS},
                            today=today, default_end=today + timedelta(days=6),
                            log=mod_log_view(g.server["id"]), health=health_view(g.server["id"]),
+                           events=[event_view(e) for e in db().list_events(g.server["id"])],
+                           polls=[poll_view(p) for p in db().list_polls(g.server["id"], limit=10)],
+                           pending_builds=[build_view(b) for b in db().list_builds(g.server["id"], "pending")],
+                           reported_entries=[dict(e, when=e["created_at"].strftime("%d.%m.%Y, %H:%M"))
+                                             for e in db().get_reported_guestbook_entries(g.server["id"])],
+                           now_local=datetime.now(ZoneInfo(config.TIMEZONE)).strftime("%Y-%m-%dT%H:%M"),
                            reports=[dict(r, when=r["created_at"].strftime("%d.%m.%Y, %H:%M"),
                                          handled=r["handled_at"].strftime("%d.%m.%Y, %H:%M") if r["handled_at"] else None)
                                     for r in db().list_reports(g.server["id"], include_handled=True, limit=50)])
@@ -932,6 +1157,10 @@ MOD_LOG_ACTIONS = {
     "note_add": "Notiz geschrieben", "note_delete": "Notiz gelöscht",
     "goal_create": "Gemeinschaftsziel angelegt", "goal_delete": "Gemeinschaftsziel gelöscht",
     "report_resolve": "Meldung erledigt",
+    "event_create": "Event angelegt", "event_delete": "Event gelöscht",
+    "poll_create": "Umfrage angelegt", "poll_delete": "Umfrage gelöscht",
+    "build_approve": "Galeriebild freigegeben", "build_delete": "Galeriebild gelöscht",
+    "guestbook_delete": "Gästebucheintrag gelöscht", "guestbook_keep": "Gästebucheintrag behalten",
 }
 
 
@@ -1249,6 +1478,137 @@ def mod_competition_delete_api():
         return {"error": "Unbekannter Wettbewerb."}, 404
     db().add_mod_log(g.server["id"], db().get_player_name_from_player_id(logged_in_player_id()),
                      "competition_delete", None, competition["title"])
+    return ("", 200)
+
+
+EVENT_TITLE_MAX, EVENT_TEXT_MAX, EVENT_PLACE_MAX = 60, 500, 80
+POLL_QUESTION_MAX, POLL_OPTION_MAX, POLL_MAX_DAYS = 120, 60, 60
+
+
+def mod_name():
+    return db().get_player_name_from_player_id(logged_in_player_id())
+
+
+def json_id(message):
+    """The "id" of the JSON body as int, or raises ValueError."""
+    try:
+        return int((request.get_json(silent=True) or {}).get("id"))
+    except (TypeError, ValueError):
+        raise ValueError(message)
+
+
+@server_bp.route("/api/mod/events", methods=["POST"])
+@moderator_required
+def mod_event_create_api():
+    data = request.get_json(silent=True) or {}
+    title = " ".join(str(data.get("title") or "").split())
+    description = str(data.get("description") or "").strip() or None
+    place = " ".join(str(data.get("place") or "").split()) or None
+    if not 3 <= len(title) <= EVENT_TITLE_MAX:
+        return {"error": f"Der Titel muss 3-{EVENT_TITLE_MAX} Zeichen lang sein."}, 400
+    if description and len(description) > EVENT_TEXT_MAX or place and len(place) > EVENT_PLACE_MAX:
+        return {"error": "Beschreibung oder Treffpunkt sind zu lang."}, 400
+    try:
+        starts_at = datetime.fromisoformat(str(data.get("starts_at"))).replace(tzinfo=ZoneInfo(config.TIMEZONE))
+    except ValueError:
+        return {"error": "Ungültiger Zeitpunkt."}, 400
+    if starts_at < datetime.now(timezone.utc) or starts_at > datetime.now(timezone.utc) + timedelta(days=365):
+        return {"error": "Das Event muss in der Zukunft liegen (höchstens ein Jahr)."}, 400
+    event_id = db().create_event(g.server["id"], title, starts_at, description, place, created_by=mod_name())
+    db().add_mod_log(g.server["id"], mod_name(), "event_create", None, f"{title} · {starts_at.strftime('%d.%m.%Y %H:%M')}")
+    return {"id": event_id}, 200
+
+
+@server_bp.route("/api/mod/events/delete", methods=["POST"])
+@moderator_required
+def mod_event_delete_api():
+    try:
+        title = db().delete_event(g.server["id"], json_id("Unbekanntes Event."))
+    except ValueError as e:
+        return {"error": str(e)}, 400
+    if title is None:
+        return {"error": "Unbekanntes Event."}, 404
+    db().add_mod_log(g.server["id"], mod_name(), "event_delete", None, title)
+    return ("", 200)
+
+
+@server_bp.route("/api/mod/polls", methods=["POST"])
+@moderator_required
+def mod_poll_create_api():
+    data = request.get_json(silent=True) or {}
+    question = " ".join(str(data.get("question") or "").split())
+    options = [" ".join(str(o).split()) for o in (data.get("options") or []) if str(o).strip()]
+    if not 5 <= len(question) <= POLL_QUESTION_MAX:
+        return {"error": f"Die Frage muss 5-{POLL_QUESTION_MAX} Zeichen lang sein."}, 400
+    if not 2 <= len(options) <= 8 or any(len(o) > POLL_OPTION_MAX for o in options) or \
+            len({o.lower() for o in options}) != len(options):
+        return {"error": f"2 bis 8 verschiedene Antworten mit höchstens {POLL_OPTION_MAX} Zeichen."}, 400
+    try:
+        days = int(data.get("days"))
+    except (TypeError, ValueError):
+        days = 0
+    if not 1 <= days <= POLL_MAX_DAYS:
+        return {"error": f"Eine Umfrage läuft 1 bis {POLL_MAX_DAYS} Tage."}, 400
+    poll_id = db().create_poll(g.server["id"], question, options, datetime.now(timezone.utc) + timedelta(days=days),
+                               created_by=mod_name())
+    db().add_mod_log(g.server["id"], mod_name(), "poll_create", None, question)
+    db().notify_server_event(g.server["id"], "broadcast", color="gold",
+                             text=f"★ Neue Umfrage: {question} – abstimmen mit /vote oder auf der Website")
+    return {"id": poll_id}, 200
+
+
+@server_bp.route("/api/mod/polls/delete", methods=["POST"])
+@moderator_required
+def mod_poll_delete_api():
+    try:
+        question = db().delete_poll(g.server["id"], json_id("Unbekannte Umfrage."))
+    except ValueError as e:
+        return {"error": str(e)}, 400
+    if question is None:
+        return {"error": "Unbekannte Umfrage."}, 404
+    db().add_mod_log(g.server["id"], mod_name(), "poll_delete", None, question)
+    return ("", 200)
+
+
+@server_bp.route("/api/mod/builds/approve", methods=["POST"])
+@moderator_required
+def mod_build_approve_api():
+    try:
+        build = db().approve_build(g.server["id"], json_id("Unbekanntes Bild."), mod_name())
+    except ValueError as e:
+        return {"error": str(e)}, 400
+    if build is None:
+        return {"error": "Unbekanntes Bild."}, 404
+    db().add_mod_log(g.server["id"], mod_name(), "build_approve", build["name"], build["title"])
+    db().notify_server_event(g.server["id"], "tell", uuids=[build["uuid"]],
+                             text=f"&a[Galerie] Dein Bild »{build['title']}« ist jetzt in der Galerie zu sehen!")
+    return ("", 200)
+
+
+@server_bp.route("/api/mod/builds/delete", methods=["POST"])
+@moderator_required
+def mod_build_delete_api():
+    try:
+        deleted = db().delete_build(g.server["id"], json_id("Unbekanntes Bild."))
+    except ValueError as e:
+        return {"error": str(e)}, 400
+    if deleted is None:
+        return {"error": "Unbekanntes Bild."}, 404
+    delete_images([deleted[1]], config.UPLOAD_DIR)
+    db().add_mod_log(g.server["id"], mod_name(), "build_delete", deleted[2], deleted[0])
+    return ("", 200)
+
+
+@server_bp.route("/api/mod/guestbook/keep", methods=["POST"])
+@moderator_required
+def mod_guestbook_keep_api():
+    try:
+        entry_id = json_id("Unbekannter Eintrag.")
+    except ValueError as e:
+        return {"error": str(e)}, 400
+    if not db().keep_guestbook_entry(g.server["id"], entry_id):
+        return {"error": "Unbekannter Eintrag."}, 404
+    db().add_mod_log(g.server["id"], mod_name(), "guestbook_keep", None, f"Eintrag {entry_id}")
     return ("", 200)
 
 

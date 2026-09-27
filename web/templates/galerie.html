@@ -1,0 +1,118 @@
+{% extends "server_base.html" %}
+{% block title %}Baugalerie · {{ server_name }}{% endblock %}
+{% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block page_class %}srv-page-wide{% endblock %}
+{% block content %}
+<h1>Baugalerie</h1>
+<p class="srv-lead">Die schönsten Bauten auf {{ server_name }}. Lade einen Screenshot hoch – nach der Freigabe durch die
+  Moderatoren ist er hier zu sehen.</p>
+
+{% if viewer %}
+<details class="srv-card bg-upload"{% if waiting %} open{% endif %}>
+  <summary><b>Eigenen Bau hochladen</b></summary>
+  <form class="mcc-form" id="build-form">
+    <div class="mcc-row">
+      <div>
+        <label for="bg-title">Titel</label>
+        <input class="mcc-input" id="bg-title" name="title" maxlength="60" required placeholder="z. B. Leuchtturm am Hafen"/>
+      </div>
+      <div>
+        <label for="bg-coords">Koordinaten (optional)</label>
+        <input class="mcc-input" id="bg-coords" name="coordinates" maxlength="40" placeholder="X 120 Y 64 Z -340"/>
+      </div>
+    </div>
+    <label for="bg-text">Beschreibung (optional)</label>
+    <input class="mcc-input" id="bg-text" name="description" maxlength="300"/>
+    <label for="bg-image">Screenshot <span class="mcc-hint">(JPG, PNG, WebP, höchstens {{ max_upload_mb }} MB)</span></label>
+    <input class="mcc-input" id="bg-image" name="image" type="file" accept="image/png,image/jpeg,image/webp,image/gif" required/>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Hochladen</button></div>
+    <div class="mcc-message" data-role="message"></div>
+  </form>
+  {% if waiting %}
+  <p class="mcc-hint">Wartet auf Freigabe:</p>
+  <ul class="bg-waiting">
+    {% for b in waiting %}<li><img src="{{ b.url }}" alt="" loading="lazy"/><span>{{ b.title }}</span>
+      <button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-delete="{{ b.id }}">Zurückziehen</button></li>{% endfor %}
+  </ul>
+  {% endif %}
+</details>
+{% else %}
+<p class="st-hint"><a href="/login?next=/galerie">Log dich ein</a>, um eigene Bauten hochzuladen und Bilder zu liken.</p>
+{% endif %}
+
+<section class="st-group">
+  <div class="st-section-head">
+    <h2>Bauten</h2>
+    <nav class="st-periods" aria-label="Sortierung">
+      <a href="/galerie"{% if order == 'new' %} aria-current="page"{% endif %}>Neueste</a>
+      <a href="/galerie?sortierung=beliebt"{% if order == 'top' %} aria-current="page"{% endif %}>Beliebteste</a>
+    </nav>
+  </div>
+  {% if builds %}
+  <div class="bg-grid">
+    {% for b in builds %}
+    <figure class="bg-item">
+      <button type="button" class="bg-open" data-full="{{ b.url }}" aria-label="{{ b.title }} vergrößern"><img src="{{ b.url }}" alt="{{ b.title }}" loading="lazy"/></button>
+      <figcaption>
+        <b>{{ b.title }}</b>
+        <span class="bg-meta"><a href="/spieler?player={{ b.name | urlencode }}">{{ b.name }}</a> · {{ b.date }}{% if b.coordinates %} · {{ b.coordinates }}{% endif %}</span>
+        {% if b.description %}<span class="bg-text">{{ b.description }}</span>{% endif %}
+        <span class="bg-actions">
+          {% if viewer and viewer != b.player_id %}
+          <button type="button" class="bg-like" data-like="{{ b.id }}" aria-pressed="{{ 'true' if b.liked else 'false' }}">♥ <span>{{ b.likes }}</span></button>
+          {% else %}
+          <span class="bg-likes">♥ {{ b.likes }}</span>
+          {% endif %}
+          {% if viewer == b.player_id %}<button type="button" class="bg-remove" data-delete="{{ b.id }}">Löschen</button>
+          {% elif moderator %}<button type="button" class="bg-remove" data-mod-delete="{{ b.id }}">Löschen (Moderation)</button>{% endif %}
+        </span>
+      </figcaption>
+    </figure>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="st-empty">Noch keine Bilder. Zeig, was du gebaut hast!</p>
+  {% endif %}
+</section>
+
+<dialog class="srv-lightbox" id="lightbox" aria-label="Bild"><img id="lightbox-image" alt=""/></dialog>
+{% endblock %}
+{% block scripts %}
+<script>
+  const form = document.getElementById("build-form");
+  if (form) form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const message = form.querySelector('[data-role="message"]');
+    showMessage(message, "Wird hochgeladen …", "success");
+    const response = await fetch("/api/builds", { method: "POST", body: new FormData(form) });
+    let data = {};
+    try { data = await response.json(); } catch (e) {}
+    if (response.ok) location.reload();
+    else showMessage(message, data.error || "Hochladen fehlgeschlagen.", "error");
+  });
+  document.querySelectorAll("[data-like]").forEach((button) => button.addEventListener("click", async () => {
+    const result = await postJson("/api/builds/like", { id: Number(button.dataset.like) });
+    if (!result.ok) return alert(result.data.error || "Das hat nicht geklappt.");
+    button.setAttribute("aria-pressed", String(result.data.liked));
+    button.querySelector("span").textContent = result.data.likes;
+  }));
+  document.querySelectorAll("[data-delete]").forEach((button) => button.addEventListener("click", async () => {
+    if (!confirm("Bild wirklich löschen?")) return;
+    const result = await postJson("/api/builds/delete", { id: Number(button.dataset.delete) });
+    if (result.ok) location.reload();
+    else alert(result.data.error || "Das hat nicht geklappt.");
+  }));
+  document.querySelectorAll("[data-mod-delete]").forEach((button) => button.addEventListener("click", async () => {
+    if (!confirm("Bild als Moderator löschen? Das wird protokolliert.")) return;
+    const result = await postJson("/api/mod/builds/delete", { id: Number(button.dataset.modDelete) });
+    if (result.ok) location.reload();
+    else alert(result.data.error || "Das hat nicht geklappt.");
+  }));
+  const lightbox = document.getElementById("lightbox");
+  document.querySelectorAll(".bg-open").forEach((button) => button.addEventListener("click", () => {
+    document.getElementById("lightbox-image").src = button.dataset.full;
+    lightbox.showModal();
+  }));
+  lightbox.addEventListener("click", () => lightbox.close());
+</script>
+{% endblock %}

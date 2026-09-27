@@ -260,6 +260,70 @@ MIGRATIONS = {
              handled_at timestamptz)""",
         "CREATE INDEX reports_server_idx ON reports (server_id, created_at DESC)",
     ],
+    15: [
+        # event calendar: reminder in the chat before the start, players sign up
+        """CREATE TABLE events(
+             id serial PRIMARY KEY,
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             title text NOT NULL,
+             description text,
+             place text,
+             starts_at timestamptz NOT NULL,
+             created_by text,
+             created_at timestamptz NOT NULL DEFAULT now(),
+             reminded boolean NOT NULL DEFAULT false,
+             start_announced boolean NOT NULL DEFAULT false)""",
+        "CREATE INDEX events_server_idx ON events (server_id, starts_at)",
+        """CREATE TABLE event_signups(
+             event_id integer NOT NULL REFERENCES events (id) ON DELETE CASCADE,
+             player_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             created_at timestamptz NOT NULL DEFAULT now(),
+             PRIMARY KEY (event_id, player_id))""",
+        # polls: one answer per player, on the website or with /vote
+        """CREATE TABLE polls(
+             id serial PRIMARY KEY,
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             question text NOT NULL,
+             options text[] NOT NULL CHECK (cardinality(options) BETWEEN 2 AND 8),
+             ends_at timestamptz NOT NULL,
+             created_by text,
+             created_at timestamptz NOT NULL DEFAULT now(),
+             result_announced boolean NOT NULL DEFAULT false)""",
+        "CREATE INDEX polls_server_idx ON polls (server_id, ends_at)",
+        """CREATE TABLE poll_votes(
+             poll_id integer NOT NULL REFERENCES polls (id) ON DELETE CASCADE,
+             player_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             option smallint NOT NULL,
+             voted_at timestamptz NOT NULL DEFAULT now(),
+             PRIMARY KEY (poll_id, player_id))""",
+        # build gallery: screenshots of the players, shown after a moderator approved them
+        """CREATE TABLE builds(
+             id serial PRIMARY KEY,
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             player_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             title text NOT NULL,
+             description text,
+             coordinates text,
+             filename text NOT NULL UNIQUE,
+             status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved')),
+             created_at timestamptz NOT NULL DEFAULT now(),
+             reviewed_by text,
+             reviewed_at timestamptz)""",
+        "CREATE INDEX builds_server_idx ON builds (server_id, status, created_at DESC)",
+        """CREATE TABLE build_likes(
+             build_id integer NOT NULL REFERENCES builds (id) ON DELETE CASCADE,
+             player_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             PRIMARY KEY (build_id, player_id))""",
+        # guestbook on the player page
+        """CREATE TABLE guestbook(
+             id serial PRIMARY KEY,
+             player_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             author_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             text text NOT NULL,
+             created_at timestamptz NOT NULL DEFAULT now(),
+             reported_at timestamptz)""",
+        "CREATE INDEX guestbook_player_idx ON guestbook (player_id, created_at DESC)",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -274,6 +338,13 @@ RECORD_COOLDOWN_MINUTES = 60
 DUEL_ACCEPT_HOURS = 24
 # At most this many reports per player and hour.
 MAX_REPORTS_PER_HOUR = 5
+# The chat reminds of an event this long before it starts.
+EVENT_REMINDER_MINUTES = 30
+# Uploads to the build gallery per player: waiting for approval / per day.
+MAX_PENDING_BUILDS = 3
+MAX_BUILDS_PER_DAY = 5
+# Guestbook entries a player may write per hour.
+MAX_GUESTBOOK_PER_HOUR = 10
 # Health samples older than this are deleted.
 HEALTH_RETENTION_DAYS = 7
 # Snapshots older than this are deleted (the newest older one of each metric is kept as baseline).
@@ -2252,6 +2323,267 @@ class DatabaseManager:
             SELECT psi.mojang_uuid FROM player_server_info psi JOIN servers s ON s.id = psi.server_id
             WHERE psi.server_id = %s AND psi.online
               AND (psi.web_access_permissions <= %s OR (s.auto_mod_ops AND psi.is_op))""", (server_id, MODERATOR_LEVEL))]
+
+    ###----------------------------- Events ------------------------------------###
+
+    _EVENT_COLUMNS = "e.id, e.server_id, e.title, e.description, e.place, e.starts_at, e.created_by"
+
+    def _event(self, row):
+        keys = ("id", "server_id", "title", "description", "place", "starts_at", "created_by", "signups")
+        return dict(zip(keys, row))
+
+    def create_event(self, server_id, title, starts_at, description=None, place=None, created_by=None):
+        return self._fetchvalue("""INSERT INTO events (server_id, title, description, place, starts_at, created_by)
+                                   VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
+                                (server_id, title, description, place, starts_at, created_by))
+
+    def delete_event(self, server_id, event_id):
+        """Returns the title of the deleted event, or None."""
+        return self._fetchvalue("DELETE FROM events WHERE id = %s AND server_id = %s RETURNING title", (event_id, server_id))
+
+    def list_events(self, server_id, upcoming=True, limit=20):
+        """Upcoming events (soonest first; started up to 3 hours ago count as upcoming) or past ones (newest first),
+        with the number of sign ups."""
+        where = "e.starts_at > now() - interval '3 hours'" if upcoming else "e.starts_at <= now() - interval '3 hours'"
+        order = "e.starts_at" if upcoming else "e.starts_at DESC"
+        return [self._event(row) for row in self._fetchall(f"""
+            SELECT {self._EVENT_COLUMNS}, (SELECT count(*) FROM event_signups s WHERE s.event_id = e.id)
+            FROM events e WHERE e.server_id = %s AND {where} ORDER BY {order} LIMIT %s""", (server_id, limit))]
+
+    def get_event_signups(self, event_id):
+        """[{"name", "uuid"}] of the players signed up, in order of sign up."""
+        return [{"name": n, "uuid": str(u)} for n, u in self._fetchall("""
+            SELECT p.name, psi.mojang_uuid FROM event_signups s
+            JOIN player_server_info psi ON psi.player_id = s.player_id JOIN player p ON p.uuid = psi.mojang_uuid
+            WHERE s.event_id = %s ORDER BY s.created_at""", (event_id,))]
+
+    def toggle_event_signup(self, server_id, event_id, player_id, signed_up=None):
+        """Sign up or off (signed_up None: toggle). Returns True/False (now signed up) or None if the event is unknown/over."""
+        with self._cursor() as cur:
+            cur.execute("SELECT 1 FROM events WHERE id = %s AND server_id = %s AND starts_at > now() - interval '3 hours'",
+                        (event_id, server_id))
+            if cur.fetchone() is None:
+                return None
+            cur.execute("SELECT 1 FROM event_signups WHERE event_id = %s AND player_id = %s", (event_id, player_id))
+            current = cur.fetchone() is not None
+            wanted = (not current) if signed_up is None else signed_up
+            if wanted and not current:
+                cur.execute("INSERT INTO event_signups (event_id, player_id) VALUES (%s, %s)", (event_id, player_id))
+            elif current and not wanted:
+                cur.execute("DELETE FROM event_signups WHERE event_id = %s AND player_id = %s", (event_id, player_id))
+            return wanted
+
+    def get_player_event_ids(self, player_id):
+        return {row[0] for row in self._fetchall("SELECT event_id FROM event_signups WHERE player_id = %s", (player_id,))}
+
+    def take_due_event_announcements(self, server_ids):
+        """[("reminder" | "start", event)] of the given servers, each announced once."""
+        result = []
+        with self._cursor() as cur:
+            cur.execute(f"""UPDATE events e SET reminded = true
+                            WHERE e.server_id = ANY(%s) AND NOT e.reminded AND NOT e.start_announced
+                              AND e.starts_at <= now() + %s * interval '1 minute' AND e.starts_at > now()
+                            RETURNING {self._EVENT_COLUMNS}, 0""", (list(server_ids), EVENT_REMINDER_MINUTES))
+            result += [("reminder", self._event(row)) for row in cur.fetchall()]
+            cur.execute(f"""UPDATE events e SET start_announced = true, reminded = true
+                            WHERE e.server_id = ANY(%s) AND NOT e.start_announced
+                              AND e.starts_at <= now() AND e.starts_at > now() - interval '15 minutes'
+                            RETURNING {self._EVENT_COLUMNS}, 0""", (list(server_ids),))
+            result += [("start", self._event(row)) for row in cur.fetchall()]
+        return result
+
+    ###----------------------------- Polls ------------------------------------###
+
+    def create_poll(self, server_id, question, options, ends_at, created_by=None):
+        return self._fetchvalue("""INSERT INTO polls (server_id, question, options, ends_at, created_by)
+                                   VALUES (%s, %s, %s, %s, %s) RETURNING id""",
+                                (server_id, question, list(options), ends_at, created_by))
+
+    def delete_poll(self, server_id, poll_id):
+        return self._fetchvalue("DELETE FROM polls WHERE id = %s AND server_id = %s RETURNING question", (poll_id, server_id))
+
+    def list_polls(self, server_id, open_only=False, limit=30):
+        """Polls with the votes per option: [{"id", "question", "options", "votes", "total", "ends_at", "open", ...}],
+        open ones first (ending soonest first), then closed ones (newest first)."""
+        rows = self._fetchall(f"""
+            SELECT p.id, p.server_id, p.question, p.options, p.ends_at, p.created_by, p.ends_at > now(),
+                   COALESCE((SELECT array_agg(n ORDER BY o) FROM (
+                       SELECT o, (SELECT count(*) FROM poll_votes v WHERE v.poll_id = p.id AND v.option = o) AS n
+                       FROM generate_series(0, cardinality(p.options) - 1) AS o) counts), '{{}}')
+            FROM polls p WHERE p.server_id = %s {"AND p.ends_at > now()" if open_only else ""}
+            ORDER BY p.ends_at > now() DESC, CASE WHEN p.ends_at > now() THEN p.ends_at END, p.ends_at DESC LIMIT %s""",
+                              (server_id, limit))
+        keys = ("id", "server_id", "question", "options", "ends_at", "created_by", "open", "votes")
+        polls = [dict(zip(keys, row)) for row in rows]
+        for poll in polls:
+            poll["votes"] = [int(v) for v in poll["votes"]]
+            poll["total"] = sum(poll["votes"])
+        return polls
+
+    def get_poll(self, poll_id):
+        row = self._fetchone("SELECT server_id FROM polls WHERE id = %s", (poll_id,))
+        return next((p for p in self.list_polls(row[0], limit=1000) if p["id"] == poll_id), None) if row else None
+
+    def vote(self, server_id, poll_id, player_id, option):
+        """Vote (or change the vote). Returns "ok", "closed" or "invalid"."""
+        with self._cursor() as cur:
+            cur.execute("SELECT cardinality(options), ends_at > now() FROM polls WHERE id = %s AND server_id = %s",
+                        (poll_id, server_id))
+            row = cur.fetchone()
+            if row is None or not 0 <= option < row[0]:
+                return "invalid"
+            if not row[1]:
+                return "closed"
+            cur.execute("""INSERT INTO poll_votes (poll_id, player_id, option) VALUES (%s, %s, %s)
+                           ON CONFLICT (poll_id, player_id) DO UPDATE SET option = EXCLUDED.option, voted_at = now()""",
+                        (poll_id, player_id, option))
+        return "ok"
+
+    def get_player_votes(self, player_id):
+        """{poll_id: option} of a player."""
+        return dict(self._fetchall("SELECT poll_id, option FROM poll_votes WHERE player_id = %s", (player_id,)))
+
+    def take_finished_polls(self, server_ids):
+        """Polls of the given servers that ended since the last call (with their votes), marked as announced."""
+        ids = [row[0] for row in self._fetchall("""UPDATE polls SET result_announced = true
+                                                   WHERE server_id = ANY(%s) AND NOT result_announced AND ends_at <= now()
+                                                   RETURNING id""", (list(server_ids),))]
+        return [self.get_poll(poll_id) for poll_id in ids]
+
+    ###----------------------------- Build gallery ------------------------------------###
+
+    _BUILD_SELECT = """SELECT b.id, b.server_id, b.player_id, p.name, psi.mojang_uuid, b.title, b.description, b.coordinates,
+                              b.filename, b.status, b.created_at, b.reviewed_by,
+                              (SELECT count(*) FROM build_likes l WHERE l.build_id = b.id)
+                       FROM builds b JOIN player_server_info psi ON psi.player_id = b.player_id
+                       JOIN player p ON p.uuid = psi.mojang_uuid"""
+
+    @staticmethod
+    def _build(row):
+        keys = ("id", "server_id", "player_id", "name", "uuid", "title", "description", "coordinates", "filename",
+                "status", "created_at", "reviewed_by", "likes")
+        build = dict(zip(keys, row))
+        build["player_id"], build["uuid"] = str(build["player_id"]), str(build["uuid"])
+        return build
+
+    def add_build(self, server_id, player_id, title, filename, description=None, coordinates=None, approved=False):
+        """Store an uploaded build. Returns the id, or None if the player has too many waiting or uploaded today."""
+        with self._cursor() as cur:
+            cur.execute("SELECT 1 FROM player_server_info WHERE player_id = %s FOR UPDATE", (player_id,))
+            cur.execute("""SELECT count(*) FILTER (WHERE status = 'pending'),
+                                  count(*) FILTER (WHERE created_at > now() - interval '1 day')
+                           FROM builds WHERE player_id = %s""", (player_id,))
+            pending, today = cur.fetchone()
+            if not approved and (pending >= MAX_PENDING_BUILDS or today >= MAX_BUILDS_PER_DAY):
+                return None
+            cur.execute("""INSERT INTO builds (server_id, player_id, title, description, coordinates, filename, status,
+                                               reviewed_at)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, CASE WHEN %s THEN now() END) RETURNING id""",
+                        (server_id, player_id, title, description, coordinates, filename,
+                         "approved" if approved else "pending", approved))
+            return cur.fetchone()[0]
+
+    def list_builds(self, server_id, status="approved", player_id=None, order="new", limit=60):
+        """Builds of a server (optionally of one player), newest or most liked first."""
+        order_sql = "13 DESC, b.created_at DESC" if order == "top" else "b.created_at DESC"
+        where = "b.server_id = %s AND b.status = %s" + (" AND b.player_id = %s" if player_id else "")
+        params = (server_id, status) + ((player_id,) if player_id else ())
+        return [self._build(row) for row in self._fetchall(
+            f"{self._BUILD_SELECT} WHERE {where} ORDER BY {order_sql} LIMIT %s", params + (limit,))]
+
+    def get_build(self, build_id):
+        row = self._fetchone(self._BUILD_SELECT + " WHERE b.id = %s", (build_id,))
+        return self._build(row) if row else None
+
+    def approve_build(self, server_id, build_id, reviewed_by):
+        """Returns the build, or None if there is no waiting build with this id."""
+        if not self._execute("""UPDATE builds SET status = 'approved', reviewed_by = %s, reviewed_at = now()
+                                WHERE id = %s AND server_id = %s AND status = 'pending'""", (reviewed_by, build_id, server_id)):
+            return None
+        return self.get_build(build_id)
+
+    def delete_build(self, server_id, build_id, player_id=None):
+        """Delete a build (only the player's own if player_id is given). Returns (title, filename, owner name) or None."""
+        return self._fetchone("""DELETE FROM builds b USING player_server_info psi, player p
+                                 WHERE b.id = %s AND b.server_id = %s AND (%s::uuid IS NULL OR b.player_id = %s::uuid)
+                                   AND psi.player_id = b.player_id AND p.uuid = psi.mojang_uuid
+                                 RETURNING b.title, b.filename, p.name""", (build_id, server_id, player_id, player_id))
+
+    def toggle_build_like(self, server_id, build_id, player_id):
+        """Returns True/False (now liked) or None if the build is unknown, not approved or the player's own."""
+        with self._cursor() as cur:
+            cur.execute("SELECT player_id FROM builds WHERE id = %s AND server_id = %s AND status = 'approved'",
+                        (build_id, server_id))
+            row = cur.fetchone()
+            if row is None or str(row[0]) == str(player_id):
+                return None
+            cur.execute("DELETE FROM build_likes WHERE build_id = %s AND player_id = %s", (build_id, player_id))
+            if cur.rowcount:
+                return False
+            cur.execute("INSERT INTO build_likes (build_id, player_id) VALUES (%s, %s)", (build_id, player_id))
+            return True
+
+    def get_liked_builds(self, player_id):
+        return {row[0] for row in self._fetchall("SELECT build_id FROM build_likes WHERE player_id = %s", (player_id,))}
+
+    ###----------------------------- Guestbook ------------------------------------###
+
+    def add_guestbook_entry(self, player_id, author_id, text):
+        """Returns the id, or None if the author wrote too many entries in the last hour."""
+        with self._cursor() as cur:
+            cur.execute("SELECT count(*) FROM guestbook WHERE author_id = %s AND created_at > now() - interval '1 hour'",
+                        (author_id,))
+            if cur.fetchone()[0] >= MAX_GUESTBOOK_PER_HOUR:
+                return None
+            cur.execute("INSERT INTO guestbook (player_id, author_id, text) VALUES (%s, %s, %s) RETURNING id",
+                        (player_id, author_id, text))
+            return cur.fetchone()[0]
+
+    _GUESTBOOK_SELECT = """SELECT g.id, g.player_id, g.author_id, a.name, apsi.mojang_uuid, g.text, g.created_at, g.reported_at,
+                                  o.name
+                           FROM guestbook g JOIN player_server_info apsi ON apsi.player_id = g.author_id
+                           JOIN player a ON a.uuid = apsi.mojang_uuid
+                           JOIN player_server_info opsi ON opsi.player_id = g.player_id
+                           JOIN player o ON o.uuid = opsi.mojang_uuid"""
+
+    @staticmethod
+    def _guestbook(row):
+        keys = ("id", "player_id", "author_id", "author", "author_uuid", "text", "created_at", "reported_at", "owner")
+        entry = dict(zip(keys, row))
+        for key in ("player_id", "author_id", "author_uuid"):
+            entry[key] = str(entry[key])
+        return entry
+
+    def get_guestbook(self, player_id, limit=50):
+        return [self._guestbook(row) for row in self._fetchall(
+            self._GUESTBOOK_SELECT + " WHERE g.player_id = %s ORDER BY g.created_at DESC LIMIT %s", (player_id, limit))]
+
+    def get_reported_guestbook_entries(self, server_id):
+        return [self._guestbook(row) for row in self._fetchall(
+            self._GUESTBOOK_SELECT + " WHERE opsi.server_id = %s AND g.reported_at IS NOT NULL ORDER BY g.reported_at DESC",
+            (server_id,))]
+
+    def report_guestbook_entry(self, server_id, entry_id):
+        return self._execute("""UPDATE guestbook g SET reported_at = COALESCE(g.reported_at, now())
+                                FROM player_server_info psi WHERE g.id = %s AND psi.player_id = g.player_id
+                                  AND psi.server_id = %s""", (entry_id, server_id)) > 0
+
+    def keep_guestbook_entry(self, server_id, entry_id):
+        """A moderator decided the reported entry is fine."""
+        return self._execute("""UPDATE guestbook g SET reported_at = NULL FROM player_server_info psi
+                                WHERE g.id = %s AND psi.player_id = g.player_id AND psi.server_id = %s""",
+                             (entry_id, server_id)) > 0
+
+    def delete_guestbook_entry(self, server_id, entry_id, player_id=None):
+        """Delete an entry; with player_id only if that player wrote it or owns the page. Returns the entry or None."""
+        row = self._fetchone(self._GUESTBOOK_SELECT + " WHERE g.id = %s AND opsi.server_id = %s", (entry_id, server_id))
+        if row is None:
+            return None
+        entry = self._guestbook(row)
+        if player_id is not None and str(player_id) not in (entry["author_id"], entry["player_id"]):
+            return None
+        self._execute("DELETE FROM guestbook WHERE id = %s", (entry_id,))
+        return entry
 
     ###----------------------------- Hall of fame ------------------------------------###
 

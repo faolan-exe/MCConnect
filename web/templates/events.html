@@ -1,0 +1,70 @@
+{% extends "server_base.html" %}
+{% block title %}Events · {{ server_name }}{% endblock %}
+{% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block page_class %}srv-page-wide{% endblock %}
+{% block content %}
+<h1>Events</h1>
+<p class="srv-lead">Was auf {{ server_name }} geplant ist. Melde dich an, damit alle wissen, wer kommt –
+  im Spiel mit <code>/events</code>. Kurz vor dem Start erinnert der Chat daran.</p>
+
+<section class="st-group">
+  <h2>Demnächst</h2>
+  {% if upcoming %}
+  <div class="ev-list">
+    {% for e in upcoming %}
+    <article class="ev-card{% if e.running %} ev-running{% endif %}" data-event="{{ e.id }}">
+      <div class="ev-date" aria-hidden="true"><span>{{ e.month }}</span><b>{{ e.day_number }}</b></div>
+      <div class="ev-body">
+        {% if e.running %}<span class="cp-badge">Läuft gerade</span>{% elif e.soon %}<span class="cp-badge cp-badge-soon">Heute oder morgen</span>{% endif %}
+        <h3>{{ e.title }}</h3>
+        <p class="gl-meta">{{ e.day }}, {{ e.time }} Uhr{% if e.place %} · Treffpunkt: {{ e.place }}{% endif %}</p>
+        {% if e.description %}<p class="ev-text">{{ e.description }}</p>{% endif %}
+        <div class="ev-people">
+          <span class="ev-count" data-role="count">{{ e.people | length }} {{ "Anmeldung" if e.people | length == 1 else "Anmeldungen" }}</span>
+          <span class="ev-heads" data-role="heads">{% for p in e.people[:12] %}<img src="https://mc-heads.net/avatar/{{ p.uuid }}/24" alt="{{ p.name }}" title="{{ p.name }}" width="22" height="22" loading="lazy"/>{% endfor %}</span>
+        </div>
+        {% if logged_in %}
+        <button class="mcc-btn mcc-btn-small{% if e.signed_up %} mcc-btn-secondary{% endif %}" type="button" data-signup="{{ e.id }}"
+                aria-pressed="{{ 'true' if e.signed_up else 'false' }}">{{ "Abmelden" if e.signed_up else "Ich bin dabei" }}</button>
+        {% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% if not logged_in %}<p class="st-hint"><a href="/login?next=/events">Log dich ein</a>, um dich anzumelden.</p>{% endif %}
+  {% else %}
+  <p class="st-empty">Gerade ist nichts geplant. Die Moderatoren legen Events an.</p>
+  {% endif %}
+</section>
+
+{% if past %}
+<section class="st-group">
+  <h2>Vergangene Events</h2>
+  <ul class="ev-past">
+    {% for e in past %}<li><span>{{ e.date_short }}</span> <b>{{ e.title }}</b>{% if e.signups %} · {{ e.signups }} dabei{% endif %}</li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+  document.querySelectorAll("[data-signup]").forEach((button) => button.addEventListener("click", async () => {
+    const result = await postJson("/api/events/signup", { id: Number(button.dataset.signup) });
+    if (!result.ok) return alert(result.data.error || "Das hat nicht geklappt.");
+    const card = button.closest("[data-event]");
+    const people = result.data.people;
+    button.setAttribute("aria-pressed", String(result.data.signed_up));
+    button.textContent = result.data.signed_up ? "Abmelden" : "Ich bin dabei";
+    button.classList.toggle("mcc-btn-secondary", result.data.signed_up);
+    card.querySelector('[data-role="count"]').textContent = `${people.length} ${people.length === 1 ? "Anmeldung" : "Anmeldungen"}`;
+    const heads = card.querySelector('[data-role="heads"]');
+    heads.replaceChildren(...people.slice(0, 12).map((p) => {
+      const img = document.createElement("img");
+      img.src = `https://mc-heads.net/avatar/${p.uuid}/24`;
+      img.alt = img.title = p.name;
+      img.width = img.height = 22;
+      return img;
+    }));
+  }));
+</script>
+{% endblock %}

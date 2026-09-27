@@ -25,3 +25,9 @@ commands:
     description: Seitenleiste mit Wettbewerb oder Spielzeit ein- und ausschalten
     usage: /seitenleiste [aus|wettbewerb|spielzeit]
     aliases: [sidebar]
+  vote:
+    description: Bei Umfragen abstimmen
+    usage: /vote [<umfrage> <antwort>]
+  events:
+    description: Nächste Events anzeigen und sich anmelden
+    usage: /events [anmelden|abmelden <nr>]

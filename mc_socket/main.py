@@ -14,7 +14,7 @@ Plugin -> server:
     !HEALTH~<json>               once a minute: {"tps", "mem_used_mb", "mem_max_mb", "players", "chunks",
                                  "entities", "uptime_s", "mc_version", "plugin_version"}
     !CMD~<uuid>|<world>|<x>|<y>|<z>|<command>|<args>   in-game command (stats, top, wettbewerb, duell, report,
-                                 seitenleiste; see mc_socket/commands.py), answered with !tell
+                                 seitenleiste, vote, events; see mc_socket/commands.py), answered with !tell
     !DISCONNECT                  close the connection
 
 Server -> plugin:
@@ -291,6 +291,10 @@ class SocketServer:
             trophy = self.db.settle_player_of_week(server_id)
             if trophy:
                 self.broadcast(server_id, *motivation.player_of_week_announcement(trophy))
+        for kind, event in self.db.take_due_event_announcements(connected):
+            self.broadcast(event["server_id"], *commands.event_announcement(kind, event))
+        for poll in self.db.take_finished_polls(connected):
+            self.broadcast(poll["server_id"], *commands.poll_result(poll))
         for duel in self.db.take_finished_duels(connected):
             self.broadcast(duel["server_id"], *commands.duel_result(duel))
         for server_id, player_id, uuid, mode in self.db.get_sidebar_players(connected):

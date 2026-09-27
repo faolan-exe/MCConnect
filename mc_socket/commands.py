@@ -1,4 +1,4 @@
-"""In-game commands (/stats, /top, /wettbewerb, /duell, /report, /seitenleiste) and the sidebar.
+"""In-game commands (/stats, /top, /wettbewerb, /duell, /report, /seitenleiste, /vote, /events) and the sidebar.
 
 The plugin forwards the command (!CMD) and shows the answer lines (!tell). Lines use "&" color
 codes, which the plugin turns into chat colors; dynamic text is passed through clean().
@@ -369,5 +369,79 @@ def _cut(text):
     return text if len(text) <= SIDEBAR_WIDTH else text[:SIDEBAR_WIDTH - 1] + "…"
 
 
+# ------------------------------------------------------------------ /vote
+
+def cmd_vote(ctx, args):
+    db = ctx.db
+    polls = db.list_polls(ctx.server_id, open_only=True)
+    if not polls:
+        return ["&7Gerade gibt es keine Umfrage."]
+    if len(args) < 2:
+        mine = db.get_player_votes(ctx.player_id)
+        lines = []
+        for number, poll in enumerate(polls, 1):
+            lines.append(f"&6Umfrage {number}: &f{clean(poll['question'])} &7(bis {poll['ends_at'].strftime('%d.%m. %H:%M')})")
+            for index, option in enumerate(poll["options"], 1):
+                chosen = " &a← deine Stimme" if mine.get(poll["id"]) == index - 1 else ""
+                lines.append(f"&7  {index}. &f{clean(option)}{chosen}")
+        lines.append("&7Abstimmen: &f/vote <umfrage> <antwort>" + (" &7z. B. /vote 1 2" if polls else ""))
+        return lines
+    try:
+        poll = polls[int(args[0]) - 1]
+        option = int(args[1]) - 1
+    except (ValueError, IndexError):
+        return ["&cDiese Umfrage gibt es nicht. &7/vote zeigt alle."]
+    result = db.vote(ctx.server_id, poll["id"], ctx.player_id, option)
+    if result != "ok":
+        return ["&cDiese Antwort gibt es nicht." if result == "invalid" else "&cDie Umfrage ist schon vorbei."]
+    return [f"&aDanke! Deine Stimme: {clean(poll['options'][option])}"]
+
+
+def poll_result(poll):
+    """(color, chat text) for a poll that ended."""
+    if not poll["total"]:
+        return "gold", f"★ Umfrage »{clean(poll['question'])}« ist vorbei – niemand hat abgestimmt."
+    top = max(poll["votes"])
+    winners = [clean(o) for o, v in zip(poll["options"], poll["votes"]) if v == top]
+    share = round(top * 100 / poll["total"])
+    return "gold", (f"★ Umfrage »{clean(poll['question'])}«: {' und '.join(winners)} "
+                    f"({share} %, {poll['total']} {'Stimme' if poll['total'] == 1 else 'Stimmen'})")
+
+
+# ------------------------------------------------------------------ /events
+
+def cmd_events(ctx, args):
+    db = ctx.db
+    events = db.list_events(ctx.server_id, limit=5)
+    if not events:
+        return ["&7Gerade ist kein Event geplant."]
+    if args and args[0].lower() in ("anmelden", "abmelden"):
+        try:
+            event = events[int(args[1]) - 1] if len(args) > 1 else events[0]
+        except (ValueError, IndexError):
+            return ["&cDieses Event gibt es nicht. &7/events zeigt alle."]
+        signed = db.toggle_event_signup(ctx.server_id, event["id"], ctx.player_id, args[0].lower() == "anmelden")
+        if signed is None:
+            return ["&cDieses Event ist schon vorbei."]
+        return [f"&aDu bist für »{clean(event['title'])}« angemeldet." if signed
+                else f"&7Du bist von »{clean(event['title'])}« abgemeldet."]
+    mine = db.get_player_event_ids(ctx.player_id)
+    lines = ["&6--- Nächste Events ---"]
+    for number, event in enumerate(events, 1):
+        place = f" &7@ {clean(event['place'])}" if event["place"] else ""
+        signed = " &a(angemeldet)" if event["id"] in mine else ""
+        lines.append(f"&e{number}. &f{clean(event['title'])} &7– {event['starts_at'].strftime('%d.%m. %H:%M')} Uhr{place} "
+                     f"&7({event['signups']} dabei){signed}")
+    lines.append("&7Anmelden: &f/events anmelden <nr>")
+    return lines
+
+
+def event_announcement(kind, event):
+    place = f" Treffpunkt: {clean(event['place'])}." if event["place"] else ""
+    if kind == "reminder":
+        return "gold", f"★ In Kürze: »{clean(event['title'])}« um {event['starts_at'].strftime('%H:%M')} Uhr.{place}"
+    return "gold", f"★ Jetzt geht's los: »{clean(event['title'])}«!{place}"
+
+
 COMMANDS = {"stats": cmd_stats, "top": cmd_top, "wettbewerb": cmd_competition, "duell": cmd_duel,
-            "report": cmd_report, "seitenleiste": cmd_sidebar}
+            "report": cmd_report, "seitenleiste": cmd_sidebar, "vote": cmd_vote, "events": cmd_events}
