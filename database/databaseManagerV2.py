@@ -15,6 +15,7 @@ from psycopg2.pool import ThreadedConnectionPool
 from colorlogx import get_logger
 
 from . import config
+from . import metrics as metrics_mod
 from . import stats as stats_mod
 from .minecraft import Minecraft
 
@@ -69,8 +70,20 @@ MIGRATIONS = {
         "ALTER TABLE banned_players ADD COLUMN banned_by text",
         "ALTER TABLE banned_players ADD COLUMN source text NOT NULL DEFAULT 'web' CHECK (source IN ('web', 'ingame'))",
     ],
+    7: [
+        # Daily value of every metric (database/metrics.py) per player, for rankings over a time range
+        # and the history chart. actions only holds the current values.
+        """CREATE TABLE stat_snapshots(
+             player_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             metric text NOT NULL,
+             day date NOT NULL,
+             value bigint NOT NULL,
+             PRIMARY KEY (player_id, metric, day))""",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
+# Snapshots older than this are deleted (the newest older one of each metric is kept as baseline).
+SNAPSHOT_RETENTION_DAYS = 90
 SCHEMA_VERSION = max(MIGRATIONS, default=1)
 # A plugin counts as online if it was seen within this time (it sends a heartbeat every 5 seconds).
 PLUGIN_ONLINE_SECONDS = 90
@@ -451,7 +464,10 @@ class DatabaseManager:
     ###----------------------------- Update Functions ------------------------------------###
 
     def update_player_stats(self, player_id, stats):
-        """Store a stats file (json string or dict) for the player. Returns the number of stored values."""
+        """
+        Store a stats file (json string or dict) for the player and update today's
+        metric snapshot. Returns the number of stored values.
+        """
         entries = stats_mod.split_stats(stats, self.blocks, self.items)
         data = [(player_id, category, name, value) for name, category, value in entries]
         with self._cursor() as cur:
@@ -461,6 +477,25 @@ class DatabaseManager:
                 ON CONFLICT (player_id, category, object)
                 DO UPDATE SET value = EXCLUDED.value
                 WHERE actions.value IS DISTINCT FROM EXCLUDED.value""", data)
+            # the snapshot is taken from actions, so it always matches the live values
+            columns, params = metrics_mod.sql_columns()
+            cur.execute(f"""SELECT {", ".join(columns)} FROM actions a
+                            WHERE a.player_id = %s AND a.category = ANY(%s)""",
+                        (*params, player_id, metrics_mod.METRIC_CATEGORIES))
+            snapshot = [(player_id, m.key, int(v)) for m, v in zip(metrics_mod.METRICS, cur.fetchone())]
+            cur.executemany("""
+                INSERT INTO stat_snapshots (player_id, metric, day, value) VALUES (%s, %s, current_date, %s)
+                ON CONFLICT (player_id, metric, day) DO UPDATE SET value = EXCLUDED.value
+                WHERE stat_snapshots.value IS DISTINCT FROM EXCLUDED.value""", snapshot)
+            # Keep the newest snapshot before today even if it is old: it is the baseline
+            # for players that come back after a long break.
+            cur.execute("""
+                DELETE FROM stat_snapshots s
+                WHERE s.player_id = %s AND s.day < current_date - %s
+                  AND EXISTS (SELECT 1 FROM stat_snapshots n
+                              WHERE n.player_id = s.player_id AND n.metric = s.metric
+                                AND n.day > s.day AND n.day < current_date)""",
+                        (player_id, SNAPSHOT_RETENTION_DAYS))
         logger.info(f'Updated stats of player "{player_id}" ({len(data)} values)')
         return len(data)
 
@@ -1001,6 +1036,99 @@ class DatabaseManager:
 
     def get_all_custom_stats(self, player_id):
         return self._get_grouped_stats(player_id, stats_mod.CUSTOM_CATEGORIES)
+
+    ###----------------------------- Rankings / comparison ------------------------------------###
+
+    def get_server_metrics(self, server_id, days=None):
+        """
+        Every player of the server with all metrics (database/metrics.py):
+        [{"player_id", "name", "uuid", "online", "values": {metric key: value}}], sorted by name.
+        With days, values are the gain since the end of the day `days` days ago (from the
+        snapshots; if there is none that old, since the first snapshot).
+        """
+        columns, params = metrics_mod.sql_columns()
+        rows = self._fetchall(f"""
+            SELECT psi.player_id, p.name, psi.mojang_uuid, psi.online, {", ".join(columns)}
+            FROM player_server_info psi
+            JOIN player p ON p.uuid = psi.mojang_uuid
+            LEFT JOIN actions a ON a.player_id = psi.player_id AND a.category = ANY(%s)
+            WHERE psi.server_id = %s
+            GROUP BY psi.player_id, p.name, psi.mojang_uuid, psi.online
+            ORDER BY lower(p.name)""", (*params, metrics_mod.METRIC_CATEGORIES, server_id))
+        players = [{"player_id": str(row[0]), "name": row[1], "uuid": str(row[2]), "online": row[3],
+                    "values": {m.key: int(v) for m, v in zip(metrics_mod.METRICS, row[4:])}} for row in rows]
+        if days is None:
+            return players
+
+        baselines = {}
+        for player_id, metric, value in self._fetchall("""
+                SELECT DISTINCT ON (s.player_id, s.metric) s.player_id, s.metric, s.value
+                FROM stat_snapshots s
+                JOIN player_server_info psi ON psi.player_id = s.player_id
+                WHERE psi.server_id = %s
+                ORDER BY s.player_id, s.metric, s.day <= current_date - %s DESC,
+                         CASE WHEN s.day <= current_date - %s THEN s.day END DESC NULLS LAST, s.day""",
+                                                       (server_id, days, days)):
+            baselines[(str(player_id), metric)] = value
+        for player in players:
+            player["values"] = {key: max(0, value - baselines.get((player["player_id"], key), value))
+                                for key, value in player["values"].items()}
+        return players
+
+    def get_snapshot_start(self, server_id):
+        """The day of the first snapshot on the server, or None."""
+        return self._fetchvalue("""SELECT min(s.day) FROM stat_snapshots s
+                                   JOIN player_server_info psi ON psi.player_id = s.player_id
+                                   WHERE psi.server_id = %s""", (server_id,))
+
+    def get_metric_history(self, player_ids, days):
+        """
+        (dates, {player_id: {metric key: [gain per day or None]}}) for the last `days` days
+        up to today. A day's value is the gain since the start of the range; None before the
+        first snapshot of the player.
+        """
+        rows = self._fetchall("""
+            SELECT player_id, metric, day, value, current_date FROM stat_snapshots
+            WHERE player_id = ANY(%s::uuid[]) AND metric = ANY(%s)
+            ORDER BY player_id, metric, day""", (list(player_ids), list(metrics_mod.METRICS_BY_KEY)))
+        today = rows[0][4] if rows else self._fetchvalue("SELECT current_date")
+        dates = [today - timedelta(days=offset) for offset in range(days, -1, -1)]
+        series = {}
+        for player_id, metric, day, value, _ in rows:
+            series.setdefault(str(player_id), {}).setdefault(metric, []).append((day, value))
+
+        history = {}
+        for player_id in player_ids:
+            history[player_id] = {}
+            for key in metrics_mod.METRICS_BY_KEY:
+                points = series.get(player_id, {}).get(key, [])
+                values, index, last = [], 0, None
+                for date in dates:
+                    while index < len(points) and points[index][0] <= date:
+                        last = points[index][1]
+                        index += 1
+                    values.append(last)
+                base = next((v for v in values if v is not None), None)
+                history[player_id][key] = [None if v is None else max(0, v - base) for v in values]
+        return dates, history
+
+    def get_top_objects(self, player_ids, category, limit=10):
+        """
+        The objects of a category with the highest sum over the given players:
+        [(object, {player_id: value})], e.g. the most mined blocks of the compared players.
+        """
+        rows = self._fetchall("""
+            WITH top AS (
+                SELECT object FROM actions
+                WHERE player_id = ANY(%s::uuid[]) AND category = %s
+                GROUP BY object ORDER BY sum(value) DESC, object LIMIT %s)
+            SELECT a.object, a.player_id, a.value FROM actions a JOIN top USING (object)
+            WHERE a.player_id = ANY(%s::uuid[]) AND a.category = %s""",
+                              (list(player_ids), category, limit, list(player_ids), category))
+        totals = {}
+        for obj, player_id, value in rows:
+            totals.setdefault(obj, {})[str(player_id)] = value
+        return sorted(totals.items(), key=lambda item: (-sum(item[1].values()), item[0]))
 
     ################################# Verify Functions #######################################
 

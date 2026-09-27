@@ -9,11 +9,12 @@
     <link href="{{ url_for('static', filename='css/server.css') }}" rel="stylesheet"/>
     <link href="{{ url_for('static', filename='css/components.css') }}" rel="stylesheet"/>
     <link href="{{ url_for('static', filename='images/favicon.ico') }}" rel="icon" type="image/vnd.microsoft.icon"/>
+    {% block head %}{% endblock %}
 </head>
 <body class="srv">
     {% include 'header.html' %}
     <main class="srv-main">
-        <div class="srv-wrap srv-page">{% block content %}{% endblock %}</div>
+        <div class="srv-wrap srv-page {% block page_class %}{% endblock %}">{% block content %}{% endblock %}</div>
     </main>
     <footer>
         <nav>

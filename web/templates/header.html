@@ -75,6 +75,21 @@
               </button>
             </div>
           </li>
+          {% if config.FEATURE_RANKINGS %}
+          <li>
+            <div class="dropdown">
+              <button
+                class="dropbtn {% if request.path=='/rangliste' or request.path=='/vergleich' %} current{% endif %}"
+              >
+                ▼ Statistiken
+              </button>
+              <div class="dropdown-content">
+                <a href="/rangliste">Rangliste</a>
+                <a href="/vergleich">Spieler vergleichen</a>
+              </div>
+            </div>
+          </li>
+          {% endif %}
           {% if config.FEATURE_PREFIXES %}
           <li>
             <div class="dropdown">

@@ -1,0 +1,186 @@
+{% extends "server_base.html" %}
+{% from "_components.html" import prefix_chip, period_switch %}
+{% block title %}Spieler vergleichen · {{ server_name }}{% endblock %}
+{% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block page_class %}srv-page-wide{% endblock %}
+{% block content %}
+{% set selected_names = selected | map(attribute="name") | join(",") %}
+<div class="st-head">
+  <div>
+    <h1>Spieler vergleichen</h1>
+    <p class="srv-lead">Wähle 2 bis {{ max_players }} Spieler und stell sie einander gegenüber.</p>
+  </div>
+  {% if selected %}{{ period_switch("/vergleich", period, periods, "&spieler=" ~ (selected_names | urlencode)) }}{% endif %}
+</div>
+
+<form class="srv-card cmp-picker" id="picker" action="/vergleich" method="get">
+  <input type="hidden" name="zeitraum" value="{{ period }}"/>
+  <input type="hidden" name="spieler" value="{{ selected_names }}"/>
+  <div class="cmp-picker-head">
+    <label class="cmp-search-label" for="player-search">Spieler</label>
+    <input class="mcc-input cmp-search" id="player-search" type="search" placeholder="Name suchen …" autocomplete="off"/>
+    <button class="mcc-btn" type="submit">Vergleichen</button>
+  </div>
+  <p class="cmp-picker-note" id="picker-note" aria-live="polite"></p>
+  <ul class="cmp-options">
+    {% for p in players %}
+    <li data-name="{{ p.name | lower }}">
+      <label>
+        <input type="checkbox" value="{{ p.name }}"{% if p in selected %} checked{% endif %}/>
+        <img src="https://mc-heads.net/avatar/{{ p.uuid }}/32" alt="" width="22" height="22" loading="lazy"/>
+        <span>{{ p.name }}</span>
+      </label>
+    </li>
+    {% endfor %}
+  </ul>
+</form>
+
+{% if selected | length < 2 %}
+<div class="srv-card st-empty-card">
+  <h3>Noch niemand zum Vergleichen</h3>
+  <p>Hak oben mindestens zwei Spieler an. Alternativ nimmst du Spieler in der
+    <a href="/rangliste">Rangliste</a> oder der <a href="/spieler">Spielerliste</a> mit <b>+</b> auf.</p>
+</div>
+{% else %}
+{% if hint %}<p class="st-hint">{{ hint }}</p>{% endif %}
+
+<section class="st-group">
+  <div class="mcc-table-wrap">
+    <table class="cmp-table" style="--cols: {{ selected | length }}">
+      <thead>
+        <tr>
+          <th scope="col" class="cmp-metric-col"><span class="st-sr">Kennzahl</span></th>
+          {% for p in selected %}
+          <th scope="col" class="cmp-player" style="--c: {{ p.color }}">
+            <img src="https://mc-heads.net/avatar/{{ p.uuid }}/64" alt="" width="44" height="44"/>
+            <a href="/spieler?player={{ p.name | urlencode }}">{{ p.name }}</a>
+            {% set pre = prefixes.get(p.uuid) %}{% if pre %}<span>{{ prefix_chip(pre[0], pre[1], prefix_colors) }}</span>{% endif %}
+            <span class="cmp-wins"><strong>{{ wins[loop.index0] }}</strong> von {{ metric_count }} Bestwerten</span>
+          </th>
+          {% endfor %}
+        </tr>
+      </thead>
+      {% for label, rows in groups %}
+      <tbody>
+        <tr class="cmp-group"><th scope="rowgroup" colspan="{{ selected | length + 1 }}">{{ label }}</th></tr>
+        {% for row in rows %}
+        <tr>
+          <th scope="row">{{ row.metric.label }}{% if row.metric.lower_is_better %} <span class="mcc-hint">(weniger ist besser)</span>{% endif %}</th>
+          {% for cell in row.cells %}
+          <td class="{% if loop.index0 in row.best %}cmp-best{% endif %}" style="--c: {{ selected[loop.index0].color }}">
+            <span class="cmp-value">{{ cell.text }}{% if loop.index0 in row.best %}<span class="cmp-best-mark" title="Bestwert">Bestwert</span>{% endif %}</span>
+            {% if cell.share %}<span class="cmp-meter"><span style="width: {{ '%.1f' | format(cell.share * 100) }}%"></span></span>{% else %}<span class="cmp-meter"></span>{% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+      {% endfor %}
+    </table>
+  </div>
+</section>
+
+<section class="st-group">
+  <h2>Verlauf</h2>
+  <div class="srv-card cmp-chart-card" id="history">
+    <div class="cmp-chart-controls">
+      <label for="history-metric" class="st-sr">Kennzahl</label>
+      <select class="mcc-select" id="history-metric"></select>
+      <nav class="st-periods" aria-label="Zeitraum des Verlaufs">
+        <button type="button" data-days="30" aria-pressed="true">30 Tage</button>
+        <button type="button" data-days="90" aria-pressed="false">90 Tage</button>
+      </nav>
+    </div>
+    <p class="cmp-chart-sub" id="history-sub"></p>
+    <ul class="cmp-legend">
+      {% for p in selected %}<li style="--c: {{ p.color }}">{{ p.name }}</li>{% endfor %}
+    </ul>
+    <div class="cmp-chart" id="history-chart"></div>
+    <details class="cmp-chart-table">
+      <summary>Als Tabelle anzeigen</summary>
+      <div class="mcc-table-wrap"><table class="mcc-table" id="history-table"></table></div>
+    </details>
+  </div>
+</section>
+
+<section class="st-group">
+  <h2>Im Detail</h2>
+  <div class="st-boards cmp-details">
+    {% for title, rows in details %}
+    <article class="st-board">
+      <h3>{{ title }}</h3>
+      {% if rows %}
+      <div class="mcc-table-wrap">
+        <table class="mcc-table cmp-detail-table">
+          <thead><tr><th></th>{% for p in selected %}<th style="--c: {{ p.color }}"><span class="cmp-key"></span><span class="st-sr">{{ p.name }}</span><img src="https://mc-heads.net/avatar/{{ p.uuid }}/32" alt="{{ p.name }}" title="{{ p.name }}" width="20" height="20"/></th>{% endfor %}</tr></thead>
+          <tbody>
+            {% for row in rows %}
+            <tr>
+              <td>{{ row.label }}</td>
+              {% for value in row["values"] %}<td class="num{% if loop.index0 in row.best %} cmp-best{% endif %}">{{ "{:,}".format(value).replace(",", ".") if value else "–" }}</td>{% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="st-empty">Noch keine Werte.</p>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if history %}<script id="history-data" type="application/json">{{ history | tojson }}</script>{% endif %}
+<script>
+  (() => {
+    // ------------------------------------------------------------ player picker
+    const KEY = "mcc-compare";
+    const MAX = {{ max_players }};
+    const picker = document.getElementById("picker");
+    const boxes = [...picker.querySelectorAll('input[type="checkbox"]')];
+    const note = document.getElementById("picker-note");
+    const checked = () => boxes.filter((b) => b.checked).map((b) => b.value);
+    // keep the order in which players were picked (it decides their color)
+    let order = {{ selected | map(attribute="name") | list | tojson }};
+
+    function sync() {
+      const names = checked();
+      order = order.filter((n) => names.includes(n)).concat(names.filter((n) => !order.includes(n)));
+      boxes.forEach((b) => (b.disabled = !b.checked && names.length >= MAX));
+      note.textContent = names.length >= MAX ? `Höchstens ${MAX} Spieler.` : `${names.length} ausgewählt`;
+      picker.elements.spieler.value = order.join(",");
+    }
+    boxes.forEach((b) => b.addEventListener("change", sync));
+    if (order.length) {
+      try { localStorage.setItem(KEY, JSON.stringify(order)); } catch (e) {}
+    } else {
+      // opened without selection: preselect the players picked with + on other pages
+      let stored = [];
+      try { stored = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) {}
+      if (Array.isArray(stored)) {
+        const wanted = stored.map((n) => String(n).toLowerCase());
+        boxes.forEach((b) => (b.checked = wanted.includes(b.value.toLowerCase())));
+        order = boxes.filter((b) => b.checked).map((b) => b.value).slice(0, MAX);
+      }
+    }
+    sync();
+
+    document.getElementById("player-search").addEventListener("input", (event) => {
+      const query = event.target.value.trim().toLowerCase();
+      picker.querySelectorAll(".cmp-options li").forEach((li) => {
+        li.hidden = query !== "" && !li.dataset.name.includes(query);
+      });
+    });
+    picker.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (order.length < 2) { note.textContent = "Wähle mindestens 2 Spieler."; return; }
+      location.href = `/vergleich?spieler=${order.map(encodeURIComponent).join(",")}&zeitraum=${picker.elements.zeitraum.value}`;
+    });
+  })();
+</script>
+{% if history %}<script src="{{ url_for('static', filename='history-chart.js') }}"></script>{% endif %}
+{% endblock %}

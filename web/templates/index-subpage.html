@@ -11,6 +11,7 @@
     <link href="{{ url_for('static', filename='css/header.css') }}" rel="stylesheet"/>
     <link href="{{ url_for('static', filename='css/fonts.css') }}" rel="stylesheet"/>
     <link href="{{ url_for('static', filename='css/server.css') }}" rel="stylesheet"/>
+    {% if records %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endif %}
     <link href="{{ url_for('static', filename='images/favicon.ico') }}" rel="icon" type="image/vnd.microsoft.icon"/>
 </head>
 
@@ -58,6 +59,27 @@
                     <span class="srv-number-label">{{ "nur mit Freischaltung" if whitelist else "jeder kann mitspielen" }}</span>
                 </div>
             </div>
+
+            {% if records %}
+            <section class="srv-section">
+                <div class="st-section-head">
+                    <h2>Rekorde</h2>
+                    <a href="/rangliste">Zur Rangliste →</a>
+                </div>
+                <div class="st-records">
+                    {% for record in records %}
+                    <a class="st-record" href="/rangliste">
+                        <span class="st-record-label">{{ record.label }}</span>
+                        <span class="st-record-value">{{ record.text }}</span>
+                        <span class="st-record-who">
+                            <img src="https://mc-heads.net/avatar/{{ record.uuid }}/32" alt="" width="22" height="22" loading="lazy"/>
+                            <span>{{ record.name }}</span>
+                        </span>
+                    </a>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
 
             {% if gallery_urls %}
             <section class="srv-section">

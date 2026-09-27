@@ -125,3 +125,13 @@
   })();
 </script>
 {% endmacro %}
+
+
+{# Segmented links for the time range of rankings and comparison. #}
+{% macro period_switch(path, current, periods, extra="") %}
+<nav class="st-periods" aria-label="Zeitraum">
+  {% for key in periods %}
+  <a href="{{ path }}?zeitraum={{ key }}{{ extra }}"{% if key == current %} aria-current="page"{% endif %}>{{ "Gesamt" if key == "gesamt" else key ~ " Tage" }}</a>
+  {% endfor %}
+</nav>
+{% endmacro %}

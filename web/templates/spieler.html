@@ -15,6 +15,7 @@
     <link href="{{ url_for('static', filename='css/player_list.css') }}" rel="stylesheet" />
     <link href="{{ url_for('static', filename='css/fonts.css') }}" rel="stylesheet" />
     <link href="{{ url_for('static', filename='css/components.css') }}" rel="stylesheet" />
+    {% if config.FEATURE_RANKINGS %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet" />{% endif %}
 
     <link href="{{ url_for('static', filename='images/favicon.ico') }}" rel="icon" type="image/vnd.microsoft.icon"/>
 </head>
@@ -26,8 +27,8 @@
         <div class="container mt-5">
             {% for result in results %}
             <ul class="list-group">
-                <li class="list-group-item">
-                    <a class="text-decoration-none list-item-content" href="/spieler?player={{result[0]}}" style="justify-content: space-between;color:black;">
+                <li class="list-group-item" style="display: flex; align-items: center; gap: 12px;">
+                    <a class="text-decoration-none list-item-content" href="/spieler?player={{result[0]}}" style="justify-content: space-between;color:black;flex: 1;">
 
 
                         <img alt="player_head" class="list-item-image" src="https://mc-heads.net/avatar/{{result[1]}}/64" />
@@ -38,6 +39,7 @@
 
 
                     </a>
+                    {% if config.FEATURE_RANKINGS %}<button class="cmp-add" type="button" data-compare="{{ result[0] }}" aria-label="{{ result[0] }} zum Vergleich hinzufügen">+</button>{% endif %}
                 </li>
                 {% endfor %}
             </ul>
@@ -54,6 +56,7 @@
         </nav>
     </footer>
 
+    {% if config.FEATURE_RANKINGS %}<script src="{{ url_for('static', filename='compare.js') }}"></script>{% endif %}
     <script>
         const eventSource = new EventSource("/api/status");
 

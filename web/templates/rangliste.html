@@ -1,0 +1,62 @@
+{% extends "server_base.html" %}
+{% from "_components.html" import prefix_chip, period_switch %}
+{% block title %}Rangliste · {{ server_name }}{% endblock %}
+{% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block page_class %}srv-page-wide{% endblock %}
+{% block content %}
+<div class="st-head">
+  <div>
+    <h1>Rangliste</h1>
+    <p class="srv-lead">Wer auf {{ server_name }} vorne liegt. Mit <b>+</b> nimmst du Spieler in den Vergleich auf.</p>
+  </div>
+  {{ period_switch("/rangliste", period, periods) }}
+</div>
+{% if hint %}<p class="st-hint">{{ hint }}</p>{% endif %}
+
+{% for label, boards in groups %}
+<section class="st-group">
+  <h2>{{ label }}</h2>
+  <div class="st-boards">
+    {% for metric, rows in boards %}
+    <article class="st-board" aria-labelledby="board-{{ metric.key }}">
+      <h3 id="board-{{ metric.key }}">{{ metric.label }}</h3>
+      {% if rows %}
+      <ol class="st-list">
+        {% for row in rows %}
+        <li class="st-row{% if loop.index > 5 %} st-more{% endif %}{% if row.rank == 1 %} st-first{% endif %}"{% if loop.index > 5 %} hidden{% endif %}>
+          <span class="st-rank">{{ row.rank }}</span>
+          <img class="st-avatar" src="https://mc-heads.net/avatar/{{ row.uuid }}/32" alt="" width="28" height="28" loading="lazy"/>
+          <span class="st-who">
+            <a class="st-name" href="/spieler?player={{ row.name | urlencode }}">{% set p = prefixes.get(row.uuid) %}{% if p %}{{ prefix_chip(p[0], p[1], prefix_colors) }}{% endif %}<span>{{ row.name }}</span></a>
+            <span class="st-bar"><span style="width: {{ '%.1f' | format(row.share * 100) }}%"></span></span>
+          </span>
+          <span class="st-value">{{ row.text }}</span>
+          <button class="st-add" type="button" data-compare="{{ row.name }}" aria-label="{{ row.name }} zum Vergleich hinzufügen">+</button>
+        </li>
+        {% endfor %}
+      </ol>
+      {% if rows | length > 5 %}
+      <button class="st-toggle" type="button" data-more="Alle {{ rows | length }} anzeigen" data-less="Nur Top 5">Alle {{ rows | length }} anzeigen</button>
+      {% endif %}
+      {% else %}
+      <p class="st-empty">{{ "Noch keine Werte." if period == "gesamt" else "In diesem Zeitraum noch keine Werte." }}</p>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='compare.js') }}"></script>
+<script>
+  document.querySelectorAll(".st-toggle").forEach((button) => {
+    button.addEventListener("click", () => {
+      const rows = button.previousElementSibling.querySelectorAll(".st-more");
+      const open = rows[0].hidden;
+      rows.forEach((row) => (row.hidden = !open));
+      button.textContent = open ? button.dataset.less : button.dataset.more;
+    });
+  });
+</script>
+{% endblock %}

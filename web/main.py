@@ -15,6 +15,7 @@ import secrets
 import sys
 import time
 import uuid as uuid_mod
+from datetime import date, timedelta
 from urllib.parse import urlparse
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -28,7 +29,9 @@ from flask import (Blueprint, Flask, Response, abort, current_app, g, redirect, 
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from database import config
+from database import metrics as metrics_mod
 from database.databaseManagerV2 import MAX_GALLERY_IMAGES, MODERATOR_LEVEL, DatabaseManager
+from database import stats as stats_mod
 from database.stats import format_time
 from web.uploads import FILENAME_RE, MAX_UPLOAD_BYTES, InvalidImage, delete_images, save_image
 
@@ -55,6 +58,12 @@ SSE_INTERVAL_SECONDS = 2
 # SSE streams end after this time; the browser's EventSource reconnects on its own.
 # Keeps worker threads from being blocked forever by forgotten tabs.
 SSE_MAX_LIFETIME_SECONDS = 300
+# Time ranges of the rankings and the comparison (?zeitraum=...): days, None = all time.
+PERIODS = {"gesamt": None, "30": 30, "7": 7}
+MAX_COMPARED_PLAYERS = 4
+# Categorical colors of the compared players (in this order, validated for color blindness).
+COMPARE_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
+HISTORY_DAYS = 90
 
 main_bp = Blueprint("main", __name__)
 server_bp = Blueprint("server", __name__, subdomain="<subdomain>")
@@ -130,8 +139,18 @@ def inject_server_context():
 @server_bp.route("/")
 def subdomain_index_route():
     images = db().get_server_images(g.server["id"])
+    records = []
+    if current_app.config["FEATURE_RANKINGS"]:
+        players = db().get_server_metrics(g.server["id"])
+        for key in metrics_mod.RECORD_METRICS:
+            metric = metrics_mod.METRICS_BY_KEY[key]
+            best = max(players, key=lambda p: p["values"][key], default=None)
+            if best and best["values"][key] > 0:
+                records.append({"label": metric.label, "name": best["name"], "uuid": best["uuid"],
+                                "text": metrics_mod.format_value(metric, best["values"][key])})
     return render_template("index-subpage.html",
                            player_total=len(db().get_all_player_ids_from_subdomain(g.subdomain)),
+                           records=records,
                            banner_url=image_url(images["banner"]) if images["banner"] else None,
                            gallery_urls=[image_url(image["filename"]) for image in images["gallery"]])
 
@@ -187,6 +206,127 @@ def player_overview_route():
         block_stats=json.dumps(db().get_all_blocks_stats(player_id)),
         mob_stats=json.dumps(db().get_all_mobs_stats(player_id)),
         custom_stats=json.dumps(db().get_all_custom_stats(player_id)))
+
+
+def feature_rankings_required(view):
+    @functools.wraps(view)
+    def wrapper(*args, **kwargs):
+        if not current_app.config["FEATURE_RANKINGS"]:
+            abort(404)
+        return view(*args, **kwargs)
+    return wrapper
+
+
+def selected_period():
+    period = request.args.get("zeitraum", "gesamt")
+    return period if period in PERIODS else "gesamt"
+
+
+def period_hint(server_id, days):
+    """A note if the snapshots do not reach back to the start of the time range yet."""
+    if days is None:
+        return None
+    start = db().get_snapshot_start(server_id)
+    if start is None:
+        return "Zeiträume werden ab jetzt aufgezeichnet. Bis dahin gibt es hier noch keine Werte."
+    if start > date.today() - timedelta(days=days):
+        return (f"Zeiträume werden erst seit dem {start.strftime('%d.%m.%Y')} aufgezeichnet, "
+                "davor fehlen die Werte noch.")
+    return None
+
+
+def ranked(players, metric):
+    """Players with a value for the metric, best first, with competition ranking (1, 1, 3)."""
+    rows = sorted((p for p in players if p["values"][metric.key] > 0),
+                  key=lambda p: (-p["values"][metric.key], p["name"].lower()))
+    top = rows[0]["values"][metric.key] if rows else 0
+    result = []
+    for index, player in enumerate(rows):
+        value = player["values"][metric.key]
+        rank = result[-1]["rank"] if result and result[-1]["value"] == value else index + 1
+        result.append({"rank": rank, "name": player["name"], "uuid": player["uuid"], "value": value,
+                       "text": metrics_mod.format_value(metric, value), "share": value / top})
+    return result
+
+
+@server_bp.route("/rangliste")
+@feature_rankings_required
+def rankings_page():
+    period = selected_period()
+    players = db().get_server_metrics(g.server["id"], PERIODS[period])
+    groups = [(label, [(metric, ranked(players, metric)) for metric in metrics_mod.METRICS if metric.group == key])
+              for key, label in metrics_mod.GROUPS]
+    return render_template("rangliste.html", groups=groups, period=period, periods=PERIODS,
+                           hint=period_hint(g.server["id"], PERIODS[period]),
+                           prefixes=db().get_all_worn_prefixes(g.server["id"]))
+
+
+def best_indexes(values, lower_is_better):
+    """Positions of the best value (none if all are equal, e.g. everyone at 0)."""
+    if len(values) < 2 or len(set(values)) == 1:
+        return set()
+    best = min(values) if lower_is_better else max(values)
+    return {i for i, value in enumerate(values) if value == best}
+
+
+@server_bp.route("/vergleich")
+@feature_rankings_required
+def compare_page():
+    period = selected_period()
+    players = db().get_server_metrics(g.server["id"], PERIODS[period])
+    by_name = {p["name"].lower(): p for p in players}
+    selected = []
+    for name in request.args.get("spieler", "").split(","):
+        player = by_name.get(name.strip().lower())
+        if player and player not in selected and len(selected) < MAX_COMPARED_PLAYERS:
+            selected.append(player)
+    for player, color in zip(selected, COMPARE_COLORS):
+        player["color"] = color
+
+    groups, wins = [], [0] * len(selected)
+    for key, label in metrics_mod.GROUPS:
+        rows = []
+        for metric in (m for m in metrics_mod.METRICS if m.group == key):
+            values = [p["values"][metric.key] for p in selected]
+            best = best_indexes(values, metric.lower_is_better)
+            for index in best:
+                wins[index] += 1
+            top = max(values, default=0)
+            rows.append({"metric": metric, "best": best,
+                         "cells": [{"text": metrics_mod.format_value(metric, v), "share": v / top if top else 0}
+                                   for v in values]})
+        groups.append((label, rows))
+
+    details, history = [], None
+    if selected:
+        ids = [p["player_id"] for p in selected]
+        for title, category in (("Meist abgebaute Blöcke", stats_mod.BLOCK_MINED),
+                                ("Meist getötete Mobs", stats_mod.MOB_KILLED),
+                                ("Getötet von", stats_mod.MOB_KILLED_BY)):
+            rows = []
+            for obj, values in db().get_top_objects(ids, category):
+                row_values = [values.get(i, 0) for i in ids]
+                rows.append({"label": metrics_mod.object_label(obj), "values": row_values,
+                             "best": best_indexes(row_values, category == stats_mod.MOB_KILLED_BY)})
+            details.append((title, rows))
+
+        dates, series = db().get_metric_history(ids, HISTORY_DAYS)
+        group_labels = dict(metrics_mod.GROUPS)
+        scale = lambda metric, v: None if v is None else round(metrics_mod.scaled(metric, v), 2)
+        history = {
+            "dates": [d.isoformat() for d in dates],
+            "players": [{"name": p["name"], "color": p["color"]} for p in selected],
+            "metrics": [{"key": m.key, "label": m.label, "unit": m.unit, "group": group_labels[m.group],
+                         "values": [[scale(m, v) for v in series[i][m.key]] for i in ids]}
+                        for m in metrics_mod.METRICS],
+            "since": (db().get_snapshot_start(g.server["id"]) or date.today()).isoformat(),
+        }
+
+    return render_template("vergleich.html", players=players, selected=selected, groups=groups, wins=wins,
+                           metric_count=len(metrics_mod.METRICS), details=details, history=history,
+                           period=period, periods=PERIODS, max_players=MAX_COMPARED_PLAYERS,
+                           hint=period_hint(g.server["id"], PERIODS[period]),
+                           prefixes=db().get_all_worn_prefixes(g.server["id"]))
 
 
 def player_required(view):
@@ -919,6 +1059,7 @@ def create_app(db_manager=None, config_overrides=None):
         PREFERRED_URL_SCHEME=config.PUBLIC_SCHEME,
         FEATURE_PREFIXES=True,       # prefix pages (/add_pref, /join_pref)
         FEATURE_ADMIN_PANEL=True,    # moderation page for moderators (/users)
+        FEATURE_RANKINGS=True,       # rankings and player comparison (/rangliste, /vergleich)
         PROXY_FIX=False,             # set FLASK_PROXY_FIX=true behind traefik/nginx
     )
     app.config.from_pyfile(os.path.join(app.root_path, "config.py"), silent=True)
