@@ -35,3 +35,8 @@
   --font-display: "Chakra Petch", "Atkinson Hyperlegible", sans-serif;
   --font-mono: "JetBrains Mono", "Menlo", monospace;
 }
+@font-face {
+  font-family: "Concert One";
+  src: url("../fonts/concert-one-400.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}

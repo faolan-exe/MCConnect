@@ -77,8 +77,6 @@ Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all
 
 ### Open
 
-- Privacy policy (`web/templates/legal_datenschutz.html`): the stat card makes the server fetch heads
-  from mc-heads.net (only the UUID is sent); not mentioned yet.
 - Phases 5-9 were built in one go without feedback rounds; screenshots were checked, the owner's visual feedback is
   still missing. The plugin 3.4-3.6 features compile but were not tested on a real Minecraft server
   (sidebar with prefix name tags, mutes, `whitelist add`, kick message).
