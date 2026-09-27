@@ -24,7 +24,7 @@ ACHIEVEMENTS = (
     Achievement("builder", "Baumeister", "Blöcke platziert", "blocks_placed", (5_000, 50_000, 250_000, 1_000_000)),
     Achievement("hunter", "Monsterjäger", "Mobs getötet", "mob_kills", (100, 1_000, 5_000, 20_000)),
     Achievement("diamonds", "Diamantenfieber", "Diamanterz abgebaut", "diamonds", (10, 100, 500, 1_000)),
-    Achievement("netherite", "Schatzsucher", "Antiker Schutt abgebaut", "ancient_debris", (4, 32, 128, 512)),
+    Achievement("netherite", "Schatzsucher", "Ancient Debris abgebaut", "ancient_debris", (4, 32, 128, 512)),
     Achievement("traveller", "Weltenbummler", "km zurückgelegt", "distance", tuple(k * KM for k in (10, 100, 1_000, 5_000))),
     Achievement("pilot", "Himmelsstürmer", "km mit Elytra geflogen", "distance_elytra", tuple(k * KM for k in (10, 100, 1_000, 3_000))),
     Achievement("jumper", "Flummi", "Sprünge", "jumps", (1_000, 10_000, 50_000, 100_000)),

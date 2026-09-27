@@ -32,9 +32,9 @@ MOVEMENT_LABELS = {
     "minecraft:crouch_one_cm": "Schleichen", "minecraft:swim_one_cm": "Schwimmen",
     "minecraft:walk_on_water_one_cm": "Über Wasser", "minecraft:walk_under_water_one_cm": "Unter Wasser",
     "minecraft:climb_one_cm": "Klettern", "minecraft:fly_one_cm": "Fliegen", "minecraft:aviate_one_cm": "Elytra",
-    "minecraft:boat_one_cm": "Boot", "minecraft:horse_one_cm": "Pferd", "minecraft:minecart_one_cm": "Lore",
-    "minecraft:pig_one_cm": "Schwein", "minecraft:strider_one_cm": "Schreiter",
-    "minecraft:happy_ghast_one_cm": "Glücklicher Ghast",
+    "minecraft:boat_one_cm": "Boot", "minecraft:horse_one_cm": "Pferd", "minecraft:minecart_one_cm": "Minecart",
+    "minecraft:pig_one_cm": "Schwein", "minecraft:strider_one_cm": "Strider",
+    "minecraft:happy_ghast_one_cm": "Happy Ghast",
 }
 
 GROUPS = (
@@ -56,7 +56,7 @@ METRICS = (
     _metric("jumps", "Sprünge", "movement", stats.CUSTOM, ("jump",)),
 
     _metric("diamonds", "Diamanterz", "ores", stats.BLOCK_MINED, ("diamond_ore", "deepslate_diamond_ore")),
-    _metric("ancient_debris", "Antiker Schutt", "ores", stats.BLOCK_MINED, ("ancient_debris",)),
+    _metric("ancient_debris", "Ancient Debris", "ores", stats.BLOCK_MINED, ("ancient_debris",)),
     _metric("emeralds", "Smaragderz", "ores", stats.BLOCK_MINED, ("emerald_ore", "deepslate_emerald_ore")),
     _metric("gold", "Golderz", "ores", stats.BLOCK_MINED, ("gold_ore", "deepslate_gold_ore")),
     _metric("iron", "Eisenerz", "ores", stats.BLOCK_MINED, ("iron_ore", "deepslate_iron_ore")),
