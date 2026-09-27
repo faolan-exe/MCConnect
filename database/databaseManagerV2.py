@@ -1529,6 +1529,12 @@ class DatabaseManager:
             rows = cur.fetchall()
         return [(achievements_mod.ACHIEVEMENTS_BY_KEY[key], tier) for key, tier, silent in rows if not silent]
 
+    def get_new_achievements(self, player_id, since):
+        """[(achievement key, tier)] reached while playing after `since` (not silent), oldest first."""
+        return self._fetchall("""SELECT achievement, tier FROM player_achievements
+                                 WHERE player_id = %s AND earned_at > %s AND NOT silent
+                                 ORDER BY earned_at, tier LIMIT 5""", (player_id, since))
+
     def get_player_achievements(self, player_id):
         """{(achievement key, tier): earned_at} of a player."""
         return {(key, tier): at for key, tier, at in self._fetchall(

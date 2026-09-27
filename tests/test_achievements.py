@@ -202,3 +202,40 @@ def test_teams_page(client, db, server, two_players):
 
 def test_teams_page_without_prefixes(client, server):
     assert "Noch keine Teams" in client.get("/teams", **on("testdomain")).get_data(as_text=True)
+
+
+# ------------------------------------------------------------------ live updates
+
+def test_partial_live_stats_keep_the_other_values(db, server):
+    """The plugin's live stats only contain some values; the others must stay."""
+    player_id = db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
+    db.update_player_stats(player_id, custom(deaths=12, fish_caught=5))
+    db.update_player_stats(player_id, {"stats": {"minecraft:custom": {"minecraft:deaths": 13}}})
+    values = db.get_player_metrics(player_id)
+    assert values["deaths"] == 13 and values["fish_caught"] == 5
+
+
+def test_achievements_api(client, db, server):
+    player_id = db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
+    db.update_player_stats(player_id, custom(deaths=12))
+    db.award_achievements(player_id)
+    data = client.get("/api/spieler/_Tobias4444/erfolge", **on("testdomain")).json
+    assert data["count"] == 1 and "Pechvogel" in data["html"]
+    db.save_profile(player_id, None, True)
+    assert client.get("/api/spieler/_Tobias4444/erfolge", **on("testdomain")).status_code == 404
+
+
+def test_my_new_achievements(client, db, server):
+    assert client.get("/api/meine-erfolge", **on("testdomain")).json["new"] == []  # logged out
+    player_id = db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
+    db.set_plugin_connected(server["id"], True)
+    assert login_player(client, db, player_id).json["status"] == "success"
+    first = client.get("/api/meine-erfolge", **on("testdomain")).json
+    assert first["new"] == []
+    assert "mcc-toasts" in client.get("/", **on("testdomain")).get_data(as_text=True)
+    db.update_player_stats(player_id, custom(deaths=12))
+    db.award_achievements(player_id)
+    later = client.get("/api/meine-erfolge?seit=" + first["now"].replace("+", "%2B"), **on("testdomain")).json
+    assert later["new"] == [{"name": "Pechvogel", "tier": "Bronze", "tier_key": "bronze", "description": "Tode"}]
+    again = client.get("/api/meine-erfolge?seit=" + later["now"].replace("+", "%2B"), **on("testdomain")).json
+    assert again["new"] == []

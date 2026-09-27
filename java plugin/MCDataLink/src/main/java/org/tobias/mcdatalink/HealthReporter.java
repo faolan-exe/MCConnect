@@ -49,7 +49,7 @@ final class HealthReporter {
     }
 
     /** Main thread: collect the values (world access) and send them from the worker thread. */
-    private void report() {
+    void report() {
         int chunks = 0;
         int entities = 0;
         for (World world : plugin.getServer().getWorlds()) {

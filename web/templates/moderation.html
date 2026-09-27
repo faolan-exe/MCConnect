@@ -42,8 +42,13 @@
   </div>
   <p class="mcc-hint">{{ health.latest.mc_version or "" }} · MCDataLink {{ health.latest.plugin_version or "" }}.
     20 TPS sind ideal; unter 15 merken Spieler Ruckler.</p>
+  {% elif health.online %}
+  <p class="hl-alert hl-alert-soft"><b>Das Plugin ist verbunden, schickt aber keinen Serverzustand{% if health.stale %} mehr (zuletzt {{ health.last_sample }}){% endif %}.</b><br/>
+    Der Serverzustand kommt ab Plugin-Version 3.2. Lade auf der Admin-Seite das aktuelle MCDataLink.jar herunter,
+    ersetze die alte Datei im <code>plugins</code>-Ordner und starte den Minecraft-Server neu. Hilft das nicht:
+    <code>docker compose logs socket | tail -50</code> zeigt, was ankommt.</p>
   {% else %}
-  <p class="mcc-hint">Noch keine Daten. Der Serverzustand kommt ab Plugin-Version 3.2 (einmal pro Minute).</p>
+  <p class="mcc-hint">Noch keine Daten. Sobald der Server mit Plugin 3.2 oder neuer verbunden ist, erscheinen sie hier.</p>
   {% endif %}
 </section>
 

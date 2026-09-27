@@ -139,7 +139,7 @@ def test_health_on_moderation_page(mod, db, server):
 def test_health_offline_warning(mod, db, server):
     db.set_plugin_connected(server["id"], False)
     html = mod.get("/users", **on("testdomain")).get_data(as_text=True)
-    assert "nicht mit MCConnect verbunden" in html and "ab Plugin-Version 3.2" in html
+    assert "nicht mit MCConnect verbunden" in html and "Plugin 3.2 oder neuer" in html
 
 
 def test_old_health_samples_are_deleted(db, server):
@@ -148,3 +148,13 @@ def test_old_health_samples_are_deleted(db, server):
         cur.execute("UPDATE server_health SET at = now() - interval '8 days'")
     db.add_health_sample(server["id"], HEALTH)
     assert db._fetchvalue("SELECT count(*) FROM server_health") == 1
+
+
+def test_health_hint_when_plugin_sends_nothing(mod, db, server):
+    html = mod.get("/users", **on("testdomain")).get_data(as_text=True)
+    assert "schickt aber keinen Serverzustand" in html
+    db.add_health_sample(server["id"], HEALTH)
+    with db._cursor() as cur:
+        cur.execute("UPDATE server_health SET at = now() - interval '1 hour'")
+    html = mod.get("/users", **on("testdomain")).get_data(as_text=True)
+    assert "schickt aber keinen Serverzustand mehr (zuletzt" in html

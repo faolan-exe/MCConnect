@@ -882,6 +882,12 @@ a.pi-tile:hover { border-color: var(--srv-green); }
 .srv-lead a, .srv-page .mcc-hint a { color: var(--srv-green-dark); }
 
 /* ---------------------------------------------------------------- server health (moderation) */
+.hl-alert-soft { background: #fff8e1; color: #6b4e00; }
+.hl-alert code { font-family: var(--font-mono); font-size: 14px; }
+.ac-updated { animation: ac-flash 1.6s ease-out; }
+@keyframes ac-flash { from { background: #e7f8ee; } to { background: transparent; } }
+.fd-new { animation: ac-flash 1.6s ease-out; }
+@media (prefers-reduced-motion: reduce) { .ac-updated, .fd-new { animation: none; } }
 .hl-alert { margin: 0 0 16px; padding: 12px 14px; border-radius: 8px; background: #fdecec; color: #8f1f1f; }
 .hl-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .hl-item { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid var(--srv-border); border-radius: 10px; }

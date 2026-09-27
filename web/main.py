@@ -619,6 +619,36 @@ def player_card(player_name):
     return response
 
 
+@server_bp.route("/api/spieler/<path:player_name>/erfolge")
+def player_achievements_api(player_name):
+    """The rendered achievements of a player, for the live update of the player page."""
+    player_id = db().get_player_id_from_player_name_and_server_id(player_name, g.server["id"])
+    if player_id is None or (db().is_stats_hidden(player_id) and str(logged_in_player_id()) != str(player_id)):
+        abort(404)
+    extras = player_extras(str(player_id))
+    return {"count": extras["achievement_count"], "html": render_template("_achievements.html", extras=extras)}
+
+
+@server_bp.route("/api/meine-erfolge")
+def my_new_achievements_api():
+    """Tiers the logged in player reached after ?seit=<iso time> (for the toast on every page)."""
+    player_id = logged_in_player_id()
+    now = datetime.now(timezone.utc)
+    if not player_id:
+        return {"now": now.isoformat(), "new": []}
+    try:
+        since = datetime.fromisoformat(request.args.get("seit", ""))
+    except ValueError:
+        return {"now": now.isoformat(), "new": []}
+    new = []
+    for key, tier in db().get_new_achievements(player_id, since):
+        achievement = achievements_mod.ACHIEVEMENTS_BY_KEY.get(key)
+        if achievement:
+            new.append({"name": achievement.name, "tier": achievements_mod.TIERS[tier][1],
+                        "tier_key": achievements_mod.TIERS[tier][0], "description": achievement.description})
+    return {"now": now.isoformat(), "new": new}
+
+
 FEED_TEXTS = {
     "join": "ist online gekommen",
     "new": "ist neu auf dem Server – willkommen!",
@@ -736,8 +766,10 @@ def health_view(server_id):
     online = db().is_plugin_online(server_id)
     offline_since = None if online or not server.get("plugin_last_seen") else \
         server["plugin_last_seen"].strftime("%d.%m.%Y, %H:%M Uhr")
-    if latest is None:
-        return {"online": online, "offline_since": offline_since, "latest": None}
+    if latest is None or latest["at"] < datetime.now(timezone.utc) - timedelta(minutes=10):
+        # connected but no (recent) sample: the plugin is older than 3.2 or the socket server is outdated
+        return {"online": online, "offline_since": offline_since, "latest": None, "stale": latest is not None,
+                "last_sample": latest["at"].strftime("%d.%m.%Y, %H:%M Uhr") if latest else None}
     tps = latest["tps"]
     status = (None if tps is None else "good" if tps >= TPS_GOOD else "warning" if tps >= TPS_WARNING else "critical")
     history = db().get_health_history(server_id, 24, 10)

@@ -60,6 +60,7 @@ public final class MCDataLink extends JavaPlugin {
     private volatile boolean missingStatsLogged;
     private PrefixDisplay prefixDisplay;
     private BanSync banSync;
+    private HealthReporter healthReporter;
 
     @Override
     public void onEnable() {
@@ -76,7 +77,9 @@ public final class MCDataLink extends JavaPlugin {
                 getConfig().getBoolean("prefix.tablist", true), getConfig().getBoolean("prefix.nametag", true));
         banSync = new BanSync(this);
         getServer().getScheduler().runTaskTimer(this, this::sendBanList, BAN_SYNC_INTERVAL_TICKS, BAN_SYNC_INTERVAL_TICKS);
-        new HealthReporter(this).start();
+        healthReporter = new HealthReporter(this);
+        healthReporter.start();
+        if (getConfig().getBoolean("live-stats", true)) new LiveStats(this).start();
 
         List<World> worlds = getServer().getWorlds();
         worldFolder = worlds.isEmpty() ? new File(getServer().getWorldContainer(), "world") : worlds.get(0).getWorldFolder();
@@ -172,6 +175,7 @@ public final class MCDataLink extends JavaPlugin {
                     getLogger().info("Connected to MCConnect");
                     sendOnlinePlayers();
                     runOnMainThread(this::sendBanList);
+                    runOnMainThread(healthReporter::report);  // first health sample right away
                     break;
                 case "001":
                 case "002":
@@ -305,6 +309,11 @@ public final class MCDataLink extends JavaPlugin {
 
     void playerJoined(Player player) {
         sendAsync("!JOIN~" + player.getUniqueId() + "|" + player.getName() + "|" + (player.isOp() ? "1" : "0"));
+    }
+
+    /** Main thread: current stats of an online player (see LiveStats). */
+    void sendLiveStats(UUID uuid, String json) {
+        if (authenticated) sendAsync("!STATS~" + uuid + "|" + json);
     }
 
     /** Main thread: health sample as JSON (see HealthReporter). */

@@ -449,6 +449,7 @@ class SocketServer:
                 self.db.sync_ingame_bans(client.server_id, entries)
                 client.send("success|103")
             else:
+                logger.warning(f"{client.addr} unknown command {command!r}")
                 client.send("error|004")
         except ValueError as e:  # bad uuid or json
             logger.warning(f"{client.addr} invalid request {data[:200]!r}: {e}")

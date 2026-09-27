@@ -185,3 +185,58 @@
       });
   }
 </script>
+
+{% if name %}
+<div class="mcc-toasts" id="mcc-toasts" aria-live="polite"></div>
+<style>
+  .mcc-toasts { position: fixed; right: 16px; bottom: 16px; z-index: 100; display: flex; flex-direction: column; gap: 8px;
+                max-width: calc(100vw - 32px); }
+  .mcc-toast { display: flex; gap: 12px; align-items: center; padding: 12px 16px; border-radius: 12px; background: #0f1512;
+               color: #fff; box-shadow: 0 10px 30px rgba(15, 21, 18, 0.35); border-left: 4px solid var(--toast, #2fbf62);
+               font-family: var(--font-body, sans-serif); font-size: 15px; line-height: 1.4; cursor: pointer; }
+  .mcc-toast b { font-family: var(--font-display, sans-serif); display: block; font-size: 16px; }
+  .mcc-toast span { color: rgba(255, 255, 255, 0.75); }
+  .mcc-toast i { font-style: normal; font-size: 22px; color: var(--toast, #2fbf62); }
+</style>
+<script>
+  // New achievement tiers of the logged in player show up as a notice on every page.
+  (() => {
+    const KEY = "mcc-achievements-seen";
+    const COLORS = { bronze: "#b0703c", silver: "#8d969b", gold: "#c9a227", diamond: "#2bb3b1" };
+    const box = document.getElementById("mcc-toasts");
+    let since = null;
+    try { since = localStorage.getItem(KEY); } catch (e) {}
+
+    function toast(a) {
+      const item = document.createElement("div");
+      item.className = "mcc-toast";
+      item.style.setProperty("--toast", COLORS[a.tier_key]);
+      const icon = document.createElement("i");
+      icon.textContent = "★";
+      const text = document.createElement("div");
+      const title = document.createElement("b");
+      title.textContent = `Neuer Erfolg: ${a.name} (${a.tier})`;
+      const detail = document.createElement("span");
+      detail.textContent = a.description;
+      text.append(title, detail);
+      item.append(icon, text);
+      item.addEventListener("click", () => item.remove());
+      box.append(item);
+      setTimeout(() => item.remove(), 12000);
+    }
+
+    async function check() {
+      if (document.hidden) return;
+      const url = "/api/meine-erfolge" + (since ? "?seit=" + encodeURIComponent(since) : "");
+      const response = await fetch(url);
+      if (!response.ok) return;
+      const data = await response.json();
+      if (since) data.new.forEach(toast);
+      since = data.now;
+      try { localStorage.setItem(KEY, since); } catch (e) {}
+    }
+    check();
+    setInterval(check, 15000);
+  })();
+</script>
+{% endif %}
