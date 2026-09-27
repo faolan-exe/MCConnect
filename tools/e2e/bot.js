@@ -7,13 +7,14 @@ process.on("uncaughtException", (e) => console.log(`[${name}] (bot parser error:
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 bot.on("messagestr", (message) => console.log(`[${name}] CHAT: ${message}`));
 if (process.env.RAW) {
-  for (const packet of ["scoreboard_objective", "scoreboard_score", "scoreboard_display_objective"]) {
+  for (const packet of ["scoreboard_objective", "scoreboard_score", "scoreboard_display_objective", "teams"]) {
     bot._client.on(packet, (data) => console.log(`[${name}] RAW ${packet}: ${JSON.stringify(data).slice(0, 160)}`));
   }
 }
 bot.on("kicked", (reason) => console.log(`[${name}] KICKED: ${JSON.stringify(reason)}`));
 bot.on("error", (e) => console.log(`[${name}] ERROR: ${e.message}`));
 bot.once("spawn", async () => {
+  bot.physicsEnabled = false;  // the bot only chats; its movement got it kicked for "invalid movement"
   await sleep(3000);
   for (const command of commands) {
     if (command.startsWith("wait:")) { await sleep(Number(command.slice(5))); continue; }

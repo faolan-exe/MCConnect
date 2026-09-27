@@ -80,8 +80,8 @@ Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all
 - Phases 5-9 were built in one go without feedback rounds; screenshots were checked, the owner's visual feedback is
   still missing. The plugin features were tested end to end on Paper 1.21.4 with bots (`tools/e2e/`): commands,
   duels, reports, sidebar, mutes, warnings, bans with kick message, `/pardon`, whitelist codes and the kick link.
-  Not tested in the game: the TLS connection (needs a trusted certificate; the server side has tests) and the
-  prefix name tags inside a sidebar scoreboard.
+  Prefix name tags stay visible with the sidebar on. Not tested in the game: the TLS connection (needs a trusted
+  certificate; the server side has tests).
 - Invite codes can only be redeemed on the website: a player who is not on the whitelist cannot join, so there is
   no way to type a code in the game.
 - The year in review only knows gains since the snapshots started (schema 7); 2026 starts at the first snapshot.
