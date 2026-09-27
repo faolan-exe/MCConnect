@@ -72,16 +72,11 @@ Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all
 
 ### Open
 
-- **Server health on production not visible yet** (moderation page `/users`): the owner is OP but not a
-  moderator on the server yet (enable "OPs automatisch zu Moderatoren" or add the name in the admin area).
-  If it still shows nothing with plugin 3.3: check `docker compose logs socket` for `!HEALTH`.
-- Plugins 3.1–3.3 are only compiled, not tested on a real Minecraft server (broadcasts, health, live stats).
-- Offered, not decided: show the server health in the admin area on the main domain as well.
+- Offered, not decided: show the server health in the admin area on the main domain as well. --> my decision, to do it
 - Privacy policy (`web/templates/legal_datenschutz.html`): the stat card makes the server fetch heads
   from mc-heads.net (only the UUID is sent); not mentioned yet.
 - Older open points: `/pardon` in game does not lift a website ban; `database/manage.py seed` is dev only;
   the plugin connection (port 9991) is not encrypted.
-- Ideas not picked (yet): Discord webhook, stats export (JSON/CSV), announcements from the website.
 
 ### Continuing in a new session
 
