@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from tests.conftest import OTHER_UUID, PLAYER_UUID
+from tests.conftest import OTHER_UUID, PLAYER_UUID, wait_for
 from tests.test_ingame import cmd, tells, until
 from tests.test_metrics import two_players  # noqa: F401 (fixture)
 from tests.test_socket import plugin, socket_server  # noqa: F401 (fixtures)
@@ -204,13 +204,14 @@ def test_bans_made_while_offline_are_sent_on_connect(db, server, plugin, two_pla
     connection = plugin()
     connection.send(f"!AUTH~{server['key']}")
     assert until(connection, "!ban~")[-1].startswith(f"!ban~{OTHER_UUID}|Notch|")
-    assert db.get_undelivered_web_bans(server["id"]) == []
+    wait_for(lambda: db.get_undelivered_web_bans(server["id"]) == [])  # marked right after sending
 
 
 def test_pardon_in_game_lifts_the_website_ban(db, server, plugin, two_players):
-    connection = plugin().auth(server["key"])
     db.ban_player(server["id"], "Notch", "Admin tobi", days=3)
-    db.mark_ban_delivered(server["id"], OTHER_UUID)
+    connection = plugin()
+    connection.send(f"!AUTH~{server['key']}")
+    until(connection, "!ban~")  # delivered on connect
     notch = db.get_player_id_from_mojang_uuid_and_server_id(OTHER_UUID, server["id"])
     assert connection.request('!WEBBANS~[]') == "success|105"
     assert db.get_ban_reason_from_player_id(notch)  # just delivered: the plugin may not have applied it yet

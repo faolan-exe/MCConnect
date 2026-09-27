@@ -156,6 +156,30 @@ docker compose exec web python -m database.manage create-admin tobi tobi@tobisit
 Test des Logins: Auf der Serverseite *Login* klicken und den Spielernamen eingeben, während du
 online bist. Die PIN erscheint im Minecraft-Chat.
 
+### Verschlüsselte Plugin-Verbindung (optional)
+
+Ohne Zertifikat läuft die Verbindung Plugin → MCConnect unverschlüsselt über Port 9991. Mit einem
+Zertifikat für `mc.tobisit.de` bietet der Socket-Server zusätzlich **Port 9992 mit TLS** an; Plugins ab
+Version 3.8 nutzen ihn mit `tls: true` (die Verwaltungsseite zeigt dann automatisch diese Konfiguration).
+Ältere Plugins verbinden sich weiter über 9991.
+
+1. Router: **9992/TCP** ebenfalls auf den MCConnect-LXC weiterleiten.
+2. Zertifikat nach `/opt/mcconnect/deploy/tls/` legen: `fullchain.pem` und `privkey.pem`. Am einfachsten das
+   Wildcard-Zertifikat des NPM verwenden. Es liegt im NPM unter `/etc/letsencrypt/live/npm-<nr>/`
+   (Nummer: im NPM unter *SSL Certificates* per Maus über dem Zertifikat). Per Cronjob auf dem NPM-Host
+   täglich kopieren, z.&nbsp;B.:
+   ```bash
+   scp -L /pfad/zum/npm/letsencrypt/live/npm-3/{fullchain,privkey}.pem root@192.168.1.50:/opt/mcconnect/deploy/tls/
+   ```
+   Der Socket-Server lädt ein erneuertes Zertifikat bei der nächsten Verbindung selbst neu.
+3. In `.env` einkommentieren:
+   ```
+   MCC_SOCKET_TLS_CERT=/tls/fullchain.pem
+   MCC_SOCKET_TLS_KEY=/tls/privkey.pem
+   ```
+   und `docker compose up -d` ausführen. Im Log des Socket-Containers steht dann
+   `Socket server listening with TLS on 0.0.0.0:9992`.
+
 ## 8. Updates
 
 ```bash
@@ -219,8 +243,8 @@ docker compose --profile traefik up -d --build
 
 ## Bekannte Einschränkungen
 
-- Die Verbindung Plugin → Server auf Port 9991 ist **nicht verschlüsselt**; der Server-Key wird im
-  Klartext übertragen. Wenn jemand den Key abgreift, kann er falsche Statistiken für den Server senden.
-  In dem Fall auf der Verwaltungsseite einen neuen Key erzeugen. TLS für den Socket ist geplant.
-- Spielerstatistiken werden beim Autosave der Welt (standardmäßig alle 5 Minuten) und beim
-  Verlassen des Servers aktualisiert.
+- Ohne Zertifikat (siehe „Verschlüsselte Plugin-Verbindung“) ist die Verbindung Plugin → Server auf Port 9991
+  **nicht verschlüsselt**; der Server-Key wird dann im Klartext übertragen. Wenn jemand den Key abgreift, kann er
+  falsche Statistiken für den Server senden. In dem Fall auf der Verwaltungsseite einen neuen Key erzeugen.
+- Die Statistiken von Spielern, die online sind, kommen ab Plugin 3.3 jede Minute, sonst beim Autosave der Welt
+  (standardmäßig alle 5 Minuten) und beim Verlassen des Servers.

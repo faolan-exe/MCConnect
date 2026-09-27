@@ -45,7 +45,7 @@ docker compose -f docker/db/docker-compose.yml -p mcconnect up -d   # local post
 
 ## Status and next steps
 
-State of 2026-09-27 (schema version 18, plugin 3.7). Written as a handoff for the next development
+State of 2026-09-27 (schema version 18, plugin 3.8). Written as a handoff for the next development
 session; `docs/HANDOFF_spielervergleich.md` is the older handoff for the rankings feature (data model,
 stat units, screenshot workflow) and still useful as background.
 
@@ -70,7 +70,7 @@ stat units, screenshot workflow) and still useful as background.
 | Community (phase 7) | `/events`, `/umfragen`, `/galerie`, player page | event calendar with sign up and chat reminder (`events`, `event_signups`, `/events` in game), polls (`polls`, `poll_votes`, `/vote`, result in chat), build gallery with approval and likes (`builds`, `build_likes`, uploads like the server images), guestbook on the player page (`guestbook`, report/delete); created and moderated on `/users` (jump links at the top) |
 | Moderation & access (phase 8) | `/mitmachen`, `/regeln`, `/users`, `/manage` | whitelist access per server by application and/or invite code (`access_requests`, `invite_codes`; the plugin runs `whitelist add`, also after a reconnect; the kick message links to `/mitmachen`) – codes can only be entered on the website, a player who is not on the whitelist cannot run commands; warnings with automatic ban after X (`warnings`), mutes (chat and `/msg`), also `/verwarnen`, `/stumm`, `/entstummen` in the game; X-ray hints; e-mail alerts to the owner (offline > 5 min, TPS < 15, sent by the socket server); rules & FAQ page, link on the first join; server health on the admin page |
 | Reach & design (phase 9) | `/rueckblick/<name>`, main page, `web/static/css/dark.css` | year in review to click through and share (year gains from the first/last snapshot of the year – both are now kept forever, sessions, achievements, trophies, records); public server directory on the main domain (`servers.listed`, opt out on `/manage`); dark mode for all server pages incl. the old ones: `_theme.html` sets `<html data-dark>` from the system setting or the switch in the header (Auto/Dunkel/Hell, localStorage), `dark.css` redefines the `--srv-*` tokens and overrides the hard-coded colors |
-| Plugin | `java plugin/MCDataLink` | 3.1 `!broadcast` (chat), 3.2 `!HEALTH` every minute, 3.3 live stats of online players every minute (`live-stats` in config.yml), 3.4 in-game commands and sidebar (`InGameCommands`, `Sidebar`), 3.5 `/vote` and `/events`, 3.6 mutes, whitelist sync, join link, moderator commands (`Moderation`), 3.7 `!WEBBANS`: `/pardon` in the game lifts a website ban, website bans made while the plugin was offline are sent on the next connect (`banned_players.delivered_at`) |
+| Plugin | `java plugin/MCDataLink` | 3.1 `!broadcast` (chat), 3.2 `!HEALTH` every minute, 3.3 live stats of online players every minute (`live-stats` in config.yml), 3.4 in-game commands and sidebar (`InGameCommands`, `Sidebar`), 3.5 `/vote` and `/events`, 3.6 mutes, whitelist sync, join link, moderator commands (`Moderation`), 3.7 `!WEBBANS`: `/pardon` in the game lifts a website ban, website bans made while the plugin was offline are sent on the next connect (`banned_players.delivered_at`), 3.8 optional TLS (`tls: true`, port 9992 when the socket server has `MCC_SOCKET_TLS_CERT/KEY`) |
 
 Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all of the above in
 `web/static/css/stats.css`.
@@ -84,8 +84,8 @@ Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all
   no way to type a code in the game.
 - The year in review only knows gains since the snapshots started (schema 7); 2026 starts at the first snapshot.
 - New CSS should use the `--srv-*` / `--st-*` tokens (or get a rule in `dark.css`), otherwise it stays light in dark mode.
-- Older open points: `database/manage.py seed` is dev only;
-  the plugin connection (port 9991) is not encrypted.
+- `database/manage.py seed` is dev only. The plugin connection is only encrypted when a certificate is
+  configured (port 9992, see deploy/README.md); otherwise port 9991 stays plain TCP.
 
 ### Built on 2026-09-27 (phases 5-9, all done – feedback from the owner still open)
 

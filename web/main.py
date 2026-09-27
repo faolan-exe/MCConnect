@@ -2369,6 +2369,7 @@ def manage_server():
                            ban_reasons=db().get_ban_reasons(),
                            base_domain=current_app.config["SERVER_NAME"],
                            plugin_host=config.PLUGIN_PUBLIC_HOST, plugin_port=config.PLUGIN_PUBLIC_PORT,
+                           plugin_tls_port=config.PLUGIN_PUBLIC_TLS_PORT,
                            plugin_available=plugin_jar_path() is not None)
 
 

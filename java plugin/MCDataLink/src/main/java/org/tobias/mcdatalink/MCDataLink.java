@@ -14,6 +14,9 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import javax.net.ssl.SSLParameters;
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLSocketFactory;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -55,6 +58,7 @@ public final class MCDataLink extends JavaPlugin {
     private String key;
     private String host;
     private int port;
+    private boolean tls;
     private File worldFolder;
     /** Found lazily: the folder only exists once the game has saved stats. */
     private volatile File statsDir;
@@ -72,6 +76,7 @@ public final class MCDataLink extends JavaPlugin {
         key = getConfig().getString("key", "").trim();
         host = getConfig().getString("host", "mc.tobisit.de").trim();
         port = getConfig().getInt("port", 9991);
+        tls = getConfig().getBoolean("tls", false);
         if (key.isEmpty() || key.contains("<")) {
             getLogger().severe("No server key configured. Enter your key in plugins/MCDataLink/config.yml and restart.");
             getServer().getPluginManager().disablePlugin(this);
@@ -114,7 +119,7 @@ public final class MCDataLink extends JavaPlugin {
         connectionThread.start();
 
         getServer().getPluginManager().registerEvents(new JoinListener(this), this);
-        getLogger().info("MCDataLink enabled, connecting to " + host + ":" + port);
+        getLogger().info("MCDataLink enabled, connecting to " + host + ":" + port + (tls ? " (TLS)" : ""));
     }
 
     @Override
@@ -166,6 +171,16 @@ public final class MCDataLink extends JavaPlugin {
     private void connectAndServe() throws IOException, AuthenticationException {
         Socket s = new Socket();
         s.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
+        if (tls) {
+            // encrypted connection; the certificate must be valid for the host name (checked like HTTPS)
+            SSLSocket secure = (SSLSocket) ((SSLSocketFactory) SSLSocketFactory.getDefault()).createSocket(s, host, port, true);
+            SSLParameters parameters = secure.getSSLParameters();
+            parameters.setEndpointIdentificationAlgorithm("HTTPS");
+            secure.setSSLParameters(parameters);
+            secure.setSoTimeout(CONNECT_TIMEOUT_MS);
+            secure.startHandshake();
+            s = secure;
+        }
         s.setSoTimeout(READ_TIMEOUT_MS);
         s.setKeepAlive(true);
         InputStream in = new BufferedInputStream(s.getInputStream());

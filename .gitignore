@@ -24,3 +24,6 @@ __pycache__/
 deploy/backups/
 uploads/
 docs/
+
+# TLS certificate and private key of the socket server
+deploy/tls/
