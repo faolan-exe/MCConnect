@@ -1,0 +1,22 @@
+{% extends "server_base.html" %}
+{% block title %}Regeln · {{ server_name }}{% endblock %}
+{% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block content %}
+<h1>Regeln{% if faq %} &amp; FAQ{% endif %}</h1>
+{% if rules %}
+<section class="srv-card rl-text">
+  {% for paragraph in rules.split("\n\n") %}<p>{{ paragraph }}</p>{% endfor %}
+</section>
+{% endif %}
+{% if faq %}
+<section class="st-group">
+  <h2>Häufige Fragen</h2>
+  <div class="rl-faq">
+    {% for question, answer in faq %}
+    <details class="srv-card"{% if loop.first %} open{% endif %}><summary><b>{{ question }}</b></summary><p>{{ answer }}</p></details>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% if access_open %}<p class="st-hint">Noch nicht auf der Whitelist? <a href="/mitmachen">Hier geht's zum Mitmachen.</a></p>{% endif %}
+{% endblock %}

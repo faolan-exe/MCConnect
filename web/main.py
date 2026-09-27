@@ -124,6 +124,7 @@ def inject_server_context():
         if db().is_moderator(player_id):  # includes OPs when the server allows it
             permission_level = min(permission_level or 99, MODERATOR_LEVEL)
     server = g.server
+    settings = db().get_server_settings(server["id"])
     # loginVar is only rendered while logged out (name == "").
     return dict(loginVar="<a href=\"/login\" id=loginLink>Login</a>",
                 prefix_colors=PREFIX_COLORS,
@@ -136,6 +137,7 @@ def inject_server_context():
                 license_type=server["license_type"],
                 mc_server_domain=server["mc_server_domain"],
                 whitelist=server["whitelist"],
+                rules_enabled=settings["rules_enabled"], access_open=settings["access_mode"] != "off",
                 server_name=server["server_name"])
 
 
@@ -227,6 +229,10 @@ def player_overview_route():
                    for e in db().get_guestbook(player_id)],
         builds=[build_view(b) for b in db().list_builds(g.server["id"], player_id=player_id, limit=6)],
         guestbook_max=GUESTBOOK_MAX_LENGTH,
+        warnings=[dict(w, when=w["created_at"].strftime("%d.%m.%Y, %H:%M")) for w in db().get_warnings(player_id)]
+        if viewer and db().is_moderator(viewer) else None,
+        muted_until=info["muted_until"].strftime("%d.%m. %H:%M") if info.get("muted_until") and
+        info["muted_until"] > datetime.now(timezone.utc) else None,
         banned=bool(banned), startdate=startdate, enddate=enddate,
         armor_stats=json.dumps(db().get_all_armor_stats(player_id)),
         tool_stats=json.dumps(db().get_all_tools_stats(player_id)),
@@ -799,6 +805,103 @@ def report_page():
                            reason_max=REPORT_REASON_MAX)
 
 
+################################ ACCESS, RULES #################################
+
+MC_NAME_RE = re.compile(r"^[A-Za-z0-9_]{3,16}$")
+APPLICATION_MAX_LENGTH = 500
+# Invite code attempts per client address and 10 minutes (against guessing).
+CODE_ATTEMPTS = 10
+_code_attempts = {}
+
+
+def code_attempt_allowed():
+    now = time.monotonic()
+    key = request.remote_addr or "?"
+    attempts = [t for t in _code_attempts.get(key, []) if now - t < 600]
+    if len(attempts) >= CODE_ATTEMPTS:
+        _code_attempts[key] = attempts
+        return False
+    _code_attempts[key] = attempts + [now]
+    if len(_code_attempts) > 10_000:  # forget old clients
+        _code_attempts.clear()
+    return True
+
+
+@server_bp.route("/mitmachen")
+def access_page():
+    settings = db().get_server_settings(g.server["id"])
+    if settings["access_mode"] == "off":
+        abort(404)
+    return render_template("mitmachen.html", mode=settings["access_mode"], message_max=APPLICATION_MAX_LENGTH)
+
+
+@server_bp.route("/api/access/apply", methods=["POST"])
+def access_apply_api():
+    if not request.is_json:
+        return {"error": "json required"}, 415
+    if db().get_server_settings(g.server["id"])["access_mode"] not in ("application", "both"):
+        abort(404)
+    data = request.get_json(silent=True) or {}
+    name = str(data.get("name") or "").strip()
+    message = " ".join(str(data.get("message") or "").split())
+    if not MC_NAME_RE.match(name):
+        return {"error": "Bitte deinen Minecraft-Namen angeben (3-16 Zeichen, Buchstaben, Zahlen und _)."}, 400
+    if not 10 <= len(message) <= APPLICATION_MAX_LENGTH:
+        return {"error": f"Erzähl kurz etwas über dich (10-{APPLICATION_MAX_LENGTH} Zeichen)."}, 400
+    request_id, error = db().add_application(g.server["id"], name, message)
+    if error == "pending":
+        return {"error": "Für diesen Namen gibt es schon eine offene Bewerbung."}, 409
+    if error == "accepted":
+        return {"error": "Dieser Name ist schon freigeschaltet."}, 409
+    if error == "full":
+        return {"error": "Gerade sind zu viele Bewerbungen offen. Versuche es später noch einmal."}, 429
+    moderators = db().get_online_moderator_uuids(g.server["id"])
+    if moderators:
+        db().notify_server_event(g.server["id"], "tell", uuids=moderators,
+                                 text=f"&7[Bewerbung] &f{name} &7möchte mitspielen – siehe Verwaltung.")
+    return ("", 200)
+
+
+@server_bp.route("/api/access/redeem", methods=["POST"])
+def access_redeem_api():
+    if not request.is_json:
+        return {"error": "json required"}, 415
+    if db().get_server_settings(g.server["id"])["access_mode"] not in ("code", "both"):
+        abort(404)
+    data = request.get_json(silent=True) or {}
+    name = str(data.get("name") or "").strip()
+    code = str(data.get("code") or "").strip()
+    if not MC_NAME_RE.match(name):
+        return {"error": "Bitte deinen Minecraft-Namen angeben (3-16 Zeichen, Buchstaben, Zahlen und _)."}, 400
+    if not code_attempt_allowed():
+        return {"error": "Zu viele Versuche. Warte ein paar Minuten."}, 429
+    result = db().redeem_invite_code(g.server["id"], name, code[:40])
+    if result == "invalid":
+        return {"error": "Dieser Code ist ungültig oder abgelaufen."}, 400
+    if result == "already":
+        return {"error": "Dieser Name ist schon freigeschaltet."}, 409
+    db().notify_server_event(g.server["id"], "whitelist")
+    return ("", 200)
+
+
+def faq_entries(text):
+    """"Question?\nAnswer ..." blocks separated by empty lines -> [(question, answer)]."""
+    entries = []
+    for block in re.split(r"\n\s*\n", (text or "").strip()):
+        lines = [line.strip() for line in block.strip().splitlines() if line.strip()]
+        if lines:
+            entries.append((lines[0], "\n".join(lines[1:])))
+    return entries
+
+
+@server_bp.route("/regeln")
+def rules_page():
+    settings = db().get_server_settings(g.server["id"])
+    if not settings["rules_enabled"]:
+        abort(404)
+    return render_template("regeln.html", rules=settings["rules"] or "", faq=faq_entries(settings["faq"]))
+
+
 ################################ COMMUNITY: events, polls, build gallery, guestbook #################################
 
 WEEKDAY_NAMES = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
@@ -1139,6 +1242,12 @@ def moderation_page():
                            goal_units={m.key: motivation.goal_unit(m) for m in metrics_mod.METRICS},
                            today=today, default_end=today + timedelta(days=6),
                            log=mod_log_view(g.server["id"]), health=health_view(g.server["id"]),
+                           settings=db().get_server_settings(g.server["id"]),
+                           access_requests=[dict(r, when=r["created_at"].strftime("%d.%m.%Y, %H:%M"))
+                                            for r in db().list_access_requests(g.server["id"], 60)],
+                           invite_codes=[dict(c, until=c["expires_at"].strftime("%d.%m.%Y") if c["expires_at"] else None)
+                                         for c in db().list_invite_codes(g.server["id"])],
+                           xray=xray_hints(g.server["id"]),
                            events=[event_view(e) for e in db().list_events(g.server["id"])],
                            polls=[poll_view(p) for p in db().list_polls(g.server["id"], limit=10)],
                            pending_builds=[build_view(b) for b in db().list_builds(g.server["id"], "pending")],
@@ -1161,7 +1270,36 @@ MOD_LOG_ACTIONS = {
     "poll_create": "Umfrage angelegt", "poll_delete": "Umfrage gelöscht",
     "build_approve": "Galeriebild freigegeben", "build_delete": "Galeriebild gelöscht",
     "guestbook_delete": "Gästebucheintrag gelöscht", "guestbook_keep": "Gästebucheintrag behalten",
+    "warn": "verwarnt", "warning_delete": "Verwarnung gelöscht", "mute": "stummgeschaltet", "unmute": "Stummschaltung aufgehoben",
+    "application_accept": "Bewerbung angenommen", "application_reject": "Bewerbung abgelehnt",
+    "code_create": "Einladungscode angelegt", "code_delete": "Einladungscode gelöscht", "settings": "Einstellungen geändert",
 }
+
+
+# X-ray hints: ore blocks per 1000 stone/deepslate/tuff (diamonds) and per 1000 netherrack (debris).
+# Normal mining gives roughly 1-3 diamond ore per 1000 blocks; players who mine mostly in caves can be
+# higher, so this is only a hint for moderators.
+XRAY_MIN_STONE, XRAY_MIN_DIAMONDS, XRAY_DIAMOND_RATE = 2000, 15, 6.0
+XRAY_MIN_NETHERRACK, XRAY_MIN_DEBRIS, XRAY_DEBRIS_RATE = 1000, 8, 8.0
+
+
+def xray_hints(server_id):
+    """Players with an unusually high ore rate, highest first: [{"name", "uuid", "diamond_rate", "debris_rate", ...}]."""
+    hints = []
+    for p in db().get_mining_ratios(server_id):
+        diamond_rate = p["diamonds"] * 1000 / p["stone"] if p["stone"] else 0
+        debris_rate = p["debris"] * 1000 / p["netherrack"] if p["netherrack"] else 0
+        flags = []
+        if p["stone"] >= XRAY_MIN_STONE and p["diamonds"] >= XRAY_MIN_DIAMONDS and diamond_rate >= XRAY_DIAMOND_RATE:
+            flags.append("diamonds")
+        if p["netherrack"] >= XRAY_MIN_NETHERRACK and p["debris"] >= XRAY_MIN_DEBRIS and debris_rate >= XRAY_DEBRIS_RATE:
+            flags.append("debris")
+        if flags:
+            hints.append(dict(p, flags=flags, diamond_rate=f"{diamond_rate:.1f}".replace(".", ","),
+                              debris_rate=f"{debris_rate:.1f}".replace(".", ","),
+                              score=max(diamond_rate / XRAY_DIAMOND_RATE, debris_rate / XRAY_DEBRIS_RATE),
+                              diamonds_per_hour=f"{p['diamonds'] / p['hours']:.1f}".replace(".", ",") if p["hours"] >= 1 else "–"))
+    return sorted(hints, key=lambda h: -h["score"])
 
 
 def mod_log_view(server_id, target_name=None, limit=100):
@@ -1612,6 +1750,164 @@ def mod_guestbook_keep_api():
     return ("", 200)
 
 
+ACCESS_MODES = ("off", "application", "code", "both")
+RULES_MAX_LENGTH = 10_000
+
+
+@server_bp.route("/api/mod/settings", methods=["POST"])
+@moderator_required
+def mod_settings_api():
+    data = request.get_json(silent=True) or {}
+    fields = {}
+    if "access_mode" in data:
+        if data["access_mode"] not in ACCESS_MODES:
+            return {"error": "Unbekannter Zugang."}, 400
+        fields["access_mode"] = data["access_mode"]
+    for key, low, high in (("warn_threshold", 0, 20), ("warn_ban_days", 0, 3650)):
+        if key in data:
+            try:
+                fields[key] = int(data[key])
+            except (TypeError, ValueError):
+                return {"error": "Ungültige Zahl."}, 400
+            if not low <= fields[key] <= high:
+                return {"error": f"Die Zahl muss zwischen {low} und {high} liegen."}, 400
+    if "rules_enabled" in data:
+        fields["rules_enabled"] = bool(data["rules_enabled"])
+    for key in ("rules", "faq"):
+        if key in data:
+            text = str(data[key] or "").replace("\r\n", "\n").strip()
+            if len(text) > RULES_MAX_LENGTH:
+                return {"error": f"Höchstens {RULES_MAX_LENGTH} Zeichen."}, 400
+            fields[key] = text or None
+    db().update_server_settings(g.server["id"], **fields)
+    db().add_mod_log(g.server["id"], mod_name(), "settings", None, ", ".join(sorted(fields)))
+    if "access_mode" in fields:
+        db().notify_server_event(g.server["id"], "joininfo")
+    return ("", 200)
+
+
+@server_bp.route("/api/mod/applications", methods=["POST"])
+@moderator_required
+def mod_application_api():
+    data = request.get_json(silent=True) or {}
+    try:
+        request_id = int(data.get("id"))
+    except (TypeError, ValueError):
+        return {"error": "Unbekannte Bewerbung."}, 400
+    accept = bool(data.get("accept"))
+    handled = db().handle_application(g.server["id"], request_id, accept, mod_name())
+    if handled is None:
+        return {"error": "Unbekannte Bewerbung."}, 404
+    db().add_mod_log(g.server["id"], mod_name(), "application_accept" if accept else "application_reject", handled["name"])
+    if accept:
+        db().notify_server_event(g.server["id"], "whitelist")
+    return ("", 200)
+
+
+@server_bp.route("/api/mod/codes", methods=["POST"])
+@moderator_required
+def mod_code_create_api():
+    data = request.get_json(silent=True) or {}
+    code = str(data.get("code") or "").strip().upper() or secrets.token_hex(4).upper()
+    if not re.match(r"^[A-Z0-9-]{4,24}$", code):
+        return {"error": "Der Code muss 4-24 Zeichen lang sein (Buchstaben, Zahlen, -)."}, 400
+    try:
+        max_uses = int(data["max_uses"]) if data.get("max_uses") not in (None, "") else None
+        days = int(data["days"]) if data.get("days") not in (None, "") else None
+    except (TypeError, ValueError):
+        return {"error": "Ungültige Zahl."}, 400
+    if max_uses is not None and not 1 <= max_uses <= 1000 or days is not None and not 1 <= days <= 365:
+        return {"error": "Nutzungen 1-1000, Gültigkeit 1-365 Tage."}, 400
+    expires = datetime.now(timezone.utc) + timedelta(days=days) if days else None
+    if db().create_invite_code(g.server["id"], code, max_uses, expires, mod_name()) is None:
+        return {"error": "Diesen Code gibt es schon."}, 409
+    db().add_mod_log(g.server["id"], mod_name(), "code_create", None, code)
+    return {"code": code}, 200
+
+
+@server_bp.route("/api/mod/codes/delete", methods=["POST"])
+@moderator_required
+def mod_code_delete_api():
+    try:
+        code = db().delete_invite_code(g.server["id"], json_id("Unbekannter Code."))
+    except ValueError as e:
+        return {"error": str(e)}, 400
+    if code is None:
+        return {"error": "Unbekannter Code."}, 404
+    db().add_mod_log(g.server["id"], mod_name(), "code_delete", None, code)
+    return ("", 200)
+
+
+def web_tell(server_id):
+    return lambda uuid, text: db().notify_server_event(server_id, "tell", uuids=[uuid], text=text)
+
+
+def web_ban(server_id):
+    def ban(result):
+        end_ms = int(result["end"].timestamp() * 1000) if result["end"] else 0
+        db().notify_server_event(server_id, "ban", uuid=result["uuid"], name=result["name"], reason=result["reason"],
+                                 end_ms=end_ms)
+    return ban
+
+
+def web_mute(server_id):
+    return lambda uuid, until, reason: db().notify_server_event(
+        server_id, "mute", uuid=uuid, until_ms=int(until.timestamp() * 1000) if until else 0, reason=reason)
+
+
+@server_bp.route("/api/mod/warn", methods=["POST"])
+@moderator_required
+def mod_warn_api():
+    from mc_socket import commands as game_commands
+    data = request.get_json(silent=True) or {}
+    reason = " ".join(str(data.get("reason") or "").split())[:game_commands.WARN_REASON_MAX]
+    player_id = db().get_player_id_from_player_name_and_server_id(str(data.get("name") or ""), g.server["id"])
+    if player_id is None:
+        return {"error": "Unbekannter Spieler."}, 404
+    if len(reason) < 3:
+        return {"error": "Bitte einen Grund angeben."}, 400
+    text = game_commands.apply_warning(db(), g.server["id"], player_id, reason, mod_name(),
+                                       web_tell(g.server["id"]), web_ban(g.server["id"]))
+    return {"message": text}, 200
+
+
+@server_bp.route("/api/mod/warnings/delete", methods=["POST"])
+@moderator_required
+def mod_warning_delete_api():
+    try:
+        deleted = db().delete_warning(g.server["id"], json_id("Unbekannte Verwarnung."))
+    except ValueError as e:
+        return {"error": str(e)}, 400
+    if deleted is None:
+        return {"error": "Unbekannte Verwarnung."}, 404
+    db().add_mod_log(g.server["id"], mod_name(), "warning_delete", deleted[0], deleted[1][:200])
+    return ("", 200)
+
+
+@server_bp.route("/api/mod/mute", methods=["POST"])
+@moderator_required
+def mod_mute_api():
+    from mc_socket import commands as game_commands
+    data = request.get_json(silent=True) or {}
+    player_id = db().get_player_id_from_player_name_and_server_id(str(data.get("name") or ""), g.server["id"])
+    if player_id is None:
+        return {"error": "Unbekannter Spieler."}, 404
+    try:
+        minutes = int(data.get("minutes") or 0)
+    except (TypeError, ValueError):
+        minutes = -1
+    if minutes == 0:
+        game_commands.unmute_player(db(), g.server["id"], player_id, mod_name(), web_mute(g.server["id"]),
+                                    web_tell(g.server["id"]))
+        return {"message": "Stummschaltung aufgehoben."}, 200
+    if not 1 <= minutes <= game_commands.MUTE_MAX_MINUTES:
+        return {"error": "Ungültige Dauer."}, 400
+    reason = " ".join(str(data.get("reason") or "").split())[:game_commands.WARN_REASON_MAX] or None
+    until = game_commands.mute_player(db(), g.server["id"], player_id, minutes, reason, mod_name(),
+                                      web_mute(g.server["id"]), web_tell(g.server["id"]))
+    return {"message": f"Stummgeschaltet {game_commands.mute_text(until)}."}, 200
+
+
 MAX_GOAL_DAYS = 365
 
 
@@ -1949,6 +2245,7 @@ def create_new_server():
 def manage_server():
     servers = db().get_servers_by_owner(session["admin_id"])
     for server in servers:
+        server["health"] = admin_health(server)
         server["images"] = db().get_server_images(server["id"])
         server["players"] = db().get_players_overview_from_subdomain(server["subdomain"])
     return render_template("serverAdminManage.html",
@@ -1969,6 +2266,23 @@ def healthz():
 def stream_total_player_count():
     database = db()
     return sse_response(database.get_online_player_count_total)
+
+
+def admin_health(server):
+    """Short health summary for the admin page (None before the first sample)."""
+    latest = db().get_latest_health(server["id"])
+    if latest is None:
+        return None
+    stale = latest["at"] < datetime.now(timezone.utc) - timedelta(minutes=10)
+    tps = latest["tps"]
+    availability = db().get_health_availability(server["id"])
+    return {"stale": stale, "sampled": latest["at"].strftime("%d.%m.%Y, %H:%M Uhr"),
+            "tps": None if tps is None else f"{tps:.1f}".replace(".", ","),
+            "status": None if tps is None or stale else "good" if tps >= TPS_GOOD else "warning" if tps >= TPS_WARNING else "critical",
+            "memory": f"{latest['mem_used_mb']} / {latest['mem_max_mb']} MB" if latest["mem_used_mb"] is not None else "–",
+            "players": latest["players"], "version": latest["mc_version"],
+            "uptime": format_duration(latest["uptime_s"]) if latest["uptime_s"] is not None else "–",
+            "availability": None if availability is None else f"{availability * 100:.1f} %".replace(".", ",")}
 
 
 def plugin_jar_path():
@@ -2126,7 +2440,7 @@ def _validate_server_fields(data, current=None):
             return None, f"Feld '{key}' muss {min_len}-{max_len} Zeichen lang sein."
         optional = key in ("mc_server_domain", "discord_url")
         fields[key] = (value or None) if optional else value
-    for flag in ("whitelist", "auto_mod_ops"):
+    for flag in ("whitelist", "auto_mod_ops", "alerts_enabled"):
         if flag in data or current is None:
             fields[flag] = data.get(flag) in (True, "true", "on", "1", 1)
 

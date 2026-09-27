@@ -1192,7 +1192,14 @@ button.po-option:hover { border-color: var(--srv-green); }
 .gb-actions button { border: 0; background: none; color: var(--srv-muted); font: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; }
 .gb-actions button:disabled { cursor: default; text-decoration: none; }
 
-.md-nav { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 20px; }
+.xr-flag { color: #8f1f1f; font-weight: 700; }
+.rl-text p { margin: 0 0 12px; white-space: pre-line; }
+.rl-text p:last-child { margin-bottom: 0; }
+.rl-faq { display: grid; gap: 8px; }
+.rl-faq details { padding: 14px 18px; }
+.rl-faq summary { cursor: pointer; }
+.rl-faq p { margin: 10px 0 0; white-space: pre-line; }
+nav.md-nav { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 20px; padding: 0; background: none; }
 .md-nav a {
   padding: 4px 12px;
   border: 1px solid var(--srv-border);
@@ -1211,3 +1218,12 @@ button.po-option:hover { border-color: var(--srv-green); }
 .md-builds div { display: flex; flex-direction: column; gap: 4px; }
 .md-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 @media (max-width: 600px) { .md-builds li { flex-direction: column; } .gb-form { flex-direction: column; } }
+.wn-card { margin-top: 12px; }
+.wn-head { margin-bottom: 8px; }
+.wn-list { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 4px; font-size: 15px; }
+.wn-list span:first-child { color: var(--srv-muted); }
+.wn-card .nt-form { margin-top: 8px; }
+.nt-form input.mcc-input { flex: 1; }
+td.md-actions { display: table-cell; white-space: nowrap; }
+td.md-actions .mcc-btn { margin: 2px 0; }
+#access h3 { margin-top: 28px; }

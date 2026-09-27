@@ -10,6 +10,7 @@ from contextlib import contextmanager
 
 import argon2
 import psycopg2
+import psycopg2.errors
 import psycopg2.extensions
 from psycopg2.pool import ThreadedConnectionPool
 from colorlogx import get_logger
@@ -324,6 +325,54 @@ MIGRATIONS = {
              reported_at timestamptz)""",
         "CREATE INDEX guestbook_player_idx ON guestbook (player_id, created_at DESC)",
     ],
+    16: [
+        # whitelist access: by application, by invite code, both or off (the server's own whitelist only)
+        """ALTER TABLE servers ADD COLUMN access_mode text NOT NULL DEFAULT 'off'
+             CHECK (access_mode IN ('off', 'application', 'code', 'both'))""",
+        # warnings: a ban of warn_ban_days days after warn_threshold warnings (0 = never)
+        "ALTER TABLE servers ADD COLUMN warn_threshold smallint NOT NULL DEFAULT 3",
+        "ALTER TABLE servers ADD COLUMN warn_ban_days smallint NOT NULL DEFAULT 7",
+        # rules and FAQ page (optional), linked in the chat on the first join
+        "ALTER TABLE servers ADD COLUMN rules_enabled boolean NOT NULL DEFAULT false",
+        "ALTER TABLE servers ADD COLUMN rules text",
+        "ALTER TABLE servers ADD COLUMN faq text",
+        # e-mail to the owner when the server is offline or lags; *_at: when the last alert was sent
+        "ALTER TABLE servers ADD COLUMN alerts_enabled boolean NOT NULL DEFAULT true",
+        "ALTER TABLE servers ADD COLUMN alert_offline_at timestamptz",
+        "ALTER TABLE servers ADD COLUMN alert_tps_at timestamptz",
+        """CREATE TABLE access_requests(
+             id serial PRIMARY KEY,
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             name text NOT NULL,
+             message text,
+             kind text NOT NULL CHECK (kind IN ('application', 'code')),
+             status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected')),
+             created_at timestamptz NOT NULL DEFAULT now(),
+             handled_by text,
+             handled_at timestamptz,
+             synced boolean NOT NULL DEFAULT false)""",
+        "CREATE INDEX access_requests_server_idx ON access_requests (server_id, status, created_at DESC)",
+        """CREATE TABLE invite_codes(
+             id serial PRIMARY KEY,
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             code text NOT NULL,
+             max_uses integer CHECK (max_uses IS NULL OR max_uses > 0),
+             uses integer NOT NULL DEFAULT 0,
+             expires_at timestamptz,
+             created_by text,
+             created_at timestamptz NOT NULL DEFAULT now())""",
+        "CREATE UNIQUE INDEX invite_codes_code_idx ON invite_codes (server_id, upper(code))",
+        """CREATE TABLE warnings(
+             id serial PRIMARY KEY,
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             player_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             reason text NOT NULL,
+             created_by text,
+             created_at timestamptz NOT NULL DEFAULT now())""",
+        "CREATE INDEX warnings_player_idx ON warnings (player_id, created_at)",
+        "ALTER TABLE player_server_info ADD COLUMN muted_until timestamptz",
+        "ALTER TABLE player_server_info ADD COLUMN mute_reason text",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -345,6 +394,14 @@ MAX_PENDING_BUILDS = 3
 MAX_BUILDS_PER_DAY = 5
 # Guestbook entries a player may write per hour.
 MAX_GUESTBOOK_PER_HOUR = 10
+# Open applications per server (spam protection of the public form).
+MAX_PENDING_APPLICATIONS = 50
+# Alerts: the server counts as down after this time without plugin, as lagging after this many
+# minutes with a TPS below ALERT_TPS; at most one mail of a kind per ALERT_REPEAT_HOURS.
+ALERT_OFFLINE_MINUTES = 5
+ALERT_TPS = 15.0
+ALERT_TPS_MINUTES = 5
+ALERT_REPEAT_HOURS = 6
 # Health samples older than this are deleted.
 HEALTH_RETENTION_DAYS = 7
 # Snapshots older than this are deleted (the newest older one of each metric is kept as baseline).
@@ -766,8 +823,14 @@ class DatabaseManager:
 
     def register_player_join(self, server_id, mojang_uuid, name=None):
         """Mark the player online on the server, creating it if needed. Returns the player_id."""
+        return self.register_player_join_info(server_id, mojang_uuid, name)[0]
+
+    def register_player_join_info(self, server_id, mojang_uuid, name=None):
+        """Like register_player_join, returns (player_id, first join on this server)."""
         player_id = self.ensure_player_on_server(server_id, mojang_uuid, name)
         with self._cursor() as cur:
+            cur.execute("SELECT first_seen IS NULL FROM player_server_info WHERE player_id = %s", (player_id,))
+            first = cur.fetchone()[0]
             cur.execute("""UPDATE player_server_info
                            SET online = true, first_seen = COALESCE(first_seen, now()), last_seen = now()
                            WHERE player_id = %s""", (player_id,))
@@ -781,7 +844,7 @@ class DatabaseManager:
                             (player_id, SESSION_MERGE_SECONDS))
                 if cur.rowcount == 0:
                     cur.execute("INSERT INTO player_sessions (player_id) VALUES (%s)", (player_id,))
-        return player_id
+        return player_id, first
 
     def register_player_quit(self, server_id, mojang_uuid):
         """Mark the player offline. Returns False if the player is unknown on this server."""
@@ -1229,7 +1292,7 @@ class DatabaseManager:
 
     def update_server(self, server_id, owner_id, **fields):
         """Update editable server fields; only succeeds for the owner. Returns True if updated."""
-        allowed = {"server_name", "mc_server_domain", "discord_url", "whitelist", "auto_mod_ops",
+        allowed = {"server_name", "mc_server_domain", "discord_url", "whitelist", "auto_mod_ops", "alerts_enabled",
                    "server_description_short", "server_description_long"}
         fields = {k: v for k, v in fields.items() if k in allowed}
         if not fields:
@@ -1407,6 +1470,9 @@ class DatabaseManager:
     def get_today(self):
         """Today in the database time zone (config.TIMEZONE)."""
         return self._fetchvalue("SELECT current_date")
+
+    def get_now(self):
+        return self._fetchvalue("SELECT now()")
 
     _SERVER_SESSIONS = """SELECT ps.player_id, ps.started_at, COALESCE(ps.ended_at, now()) AS ended_at
                           FROM player_sessions ps JOIN player_server_info psi ON psi.player_id = ps.player_id
@@ -2584,6 +2650,215 @@ class DatabaseManager:
             return None
         self._execute("DELETE FROM guestbook WHERE id = %s", (entry_id,))
         return entry
+
+    ###----------------------------- Server settings (moderation) ------------------------------------###
+
+    _SETTINGS = ("access_mode", "warn_threshold", "warn_ban_days", "rules_enabled", "rules", "faq", "alerts_enabled")
+
+    def get_server_settings(self, server_id):
+        row = self._fetchone(f"SELECT {', '.join(self._SETTINGS)} FROM servers WHERE id = %s", (server_id,))
+        return dict(zip(self._SETTINGS, row)) if row else None
+
+    def update_server_settings(self, server_id, **fields):
+        fields = {k: v for k, v in fields.items() if k in self._SETTINGS}
+        if fields:
+            self._execute(f"UPDATE servers SET {', '.join(f'{k} = %s' for k in fields)} WHERE id = %s",
+                          (*fields.values(), server_id))
+
+    ###----------------------------- Whitelist access ------------------------------------###
+
+    _REQUEST_COLUMNS = "id, server_id, name, message, kind, status, created_at, handled_by, handled_at, synced"
+
+    def _request(self, row):
+        return dict(zip([c.strip() for c in self._REQUEST_COLUMNS.split(",")], row))
+
+    def add_application(self, server_id, name, message):
+        """
+        Store an application. Returns (id, None) or (None, error): "pending" (this name already has
+        an open application), "accepted" (already accepted) or "full" (too many open applications).
+        """
+        with self._cursor() as cur:
+            cur.execute("SELECT id FROM servers WHERE id = %s FOR UPDATE", (server_id,))
+            cur.execute("""SELECT status FROM access_requests WHERE server_id = %s AND lower(name) = lower(%s)
+                             AND status IN ('pending', 'accepted') ORDER BY created_at DESC LIMIT 1""", (server_id, name))
+            row = cur.fetchone()
+            if row:
+                return None, row[0]
+            cur.execute("SELECT count(*) FROM access_requests WHERE server_id = %s AND status = 'pending'", (server_id,))
+            if cur.fetchone()[0] >= MAX_PENDING_APPLICATIONS:
+                return None, "full"
+            cur.execute("""INSERT INTO access_requests (server_id, name, message, kind) VALUES (%s, %s, %s, 'application')
+                           RETURNING id""", (server_id, name, message))
+            return cur.fetchone()[0], None
+
+    def list_access_requests(self, server_id, limit=100):
+        """Open applications first, then the handled ones and code redemptions, newest first."""
+        return [self._request(row) for row in self._fetchall(f"""
+            SELECT {self._REQUEST_COLUMNS} FROM access_requests WHERE server_id = %s
+            ORDER BY status <> 'pending', created_at DESC LIMIT %s""", (server_id, limit))]
+
+    def handle_application(self, server_id, request_id, accept, handled_by):
+        """Accept or reject an open application. Returns the request or None."""
+        row = self._fetchone(f"""UPDATE access_requests SET status = %s, handled_by = %s, handled_at = now()
+                                 WHERE id = %s AND server_id = %s AND status = 'pending' AND kind = 'application'
+                                 RETURNING {self._REQUEST_COLUMNS}""",
+                             ("accepted" if accept else "rejected", handled_by, request_id, server_id))
+        return self._request(row) if row else None
+
+    def create_invite_code(self, server_id, code, max_uses=None, expires_at=None, created_by=None):
+        """Returns the id, or None if the code exists on the server already."""
+        try:
+            return self._fetchvalue("""INSERT INTO invite_codes (server_id, code, max_uses, expires_at, created_by)
+                                       VALUES (%s, %s, %s, %s, %s) RETURNING id""",
+                                    (server_id, code, max_uses, expires_at, created_by))
+        except psycopg2.errors.UniqueViolation:
+            return None
+
+    def list_invite_codes(self, server_id):
+        keys = ("id", "code", "max_uses", "uses", "expires_at", "created_by", "created_at", "valid")
+        return [dict(zip(keys, row)) for row in self._fetchall("""
+            SELECT id, code, max_uses, uses, expires_at, created_by, created_at,
+                   (max_uses IS NULL OR uses < max_uses) AND (expires_at IS NULL OR expires_at > now())
+            FROM invite_codes WHERE server_id = %s ORDER BY created_at DESC""", (server_id,))]
+
+    def delete_invite_code(self, server_id, code_id):
+        return self._fetchvalue("DELETE FROM invite_codes WHERE id = %s AND server_id = %s RETURNING code",
+                                (code_id, server_id))
+
+    def redeem_invite_code(self, server_id, name, code):
+        """Whitelist a name with an invite code. Returns "ok", "invalid" or "already"."""
+        with self._cursor() as cur:
+            cur.execute("""SELECT id FROM invite_codes WHERE server_id = %s AND upper(code) = upper(%s)
+                             AND (max_uses IS NULL OR uses < max_uses) AND (expires_at IS NULL OR expires_at > now())
+                           FOR UPDATE""", (server_id, code.strip()))
+            row = cur.fetchone()
+            if row is None:
+                return "invalid"
+            cur.execute("""SELECT 1 FROM access_requests WHERE server_id = %s AND lower(name) = lower(%s)
+                             AND status = 'accepted'""", (server_id, name))
+            if cur.fetchone():
+                return "already"
+            cur.execute("UPDATE invite_codes SET uses = uses + 1 WHERE id = %s", (row[0],))
+            cur.execute("""UPDATE access_requests SET status = 'rejected', handled_by = 'Einladungscode', handled_at = now()
+                           WHERE server_id = %s AND lower(name) = lower(%s) AND status = 'pending'""", (server_id, name))
+            cur.execute("""INSERT INTO access_requests (server_id, name, message, kind, status, handled_by, handled_at)
+                           VALUES (%s, %s, %s, 'code', 'accepted', 'Einladungscode', now())""",
+                        (server_id, name, f"Code {code.strip().upper()}"))
+        return "ok"
+
+    def get_unsynced_whitelist(self, server_id):
+        """Names accepted but not yet sent to the plugin."""
+        return [row[0] for row in self._fetchall("""SELECT name FROM access_requests
+                                                   WHERE server_id = %s AND status = 'accepted' AND NOT synced
+                                                   ORDER BY handled_at""", (server_id,))]
+
+    def mark_whitelist_synced(self, server_id, names):
+        self._execute("""UPDATE access_requests SET synced = true WHERE server_id = %s AND status = 'accepted'
+                           AND lower(name) = ANY(%s)""", (server_id, [n.lower() for n in names]))
+
+    ###----------------------------- Warnings and mutes ------------------------------------###
+
+    def warn_player(self, server_id, player_id, reason, created_by):
+        """
+        Store a warning. Returns {"count", "threshold", "ban"}: ban is the result of ban_player when
+        this warning reached the server's threshold, otherwise None.
+        """
+        settings = self.get_server_settings(server_id)
+        with self._cursor() as cur:
+            cur.execute("INSERT INTO warnings (server_id, player_id, reason, created_by) VALUES (%s, %s, %s, %s)",
+                        (server_id, player_id, reason, created_by))
+            cur.execute("SELECT count(*) FROM warnings WHERE player_id = %s", (player_id,))
+            count = cur.fetchone()[0]
+        threshold = settings["warn_threshold"]
+        ban = None
+        if threshold and count % threshold == 0:
+            ban = self.ban_player(server_id, self.get_player_name_from_player_id(player_id), created_by,
+                                  days=settings["warn_ban_days"], comment=f"automatisch nach {count} Verwarnungen: {reason}")
+        return {"count": count, "threshold": threshold, "ban": ban}
+
+    def get_warnings(self, player_id):
+        return [dict(zip(("id", "reason", "created_by", "created_at"), row)) for row in self._fetchall(
+            "SELECT id, reason, created_by, created_at FROM warnings WHERE player_id = %s ORDER BY created_at", (player_id,))]
+
+    def delete_warning(self, server_id, warning_id):
+        """Returns (player name, reason) or None."""
+        return self._fetchone("""DELETE FROM warnings w USING player_server_info psi, player p
+                                 WHERE w.id = %s AND w.server_id = %s AND psi.player_id = w.player_id
+                                   AND p.uuid = psi.mojang_uuid RETURNING p.name, w.reason""", (warning_id, server_id))
+
+    def set_mute(self, player_id, until, reason=None):
+        """until: datetime or None to unmute."""
+        self._execute("UPDATE player_server_info SET muted_until = %s, mute_reason = %s WHERE player_id = %s",
+                      (until, reason if until else None, player_id))
+
+    def get_mutes(self, server_id):
+        """{uuid: (until, reason)} of the players muted right now."""
+        return {str(uuid): (until, reason) for uuid, until, reason in self._fetchall(
+            """SELECT mojang_uuid, muted_until, mute_reason FROM player_server_info
+               WHERE server_id = %s AND muted_until > now()""", (server_id,))}
+
+    ###----------------------------- X-ray hints ------------------------------------###
+
+    def get_mining_ratios(self, server_id):
+        """[{"player_id", "name", "uuid", "stone", "diamonds", "netherrack", "debris", "hours"}] of all players (raw counts)."""
+        rows = self._fetchall("""
+            SELECT psi.player_id, p.name, psi.mojang_uuid,
+                   COALESCE(sum(a.value) FILTER (WHERE a.category = %s AND a.object = ANY(%s)), 0),
+                   COALESCE(sum(a.value) FILTER (WHERE a.category = %s AND a.object = ANY(%s)), 0),
+                   COALESCE(sum(a.value) FILTER (WHERE a.category = %s AND a.object = 'minecraft:netherrack'), 0),
+                   COALESCE(sum(a.value) FILTER (WHERE a.category = %s AND a.object = 'minecraft:ancient_debris'), 0),
+                   COALESCE(sum(a.value) FILTER (WHERE a.category = %s AND a.object = ANY(%s)), 0)
+            FROM player_server_info psi JOIN player p ON p.uuid = psi.mojang_uuid
+            LEFT JOIN actions a ON a.player_id = psi.player_id
+            WHERE psi.server_id = %s
+            GROUP BY psi.player_id, p.name, psi.mojang_uuid""",
+                              (stats_mod.BLOCK_MINED, ["minecraft:stone", "minecraft:deepslate", "minecraft:tuff"],
+                               stats_mod.BLOCK_MINED, ["minecraft:diamond_ore", "minecraft:deepslate_diamond_ore"],
+                               stats_mod.BLOCK_MINED, stats_mod.BLOCK_MINED,
+                               stats_mod.CUSTOM, ["minecraft:play_time", "minecraft:play_one_minute"], server_id))
+        keys = ("player_id", "name", "uuid", "stone", "diamonds", "netherrack", "debris", "ticks")
+        result = []
+        for row in rows:
+            entry = dict(zip(keys, row))
+            entry["player_id"], entry["uuid"] = str(entry["player_id"]), str(entry["uuid"])
+            for key in ("stone", "diamonds", "netherrack", "debris", "ticks"):
+                entry[key] = int(entry[key])
+            entry["hours"] = entry.pop("ticks") / 72000
+            result.append(entry)
+        return result
+
+    ###----------------------------- Alerts ------------------------------------###
+
+    def get_alert_candidates(self):
+        """
+        Servers with alerts on that need a mail: [{"server_id", "server_name", "subdomain", "email", "kind",
+        "since"}], kind "offline" (plugin gone for ALERT_OFFLINE_MINUTES) or "tps" (TPS below ALERT_TPS in
+        every sample of the last ALERT_TPS_MINUTES). Only servers that had a plugin before are checked.
+        """
+        rows = self._fetchall("""
+            SELECT s.id, s.server_name, s.subdomain, sa.email, 'offline', s.plugin_last_seen
+            FROM servers s JOIN server_admins sa ON sa.id = s.owner_id
+            WHERE s.alerts_enabled AND s.plugin_last_seen IS NOT NULL
+              AND (NOT s.plugin_connected OR s.plugin_last_seen < now() - make_interval(secs => %s))
+              AND s.plugin_last_seen < now() - %s * interval '1 minute'
+              AND s.plugin_last_seen > now() - interval '7 days'
+              AND (s.alert_offline_at IS NULL OR s.alert_offline_at < s.plugin_last_seen)
+            UNION ALL
+            SELECT s.id, s.server_name, s.subdomain, sa.email, 'tps', min(h.at)
+            FROM servers s JOIN server_admins sa ON sa.id = s.owner_id
+            JOIN server_health h ON h.server_id = s.id AND h.at > now() - %s * interval '1 minute'
+            WHERE s.alerts_enabled
+              AND (s.alert_tps_at IS NULL OR s.alert_tps_at < now() - %s * interval '1 hour')
+            GROUP BY s.id, s.server_name, s.subdomain, sa.email
+            HAVING count(*) >= %s AND max(h.tps) < %s""",
+                              (PLUGIN_ONLINE_SECONDS, ALERT_OFFLINE_MINUTES, ALERT_TPS_MINUTES, ALERT_REPEAT_HOURS,
+                               ALERT_TPS_MINUTES - 1, ALERT_TPS))
+        keys = ("server_id", "server_name", "subdomain", "email", "kind", "since")
+        return [dict(zip(keys, row)) for row in rows]
+
+    def mark_alert_sent(self, server_id, kind):
+        column = "alert_offline_at" if kind == "offline" else "alert_tps_at"
+        self._execute(f"UPDATE servers SET {column} = now() WHERE id = %s", (server_id,))
 
     ###----------------------------- Hall of fame ------------------------------------###
 

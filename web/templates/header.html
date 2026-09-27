@@ -106,6 +106,8 @@
                 <a href="/galerie">Baugalerie</a>
                 <a href="/duelle">Duelle</a>
                 <a href="/melden">Etwas melden</a>
+                {% if rules_enabled %}<a href="/regeln">Regeln</a>{% endif %}
+                {% if access_open %}<a href="/mitmachen">Mitmachen</a>{% endif %}
               </div>
             </div>
           </li>

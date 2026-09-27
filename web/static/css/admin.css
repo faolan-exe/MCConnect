@@ -222,3 +222,12 @@ summary { cursor: pointer; font-weight: 600; }
   .site-nav { margin-left: 0; width: 100%; flex-wrap: wrap; gap: 14px; }
   .hero h1 { font-size: 30px; }
 }
+
+/* server health on the manage page */
+.health-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 12px 0; }
+.health-grid div { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid #dfe3df; border-radius: 10px; }
+.health-grid span { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #5c6862; font-weight: 700; }
+.health-grid b { font-size: 18px; }
+.health-good { color: #1f8f47; }
+.health-warning { color: #9a6700; }
+.health-critical { color: #b3261e; }

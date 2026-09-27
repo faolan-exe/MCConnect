@@ -48,8 +48,10 @@ def page_url(db, server_id, path):
 class CommandContext:
     """One command of a player. tell(uuid, text) and broadcast(color, text) send to the game."""
 
-    def __init__(self, db, server_id, uuid, location, tell, broadcast, update_sidebar=None):
+    def __init__(self, db, server_id, uuid, location, tell, broadcast, update_sidebar=None, ban=None, mute=None):
         self.db = db
+        self.ban = ban or (lambda result: None)  # kick/ban in the game after ban_player
+        self.mute = mute or (lambda uuid, until, reason: None)
         self.server_id = server_id
         self.uuid = uuid
         self.location = location  # (world, x, y, z) or None
@@ -443,5 +445,99 @@ def event_announcement(kind, event):
     return "gold", f"★ Jetzt geht's los: »{clean(event['title'])}«!{place}"
 
 
+# ------------------------------------------------------------------ moderation: /verwarnen, /stumm, /entstummen
+
+MUTE_MAX_MINUTES = 7 * 24 * 60
+WARN_REASON_MAX = 200
+
+
+def apply_warning(db, server_id, player_id, reason, actor, tell, ban):
+    """
+    Warn a player: store it, tell the player and ban automatically at the threshold (ban(result of
+    ban_player) kicks the player). Returns the text for the moderator.
+    """
+    result = db.warn_player(server_id, player_id, reason, actor)
+    name = db.get_player_name_from_player_id(player_id)
+    uuid = str(db.get_mojang_uuid_from_player_id(player_id))
+    of = f" ({result['count']}/{result['threshold']})" if result["threshold"] else ""
+    db.add_mod_log(server_id, actor, "warn", name, reason)
+    tell(uuid, f"&c&lVerwarnung{of}: &f{clean(reason)}")
+    if result["ban"]:
+        ban(result["ban"])
+        db.add_mod_log(server_id, actor, "ban", name, f"automatisch nach {result['count']} Verwarnungen")
+        return f"{name} ist verwarnt{of} und für {db.get_server_settings(server_id)['warn_ban_days']} Tage gebannt."
+    return f"{name} ist verwarnt{of}."
+
+
+def mute_text(until):
+    return f"bis {until.strftime('%d.%m. %H:%M')} Uhr"
+
+
+def _moderator_target(ctx, args, usage):
+    if not ctx.db.is_moderator(ctx.player_id):
+        return None, ["&cDas dürfen nur Moderatoren."]
+    if len(args) < 1:
+        return None, [f"&7Benutzung: &f{usage}"]
+    target = ctx.db.get_player_id_from_player_name_and_server_id(args[0], ctx.server_id)
+    if target is None:
+        return None, [f"&c{clean(args[0])} hat noch nie auf dem Server gespielt."]
+    return target, None
+
+
+def cmd_warn(ctx, args):
+    target, error = _moderator_target(ctx, args, "/verwarnen <spieler> <grund>")
+    if error:
+        return error
+    reason = " ".join(args[1:])[:WARN_REASON_MAX]
+    if len(reason) < 3:
+        return ["&7Benutzung: &f/verwarnen <spieler> <grund>"]
+    text = apply_warning(ctx.db, ctx.server_id, target, reason, ctx.name, ctx.tell, ctx.ban)
+    return [f"&a{text}"]
+
+
+def cmd_mute(ctx, args):
+    target, error = _moderator_target(ctx, args, "/stumm <spieler> <minuten> [grund]")
+    if error:
+        return error
+    try:
+        minutes = int(args[1]) if len(args) > 1 else 0
+    except ValueError:
+        minutes = 0
+    if not 1 <= minutes <= MUTE_MAX_MINUTES:
+        return [f"&cDauer in Minuten angeben (1 bis {MUTE_MAX_MINUTES})."]
+    reason = " ".join(args[2:])[:WARN_REASON_MAX] or None
+    until = mute_player(ctx.db, ctx.server_id, target, minutes, reason, ctx.name, ctx.mute, ctx.tell)
+    return [f"&a{ctx.db.get_player_name_from_player_id(target)} ist stummgeschaltet {mute_text(until)}."]
+
+
+def cmd_unmute(ctx, args):
+    target, error = _moderator_target(ctx, args, "/entstummen <spieler>")
+    if error:
+        return error
+    unmute_player(ctx.db, ctx.server_id, target, ctx.name, ctx.mute, ctx.tell)
+    return [f"&a{ctx.db.get_player_name_from_player_id(target)} darf wieder schreiben."]
+
+
+def mute_player(db, server_id, player_id, minutes, reason, actor, mute, tell):
+    """Mute for `minutes` minutes; mute(uuid, until or None, reason) tells the plugin. Returns until."""
+    until = db.get_now() + timedelta(minutes=minutes)
+    db.set_mute(player_id, until, reason)
+    uuid = str(db.get_mojang_uuid_from_player_id(player_id))
+    mute(uuid, until, reason)
+    tell(uuid, f"&cDu bist stummgeschaltet {mute_text(until)}" + (f": &f{clean(reason)}" if reason else "."))
+    db.add_mod_log(server_id, actor, "mute", db.get_player_name_from_player_id(player_id),
+                   f"{minutes} Min." + (f" · {reason}" if reason else ""))
+    return until
+
+
+def unmute_player(db, server_id, player_id, actor, mute, tell):
+    db.set_mute(player_id, None)
+    uuid = str(db.get_mojang_uuid_from_player_id(player_id))
+    mute(uuid, None, None)
+    tell(uuid, "&aDu darfst wieder im Chat schreiben.")
+    db.add_mod_log(server_id, actor, "unmute", db.get_player_name_from_player_id(player_id))
+
+
 COMMANDS = {"stats": cmd_stats, "top": cmd_top, "wettbewerb": cmd_competition, "duell": cmd_duel,
-            "report": cmd_report, "seitenleiste": cmd_sidebar, "vote": cmd_vote, "events": cmd_events}
+            "report": cmd_report, "seitenleiste": cmd_sidebar, "vote": cmd_vote, "events": cmd_events,
+            "verwarnen": cmd_warn, "stumm": cmd_mute, "entstummen": cmd_unmute}

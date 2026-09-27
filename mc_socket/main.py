@@ -30,6 +30,9 @@ Server -> plugin:
     !tell~<uuid>|<text>          chat message to one player; "&" color codes (plugin 3.4)
     !sidebar~<uuid>|<title>|<line>|...   scoreboard sidebar of a player ("&" color codes); empty title hides it
     !metrics~<name>|<name>|...   metric names for the tab completion of /top and /duell (after auth)
+    !whitelist~add|<name>        put a player on the server's whitelist (accepted application or invite code)
+    !joininfo~<url>              where players who are not on the whitelist can apply (kick message; empty = none)
+    !mute~<uuid>|<until ms, 0 = unmuted>|<reason>   block the chat of a player (plugin 3.6)
     success|<code> / error|<code>
 
 Error codes:
@@ -55,6 +58,7 @@ import sys
 import threading
 import time
 import uuid as uuid_mod
+from datetime import datetime, timezone
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
@@ -164,8 +168,9 @@ class ClientConnection:
 class SocketServer:
     def __init__(self, db_manager, host=config.SOCKET_HOST, port=config.SOCKET_PORT,
                  heartbeat_interval=HEARTBEAT_SEND_INTERVAL, heartbeat_timeout=HEARTBEAT_TIMEOUT,
-                 poll_interval=1.0):
+                 poll_interval=1.0, mailer=None):
         self.db = db_manager
+        self.mailer = mailer  # SMTPMailer for the alerts to the server owners, or None
         self.host = host
         self.port = port
         self.heartbeat_interval = heartbeat_interval
@@ -279,6 +284,7 @@ class SocketServer:
 
     def periodic_checks(self):
         """Competitions, community goals and the player of the week on the connected servers (the others later)."""
+        self.send_alerts()
         with self._lock:
             connected = list(self.active_connections)
         if not connected:
@@ -299,6 +305,47 @@ class SocketServer:
             self.broadcast(duel["server_id"], *commands.duel_result(duel))
         for server_id, player_id, uuid, mode in self.db.get_sidebar_players(connected):
             self.send_sidebar(server_id, uuid, commands.sidebar(self.db, player_id, mode))
+
+    def send_alerts(self):
+        """E-mail the owners of servers that are offline or lag (see DatabaseManager.get_alert_candidates)."""
+        for alert in self.db.get_alert_candidates():
+            url = f"{config.PUBLIC_SCHEME}://{alert['subdomain']}.{config.BASE_DOMAIN}/users#health"
+            since = alert["since"].strftime("%d.%m.%Y, %H:%M Uhr")
+            if alert["kind"] == "offline":
+                subject = f"MCConnect: {alert['server_name']} ist nicht erreichbar"
+                text = (f"das Plugin von <b>{alert['server_name']}</b> ist seit {since} nicht mehr mit MCConnect verbunden. "
+                        "Läuft der Server noch?")
+            else:
+                subject = f"MCConnect: {alert['server_name']} laggt"
+                text = (f"<b>{alert['server_name']}</b> hat seit {since} weniger als {self.db_alert_tps()} TPS. "
+                        "Die Spieler merken das als Ruckeln.")
+            html = (f"<p>Hallo,</p><p>{text}</p><p>Serverzustand: <a href=\"{url}\">{url}</a></p>"
+                    "<p>Diese E-Mails kannst du auf der Verwaltungsseite von MCConnect abschalten.</p>")
+            if self.mailer:
+                self.mailer.send_email(alert["email"], subject, html)
+            else:
+                logger.warning(f"No SMTP configured, alert not sent: {subject}")
+            self.db.mark_alert_sent(alert["server_id"], alert["kind"])
+
+    @staticmethod
+    def db_alert_tps():
+        from database.databaseManagerV2 import ALERT_TPS
+        return int(ALERT_TPS)
+
+    # ------------------------------------------------------------------ whitelist, mutes
+    def sync_whitelist(self, server_id):
+        names = self.db.get_unsynced_whitelist(server_id)
+        sent = [name for name in names if self._send_to_server(server_id, f"!whitelist~add|{self._clean(name)}")]
+        if sent:
+            self.db.mark_whitelist_synced(server_id, sent)
+
+    def send_mute(self, server_id, mojang_uuid, until, reason):
+        until_ms = int(until.timestamp() * 1000) if until else 0
+        return self._send_to_server(server_id, f"!mute~{mojang_uuid}|{until_ms}|{self._clean(reason)}")
+
+    def send_ban(self, server_id, ban):
+        end_ms = int(ban["end"].timestamp() * 1000) if ban["end"] else 0
+        self._send_to_server(server_id, f"!ban~{ban['uuid']}|{self._clean(ban['name'])}|{end_ms}|{self._clean(ban['reason'])}")
 
     # ------------------------------------------------------------------ in-game commands
     def tell(self, server_id, mojang_uuid, text):
@@ -329,7 +376,9 @@ class SocketServer:
             self.db, server_id, uuid, location if parts[1] else None,
             tell=lambda to, text: self.tell(server_id, to, text),
             broadcast=lambda color, text: self.broadcast(server_id, color, text),
-            update_sidebar=lambda player_id: self.update_sidebar(server_id, player_id))
+            update_sidebar=lambda player_id: self.update_sidebar(server_id, player_id),
+            ban=lambda result: self.send_ban(server_id, result),
+            mute=lambda uuid, until, reason: self.send_mute(server_id, uuid, until, reason))
         for line in commands.handle(ctx, parts[5], parts[6] if len(parts) > 6 else ""):
             self.tell(server_id, uuid, line)
 
@@ -415,6 +464,13 @@ class SocketServer:
                 self.tell(server_id, mojang_uuid, str(event.get("text") or ""))
         elif kind == "sidebar":
             self.update_sidebar(server_id, event["player_id"])
+        elif kind == "whitelist":
+            self.sync_whitelist(server_id)
+        elif kind == "mute":
+            until = datetime.fromtimestamp(event["until_ms"] / 1000, timezone.utc) if event.get("until_ms") else None
+            self.send_mute(server_id, event["uuid"], until, event.get("reason"))
+        elif kind == "joininfo":
+            self.send_joininfo(server_id)
         else:
             logger.warning(f"Unknown server event {kind}")
 
@@ -490,7 +546,17 @@ class SocketServer:
         for mojang_uuid, (text, color) in self.db.get_all_worn_prefixes(server_id).items():
             client.send(f"!prefix~{mojang_uuid}|{color}|{self._clean(text)}")
         client.send("!metrics~" + "|".join(commands.METRIC_NAMES))
+        for mojang_uuid, (until, reason) in self.db.get_mutes(server_id).items():
+            client.send(f"!mute~{mojang_uuid}|{int(until.timestamp() * 1000)}|{self._clean(reason)}")
+        self.send_joininfo(server_id, only_if_set=True)
+        self.sync_whitelist(server_id)
         return True
+
+    def send_joininfo(self, server_id, only_if_set=False):
+        settings = self.db.get_server_settings(server_id)
+        url = "" if settings["access_mode"] == "off" else commands.page_url(self.db, server_id, "/mitmachen")
+        if url or not only_if_set:
+            self._send_to_server(server_id, f"!joininfo~{url}")
 
     def _unregister(self, client):
         if client.server_id is None:
@@ -514,7 +580,7 @@ class SocketServer:
             if command == "!JOIN":
                 player_uuid, name, is_op = (value.split("|") + ["", ""])[:3]
                 player_uuid = parse_uuid(player_uuid)
-                player_id = self.db.register_player_join(client.server_id, player_uuid, name.strip() or None)
+                player_id, first = self.db.register_player_join_info(client.server_id, player_uuid, name.strip() or None)
                 if is_op.strip() in ("0", "1"):
                     self.db.set_player_op(client.server_id, player_uuid, is_op.strip() == "1")
                 client.send("success|101")
@@ -522,6 +588,9 @@ class SocketServer:
                 self.announce_milestones(client.server_id, player_id, self.db.check_milestones(player_id))
                 if self.db.get_sidebar(player_id) != "off":
                     self.update_sidebar(client.server_id, player_id)
+                if first and self.db.get_server_settings(client.server_id)["rules_enabled"]:
+                    self.tell(client.server_id, player_uuid, "&6Willkommen auf dem Server! &7Bitte lies zuerst die Regeln: &b"
+                              + commands.page_url(self.db, client.server_id, "/regeln"))
             elif command == "!QUIT":
                 ok = self.db.register_player_quit(client.server_id, parse_uuid(value))
                 client.send("success|101" if ok else "error|003")
@@ -554,4 +623,8 @@ class SocketServer:
 
 
 if __name__ == "__main__":
-    SocketServer(DatabaseManager()).serve_forever()
+    mailer = None
+    if config.SMTP_HOST:
+        from database.SMTPMailer import SMTPMailer
+        mailer = SMTPMailer(config.SMTP_HOST, config.SMTP_PORT, config.SMTP_USER, config.SMTP_PASSWORD)
+    SocketServer(DatabaseManager(), mailer=mailer).serve_forever()

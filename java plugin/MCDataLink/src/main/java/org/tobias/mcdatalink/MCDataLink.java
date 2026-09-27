@@ -64,6 +64,7 @@ public final class MCDataLink extends JavaPlugin {
     private HealthReporter healthReporter;
     private InGameCommands commands;
     private Sidebar sidebar;
+    private Moderation moderation;
 
     @Override
     public void onEnable() {
@@ -84,6 +85,8 @@ public final class MCDataLink extends JavaPlugin {
         healthReporter.start();
         if (getConfig().getBoolean("live-stats", true)) new LiveStats(this).start();
         sidebar = new Sidebar(this);
+        moderation = new Moderation(this);
+        getServer().getPluginManager().registerEvents(moderation, this);
         commands = new InGameCommands(this);
         for (String name : InGameCommands.COMMANDS) {
             org.bukkit.command.PluginCommand command = getCommand(name);
@@ -256,6 +259,17 @@ public final class MCDataLink extends JavaPlugin {
                 }
                 break;
             }
+            case "!mute": {  // uuid|until millis (0 = unmuted)|reason
+                UUID uuid = fields.length >= 2 ? parseUuid(fields[0]) : null;
+                if (uuid != null) moderation.setMute(uuid, parseLong(fields[1]), fields.length > 2 ? fields[2] : "");
+                break;
+            }
+            case "!whitelist":  // add|name
+                if (fields.length >= 2 && fields[0].equals("add")) runOnMainThread(() -> moderation.whitelist(fields[1]));
+                break;
+            case "!joininfo":  // url of the application page (empty: none)
+                moderation.setJoinUrl(value);
+                break;
             case "!metrics":  // name|name|... for the tab completion
                 commands.setMetricNames(Arrays.asList(fields));
                 break;

@@ -1,0 +1,53 @@
+{% extends "server_base.html" %}
+{% block title %}Mitmachen · {{ server_name }}{% endblock %}
+{% block content %}
+<h1>Mitmachen</h1>
+<p class="srv-lead">{{ server_name }} ist ein Whitelist-Server.
+  {% if mode == "both" %}Bewirb dich oder löse einen Einladungscode ein, den du von jemandem bekommen hast.
+  {% elif mode == "code" %}Mit einem Einladungscode wirst du sofort freigeschaltet.
+  {% else %}Bewirb dich kurz – die Moderatoren schalten dich frei.{% endif %}
+  {% if rules_enabled %}Bitte lies vorher die <a href="/regeln">Regeln</a>.{% endif %}</p>
+
+{% if mode in ("code", "both") %}
+<section class="srv-card">
+  <h2>Einladungscode einlösen</h2>
+  <form class="mcc-form" data-access="/api/access/redeem">
+    <div class="mcc-row">
+      <div><label for="cd-name">Dein Minecraft-Name</label><input class="mcc-input" id="cd-name" name="name" maxlength="16" required autocomplete="off"/></div>
+      <div><label for="cd-code">Code</label><input class="mcc-input" id="cd-code" name="code" maxlength="40" required autocomplete="off"/></div>
+    </div>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Freischalten</button></div>
+    <div class="mcc-message" data-role="message" data-ok="Du bist freigeschaltet! Sobald der Server die Whitelist aktualisiert hat (meist sofort), kannst du joinen."></div>
+  </form>
+</section>
+{% endif %}
+
+{% if mode in ("application", "both") %}
+<section class="srv-card">
+  <h2>Bewerben</h2>
+  <form class="mcc-form" data-access="/api/access/apply">
+    <label for="ap-name">Dein Minecraft-Name</label>
+    <input class="mcc-input" id="ap-name" name="name" maxlength="16" required autocomplete="off"/>
+    <label for="ap-message">Über dich <span class="mcc-hint">(wie hast du von uns gehört, was möchtest du bauen?)</span></label>
+    <textarea class="mcc-input" id="ap-message" name="message" rows="4" maxlength="{{ message_max }}" required></textarea>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Bewerbung abschicken</button></div>
+    <div class="mcc-message" data-role="message" data-ok="Danke! Die Moderatoren schauen sich deine Bewerbung an. Wenn sie angenommen wird, kannst du einfach joinen."></div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+  document.querySelectorAll("[data-access]").forEach((form) => form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const message = form.querySelector('[data-role="message"]');
+    const result = await postJson(form.dataset.access, Object.fromEntries(new FormData(form)));
+    if (result.ok) {
+      form.reset();
+      showMessage(message, message.dataset.ok, "success");
+    } else {
+      showMessage(message, result.data.error || "Das hat nicht geklappt.", "error");
+    }
+  }));
+</script>
+{% endblock %}

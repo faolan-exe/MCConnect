@@ -45,7 +45,7 @@ docker compose -f docker/db/docker-compose.yml -p mcconnect up -d   # local post
 
 ## Status and next steps
 
-State of 2026-09-27 (schema version 15, plugin 3.5). Written as a handoff for the next development
+State of 2026-09-27 (schema version 16, plugin 3.6). Written as a handoff for the next development
 session; `docs/HANDOFF_spielervergleich.md` is the older handoff for the rankings feature (data model,
 stat units, screenshot workflow) and still useful as background.
 
@@ -68,14 +68,14 @@ stat units, screenshot workflow) and still useful as background.
 | Motivation (phase 5) | `database/motivation.py` | streaks + badges 7/30/100, anniversaries (`player_milestones`), record history (`record_history`, cooldown against flip-flops), community goals (`community_goals`, `/wettbewerbe#ziele`, created on `/users`), trophies (`trophies`: competition places, player of the week), fun facts on `/server-statistik`, trophy cabinet on the player page, hall of fame `/ruhmeshalle`; news in feed and chat |
 | In game (phase 6) | `mc_socket/commands.py` | `/stats`, `/top`, `/wettbewerb`, `/duell`, `/report`, `/seitenleiste` answered by the socket server (`!CMD` → `!tell`); scoreboard sidebar (`!sidebar`, setting also on `/profil`); duels (`duels`, `/duelle`), reports (`reports`, `/melden`, list on `/users`, online moderators get a chat message) |
 | Community (phase 7) | `/events`, `/umfragen`, `/galerie`, player page | event calendar with sign up and chat reminder (`events`, `event_signups`, `/events` in game), polls (`polls`, `poll_votes`, `/vote`, result in chat), build gallery with approval and likes (`builds`, `build_likes`, uploads like the server images), guestbook on the player page (`guestbook`, report/delete); created and moderated on `/users` (jump links at the top) |
-| Plugin | `java plugin/MCDataLink` | 3.1 `!broadcast` (chat), 3.2 `!HEALTH` every minute, 3.3 live stats of online players every minute (`live-stats` in config.yml), 3.4 in-game commands and sidebar (`InGameCommands`, `Sidebar`), 3.5 `/vote` and `/events` |
+| Moderation & access (phase 8) | `/mitmachen`, `/regeln`, `/users`, `/manage` | whitelist access per server by application and/or invite code (`access_requests`, `invite_codes`; the plugin runs `whitelist add`, also after a reconnect; the kick message links to `/mitmachen`) – codes can only be entered on the website, a player who is not on the whitelist cannot run commands; warnings with automatic ban after X (`warnings`), mutes (chat and `/msg`), also `/verwarnen`, `/stumm`, `/entstummen` in the game; X-ray hints; e-mail alerts to the owner (offline > 5 min, TPS < 15, sent by the socket server); rules & FAQ page, link on the first join; server health on the admin page |
+| Plugin | `java plugin/MCDataLink` | 3.1 `!broadcast` (chat), 3.2 `!HEALTH` every minute, 3.3 live stats of online players every minute (`live-stats` in config.yml), 3.4 in-game commands and sidebar (`InGameCommands`, `Sidebar`), 3.5 `/vote` and `/events`, 3.6 mutes, whitelist sync, join link, moderator commands (`Moderation`) |
 
 Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all of the above in
 `web/static/css/stats.css`.
 
 ### Open
 
-- To do (decided): show the server health in the admin area on the main domain as well.
 - Privacy policy (`web/templates/legal_datenschutz.html`): the stat card makes the server fetch heads
   from mc-heads.net (only the UUID is sent); not mentioned yet.
 - Older open points: `/pardon` in game does not lift a website ban; `database/manage.py seed` is dev only;
@@ -95,7 +95,7 @@ Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all
 3. ~~**Phase 7 – Community**~~ (done, see above): event calendar (start page, chat reminder, sign up), polls (moderators create,
    vote on the website or with `/vote`), build gallery (players upload screenshots with title/coordinates,
    moderators approve, likes), guestbook on the player page (report/delete).
-4. **Phase 8 – Moderation & access**: whitelist access **either by application** (form on the website,
+4. ~~**Phase 8 – Moderation & access**~~ (done, see above): whitelist access **either by application** (form on the website,
    moderators accept, plugin whitelists) **or by invite code/password** (enter it on the website or in game
    to be whitelisted directly); warnings with reason (shown in game, automatic ban after X) and chat mute;
    X-ray suspicion hints for moderators (unusual ore/stone ratio or ores per hour, hint only); e-mail alert

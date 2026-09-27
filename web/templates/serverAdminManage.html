@@ -34,6 +34,31 @@
   </div>
   <div class="message" id="plugin-message-{{ server.id }}"></div>
 
+  <details {% if server.health and server.health.status in ("warning", "critical") %}open{% endif %}>
+    <summary>Serverzustand{% if server.health and server.health.status %} ·
+      <span class="health-{{ server.health.status }}">{{ {"good": "läuft rund", "warning": "etwas langsam", "critical": "laggt"}[server.health.status] }}</span>{% endif %}</summary>
+    {% if server.health %}
+    <div class="health-grid">
+      <div><span>TPS</span><b>{{ server.health.tps or "–" }}</b></div>
+      <div><span>Arbeitsspeicher</span><b>{{ server.health.memory }}</b></div>
+      <div><span>Online</span><b>{{ server.health.players if server.health.players is not none else "–" }}</b></div>
+      <div><span>Laufzeit</span><b>{{ server.health.uptime }}</b></div>
+      <div><span>Erreichbar (7 Tage)</span><b>{{ server.health.availability or "–" }}</b></div>
+      <div><span>Version</span><b>{{ server.health.version or "–" }}</b></div>
+    </div>
+    <p class="hint">Letzter Messwert: {{ server.health.sampled }}{% if server.health.stale %} (veraltet – ist der Server offline?){% endif %}.
+      Verläufe der letzten 24 Stunden sehen die Moderatoren auf <a href="{{ url }}/users#health" target="_blank">der Verwaltungsseite</a>.</p>
+    {% else %}
+    <p class="hint">Noch keine Messwerte. Das Plugin schickt sie ab Version 3.2 jede Minute.</p>
+    {% endif %}
+    <label style="font-weight: 400; display: flex; gap: 8px; align-items: center">
+      <input type="checkbox" style="width: auto" {% if server.alerts_enabled %}checked{% endif %}
+             onchange="setAlerts({{ server.id }}, this)" />
+      E-Mail an mich, wenn der Server länger als 5 Minuten offline ist oder laggt (unter 15 TPS)
+    </label>
+    <div class="message" id="alerts-message-{{ server.id }}"></div>
+  </details>
+
   <details id="setup-{{ server.id }}" {% if not server.plugin_online %}open{% endif %}>
     <summary>Plugin einrichten</summary>
     <ol class="steps">
@@ -344,6 +369,17 @@ port: {{ plugin_port }}</pre>
       loadModerators(serverId);
     } else {
       showMessage(message, result.data.error || "Das hat nicht geklappt.", "error");
+    }
+  }
+
+  async function setAlerts(serverId, checkbox) {
+    const result = await postJson(`/api/servers/${serverId}/update`, { alerts_enabled: checkbox.checked });
+    const message = document.getElementById("alerts-message-" + serverId);
+    if (result.ok) {
+      showMessage(message, checkbox.checked ? "Du bekommst eine E-Mail, wenn etwas nicht stimmt." : "Keine E-Mails mehr.", "success");
+    } else {
+      checkbox.checked = !checkbox.checked;
+      showMessage(message, result.data.error || "Speichern fehlgeschlagen.", "error");
     }
   }
 

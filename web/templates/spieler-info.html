@@ -459,6 +459,49 @@
             </details>
             {% endif %}
           </div>
+          {% if warnings is not none %}
+          <div class="nt-card wn-card" id="discipline" data-player="{{ user_name }}">
+            <div class="wn-head"><b>Verwarnungen: {{ warnings | length }}</b>{% if muted_until %} · <span class="xr-flag">stumm bis {{ muted_until }}</span>{% endif %}</div>
+            {% if warnings %}
+            <ul class="wn-list">{% for w in warnings %}<li><span>{{ w.when }}</span> {{ w.reason }} <span class="mcc-hint">({{ w.created_by or "–" }})</span>
+              <button type="button" class="nt-delete" data-warning="{{ w.id }}">Löschen</button></li>{% endfor %}</ul>
+            {% endif %}
+            <form class="nt-form" data-discipline="/api/mod/warn">
+              <label class="st-sr" for="wn-reason">Grund der Verwarnung</label>
+              <input class="mcc-input" id="wn-reason" name="reason" maxlength="200" placeholder="Grund der Verwarnung" required/>
+              <button class="mcc-btn mcc-btn-small" type="submit">Verwarnen</button>
+            </form>
+            <form class="nt-form" data-discipline="/api/mod/mute">
+              <label class="st-sr" for="mt-minutes">Stummschalten</label>
+              <select class="mcc-select" id="mt-minutes" name="minutes">
+                {% for minutes, label in ((10, "10 Minuten"), (60, "1 Stunde"), (360, "6 Stunden"), (1440, "1 Tag"), (10080, "7 Tage"), (0, "Aufheben")) %}
+                <option value="{{ minutes }}">{{ label }}</option>{% endfor %}
+              </select>
+              <input class="mcc-input" name="reason" maxlength="200" placeholder="Grund (optional)"/>
+              <button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="submit">Stummschalten</button>
+            </form>
+            <div class="mcc-message" data-role="message"></div>
+          </div>
+          <script>
+            (() => {
+              const root = document.getElementById("discipline");
+              const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+                                                       body: JSON.stringify(body) }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }));
+              root.querySelectorAll("[data-discipline]").forEach((form) => form.addEventListener("submit", async (event) => {
+                event.preventDefault();
+                const result = await post(form.dataset.discipline, Object.assign({ name: root.dataset.player }, Object.fromEntries(new FormData(form))));
+                if (result.ok) return location.reload();
+                const message = root.querySelector('[data-role="message"]');
+                message.textContent = result.data.error || "Das hat nicht geklappt.";
+                message.className = "mcc-message error";
+              }));
+              root.querySelectorAll("[data-warning]").forEach((button) => button.addEventListener("click", async () => {
+                if (!confirm("Verwarnung löschen?")) return;
+                if ((await post("/api/mod/warnings/delete", { id: Number(button.dataset.warning) })).ok) location.reload();
+              }));
+            })();
+          </script>
+          {% endif %}
           {% endif %}
 
           {% if extras.achievements %}

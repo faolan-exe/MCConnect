@@ -9,6 +9,10 @@
 {% set open_reports = reports | selectattr("handled_at", "none") | list %}
 <nav class="md-nav" aria-label="Bereiche">
   <a href="#health">Serverzustand</a>
+  {% set open_applications = access_requests | selectattr("status", "equalto", "pending") | list %}
+  <a href="#access">Zugang{% if open_applications %} <b>{{ open_applications | length }}</b>{% endif %}</a>
+  <a href="#xray">X-Ray{% if xray %} <b>{{ xray | length }}</b>{% endif %}</a>
+  <a href="#rules">Regeln</a>
   <a href="#reports">Meldungen{% if open_reports %} <b>{{ open_reports | length }}</b>{% endif %}</a>
   <a href="#builds">Galerie{% if pending_builds %} <b>{{ pending_builds | length }}</b>{% endif %}</a>
   <a href="#guestbook">Gästebuch{% if reported_entries %} <b>{{ reported_entries | length }}</b>{% endif %}</a>
@@ -179,6 +183,66 @@
 </section>
 {% endif %}
 
+<section class="srv-card" id="access">
+  <h2>Zugang zur Whitelist</h2>
+  <p class="mcc-hint">Auf <a href="/mitmachen">/mitmachen</a> können sich Spieler bewerben oder einen Einladungscode einlösen.
+    Freigeschaltete Namen setzt das Plugin sofort auf die Whitelist (<code>whitelist add</code>), auch wenn der Server
+    gerade offline war. Wer nicht auf der Whitelist steht, bekommt beim Joinen den Link angezeigt (ab Plugin 3.6).</p>
+  <div class="st-periods" role="group" aria-label="Zugang">
+    {% for mode, label in (("off", "Aus"), ("application", "Bewerbung"), ("code", "Einladungscode"), ("both", "Beides")) %}
+    <button type="button" data-setting="access_mode" data-value="{{ mode }}" aria-pressed="{{ 'true' if settings.access_mode == mode else 'false' }}">{{ label }}</button>
+    {% endfor %}
+  </div>
+  {% if access_requests %}
+  <div class="mcc-table-wrap">
+    <table class="mcc-table">
+      <thead><tr><th>Wann</th><th>Name</th><th>Nachricht</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for r in access_requests %}
+        <tr{% if r.status != "pending" %} class="rp-done"{% endif %}>
+          <td>{{ r.when }}</td><td><b>{{ r.name }}</b></td><td>{{ r.message or "–" }}</td>
+          <td>{{ {"pending": "offen", "accepted": "freigeschaltet", "rejected": "abgelehnt"}[r.status] }}{% if r.handled_by %} · {{ r.handled_by }}{% endif %}
+            {% if r.status == "accepted" and not r.synced %}<span class="mcc-hint">(wartet aufs Plugin)</span>{% endif %}</td>
+          <td class="md-actions">{% if r.status == "pending" %}
+            <button class="mcc-btn mcc-btn-small" type="button" data-application="{{ r.id }}" data-accept="1">Annehmen</button>
+            <button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-application="{{ r.id }}" data-accept="0">Ablehnen</button>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="st-empty">Noch keine Bewerbungen.</p>
+  {% endif %}
+  <h3>Einladungscodes</h3>
+  <form class="mcc-form" data-mod-form="/api/mod/codes">
+    <div class="mcc-row">
+      <div><label for="ic-code">Code <span class="mcc-hint">(leer = zufällig)</span></label><input class="mcc-input" id="ic-code" name="code" maxlength="24"/></div>
+      <div><label for="ic-uses">Nutzungen <span class="mcc-hint">(leer = unbegrenzt)</span></label><input class="mcc-input" id="ic-uses" name="max_uses" type="number" min="1" max="1000"/></div>
+      <div><label for="ic-days">Gültig (Tage)</label><input class="mcc-input" id="ic-days" name="days" type="number" min="1" max="365" value="30"/></div>
+    </div>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Code anlegen</button></div>
+    <div class="mcc-message" data-role="message"></div>
+  </form>
+  {% if invite_codes %}
+  <div class="mcc-table-wrap" style="margin-top: 16px">
+    <table class="mcc-table">
+      <thead><tr><th>Code</th><th>Genutzt</th><th>Gültig bis</th><th></th></tr></thead>
+      <tbody>
+        {% for c in invite_codes %}
+        <tr{% if not c.valid %} class="rp-done"{% endif %}>
+          <td><code>{{ c.code }}</code></td><td>{{ c.uses }}{% if c.max_uses %} von {{ c.max_uses }}{% endif %}</td>
+          <td>{{ c.until or "unbegrenzt" }}{% if not c.valid %} (abgelaufen){% endif %}</td>
+          <td><button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-mod-post="/api/mod/codes/delete"
+                      data-id="{{ c.id }}" data-confirm="Code {{ c.code }} löschen?">Löschen</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+
 <section class="srv-card" id="reports">
   <h2>Meldungen{% set open_reports = reports | selectattr("handled_at", "none") | list %}{% if open_reports %} · {{ open_reports | length }} offen{% endif %}</h2>
   <p class="mcc-hint">Von Spielern mit <code>/report</code> im Spiel (mit Position) oder über <a href="/melden">/melden</a>.
@@ -254,6 +318,64 @@
   {% else %}
   <p class="st-empty">Nichts gemeldet.</p>
   {% endif %}
+</section>
+
+<section class="srv-card" id="warnings">
+  <h2>Verwarnungen &amp; Stummschalten</h2>
+  <p class="mcc-hint">Verwarnen und stummschalten geht auf der Spielerseite (Bereich Moderation) oder im Spiel mit
+    <code>/verwarnen &lt;spieler&gt; &lt;grund&gt;</code>, <code>/stumm &lt;spieler&gt; &lt;minuten&gt; [grund]</code> und
+    <code>/entstummen &lt;spieler&gt;</code>. Der Spieler sieht den Grund im Chat.</p>
+  <form class="mcc-form" data-settings-form>
+    <div class="mcc-row">
+      <div><label for="wn-threshold">Automatischer Bann nach … Verwarnungen <span class="mcc-hint">(0 = nie)</span></label>
+        <input class="mcc-input" id="wn-threshold" name="warn_threshold" type="number" min="0" max="20" value="{{ settings.warn_threshold }}"/></div>
+      <div><label for="wn-days">Dauer des Banns (Tage, 0 = dauerhaft)</label>
+        <input class="mcc-input" id="wn-days" name="warn_ban_days" type="number" min="0" max="3650" value="{{ settings.warn_ban_days }}"/></div>
+    </div>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Speichern</button></div>
+    <div class="mcc-message" data-role="message"></div>
+  </form>
+</section>
+
+<section class="srv-card" id="xray">
+  <h2>X-Ray-Hinweise</h2>
+  <p class="mcc-hint">Nur ein Hinweis, kein Beweis: Wer viel in Höhlen abbaut, findet mehr Erz pro Stein. Gezählt werden Diamanterz pro
+    1.000 abgebauten Stein/Deepslate/Tuff (normal etwa 1–3) und Ancient Debris pro 1.000 Netherrack.</p>
+  {% if xray %}
+  <div class="mcc-table-wrap">
+    <table class="mcc-table">
+      <thead><tr><th>Spieler</th><th>Diamanterz / 1.000 Stein</th><th>Debris / 1.000 Netherrack</th><th>Diamanterz pro Stunde</th></tr></thead>
+      <tbody>
+        {% for h in xray %}
+        <tr>
+          <td><a href="/spieler?player={{ h.name | urlencode }}">{{ h.name }}</a></td>
+          <td class="num{% if 'diamonds' in h.flags %} xr-flag{% endif %}">{{ h.diamond_rate }} <span class="mcc-hint">({{ h.diamonds }} / {{ h.stone }})</span></td>
+          <td class="num{% if 'debris' in h.flags %} xr-flag{% endif %}">{{ h.debris_rate }} <span class="mcc-hint">({{ h.debris }} / {{ h.netherrack }})</span></td>
+          <td class="num">{{ h.diamonds_per_hour }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="st-empty">Niemand fällt auf.</p>
+  {% endif %}
+</section>
+
+<section class="srv-card" id="rules">
+  <h2>Regeln &amp; FAQ</h2>
+  <p class="mcc-hint">Optional. Eingeschaltet erscheint <a href="/regeln">/regeln</a> im Menü, und neue Spieler bekommen beim ersten Join den Link im Chat.
+    Absätze mit einer Leerzeile trennen. FAQ: Frage in die erste Zeile, Antwort darunter, zwischen zwei Fragen eine Leerzeile.</p>
+  <form class="mcc-form" data-settings-form>
+    <label class="pf-check"><input type="checkbox" name="rules_enabled"{% if settings.rules_enabled %} checked{% endif %}/>
+      <span><b>Regeln-Seite anzeigen</b></span></label>
+    <label for="rl-rules">Regeln</label>
+    <textarea class="mcc-input" id="rl-rules" name="rules" rows="8" maxlength="10000">{{ settings.rules or "" }}</textarea>
+    <label for="rl-faq">FAQ</label>
+    <textarea class="mcc-input" id="rl-faq" name="faq" rows="6" maxlength="10000" placeholder="Wie komme ich zum Spawn?&#10;Mit /spawn oder über das Portal am Hafen.">{{ settings.faq or "" }}</textarea>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Speichern</button></div>
+    <div class="mcc-message" data-role="message"></div>
+  </form>
 </section>
 
 <section class="srv-card" id="events">
@@ -410,6 +532,27 @@
       else showMessage(message, result.data.error || "Löschen fehlgeschlagen.", "error");
     }));
   })();
+</script>
+<script>
+  document.querySelectorAll("[data-setting]").forEach((button) => button.addEventListener("click", async () => {
+    const result = await postJson("/api/mod/settings", { [button.dataset.setting]: button.dataset.value });
+    if (result.ok) location.reload();
+    else alert(result.data.error || "Das hat nicht geklappt.");
+  }));
+  document.querySelectorAll("[data-settings-form]").forEach((form) => form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const body = Object.fromEntries(new FormData(form));
+    const box = form.querySelector('[name="rules_enabled"]');
+    if (box) body.rules_enabled = box.checked;
+    const result = await postJson("/api/mod/settings", body);
+    showMessage(form.querySelector('[data-role="message"]'), result.ok ? "Gespeichert." : (result.data.error || "Speichern fehlgeschlagen."),
+                result.ok ? "success" : "error");
+  }));
+  document.querySelectorAll("[data-application]").forEach((button) => button.addEventListener("click", async () => {
+    const result = await postJson("/api/mod/applications", { id: Number(button.dataset.application), accept: button.dataset.accept === "1" });
+    if (result.ok) location.reload();
+    else alert(result.data.error || "Das hat nicht geklappt.");
+  }));
 </script>
 <script>
   // generic moderator buttons (POST {id}) and forms (POST the fields as JSON)

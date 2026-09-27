@@ -14,18 +14,21 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * /stats, /top, /wettbewerb, /duell, /report, /seitenleiste, /vote and /events. The commands are answered by
+ * /stats, /top, /wettbewerb, /duell, /report, /seitenleiste, /vote, /events and the moderator commands
+ * /verwarnen, /stumm and /entstummen (MCConnect checks the rights). The commands are answered by
  * MCConnect: the plugin only forwards them with the player's position (!CMD) and shows the
  * answer lines (!tell).
  */
 final class InGameCommands implements CommandExecutor, TabCompleter {
-    static final String[] COMMANDS = {"stats", "top", "wettbewerb", "duell", "report", "seitenleiste", "vote", "events"};
+    static final String[] COMMANDS = {"stats", "top", "wettbewerb", "duell", "report", "seitenleiste", "vote", "events",
+            "verwarnen", "stumm", "entstummen"};
     private static final List<String> PERIODS = Arrays.asList("7", "30");
     private static final List<String> DAYS = Arrays.asList("1", "2", "3", "4", "5", "6", "7");
     private static final List<String> DUEL_ACTIONS = Arrays.asList("annehmen", "ablehnen");
     private static final List<String> SIDEBAR_MODES = Arrays.asList("aus", "wettbewerb", "spielzeit");
     private static final List<String> NUMBERS = Arrays.asList("1", "2", "3", "4", "5", "6", "7", "8");
     private static final List<String> EVENT_ACTIONS = Arrays.asList("anmelden", "abmelden");
+    private static final List<String> MUTE_MINUTES = Arrays.asList("10", "60", "360", "1440");
 
     private final MCDataLink plugin;
     /** Metric names for the tab completion, sent by MCConnect after connecting (!metrics). */
@@ -72,10 +75,13 @@ final class InGameCommands implements CommandExecutor, TabCompleter {
             } else if (!DUEL_ACTIONS.contains(args[0].toLowerCase())) {
                 options = index == 1 ? metricNames : index == 2 ? DAYS : options;
             }
-        } else if (name.equals("report") && index == 0) {
+        } else if ((name.equals("report") || name.equals("verwarnen") || name.equals("stumm") || name.equals("entstummen"))
+                && index == 0) {
             options = onlineNames();
         } else if (name.equals("seitenleiste") && index == 0) {
             options = SIDEBAR_MODES;
+        } else if (name.equals("stumm") && index == 1) {
+            options = MUTE_MINUTES;
         } else if (name.equals("vote") && index <= 1) {
             options = NUMBERS;
         } else if (name.equals("events")) {

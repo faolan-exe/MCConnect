@@ -31,3 +31,12 @@ commands:
   events:
     description: Nächste Events anzeigen und sich anmelden
     usage: /events [anmelden|abmelden <nr>]
+  verwarnen:
+    description: Einen Spieler verwarnen (nur Moderatoren)
+    usage: /verwarnen <spieler> <grund>
+  stumm:
+    description: Einen Spieler stummschalten (nur Moderatoren)
+    usage: /stumm <spieler> <minuten> [grund]
+  entstummen:
+    description: Stummschaltung aufheben (nur Moderatoren)
+    usage: /entstummen <spieler>
