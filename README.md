@@ -72,11 +72,35 @@ Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all
 
 ### Open
 
-- Offered, not decided: show the server health in the admin area on the main domain as well. --> my decision, to do it
+- To do (decided): show the server health in the admin area on the main domain as well.
 - Privacy policy (`web/templates/legal_datenschutz.html`): the stat card makes the server fetch heads
   from mc-heads.net (only the UUID is sent); not mentioned yet.
 - Older open points: `/pardon` in game does not lift a website ban; `database/manage.py seed` is dev only;
   the plugin connection (port 9991) is not encrypted.
+
+### Planned (picked on 2026-09-27, build phase by phase with screenshots and feedback)
+
+1. **Phase 5 – Motivation** (mostly web): streaks (days online in a row, ranking, badges at 7/30/100),
+   community goals (server-wide goal with progress bar, created by moderators), record history
+   ("new record!" in feed and chat, who held which record when), anniversaries ("1 year on the server"
+   in feed/chat, badge), fun facts on the server statistics page, trophy cabinet on the player page
+   (competition wins, player of the week, records held) and a hall of fame page.
+2. **Phase 6 – In game** (plugin): `/stats [player]`, `/top <metric>`, `/wettbewerb` in the chat;
+   optional scoreboard sidebar (competition standings / own play time, switchable per player);
+   duels (1 vs 1 challenge for a metric and a period, accept on the website or with `/duell`, winner in chat);
+   report system (`/report` or website, with position and time, list for moderators).
+3. **Phase 7 – Community**: event calendar (start page, chat reminder, sign up), polls (moderators create,
+   vote on the website or with `/vote`), build gallery (players upload screenshots with title/coordinates,
+   moderators approve, likes), guestbook on the player page (report/delete).
+4. **Phase 8 – Moderation & access**: whitelist access **either by application** (form on the website,
+   moderators accept, plugin whitelists) **or by invite code/password** (enter it on the website or in game
+   to be whitelisted directly); warnings with reason (shown in game, automatic ban after X) and chat mute;
+   X-ray suspicion hints for moderators (unusual ore/stone ratio or ores per hour, hint only); e-mail alert
+   to the admin when the server goes offline or the TPS stay below 15 (SMTP exists); rules & FAQ page,
+   **optional per server**, shown with a link on the first join.
+5. **Phase 9 – Reach & design**: personal year in review "Wrapped" (to click through and share; best built
+   for December when a year of snapshots exists), public server directory on the main domain (opt out per
+   server), dark mode for all server pages (incl. the old templates).
 
 ### Continuing in a new session
 
