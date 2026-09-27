@@ -20,6 +20,8 @@ Server -> plugin:
     !prefix~<uuid>|<color>|<text>  show a prefix (empty color and text: remove it)
     !ban~<uuid>|<name>|<end ms, 0 = permanent>|<reason>   ban (and kick) a player
     !unban~<uuid>|<name>         lift a ban
+    !broadcast~<color>|<text>    chat message to everyone (achievements, competitions);
+                                 color is a ChatColor name, e.g. gold
     success|<code> / error|<code>
 
 Error codes:
@@ -50,7 +52,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from colorlogx import get_logger
-from database import config
+from database import achievements, config, metrics
 from database.databaseManagerV2 import DatabaseManager
 
 logger = get_logger("socket")
@@ -62,6 +64,10 @@ HEARTBEAT_TIMEOUT = 20
 MAX_UNAUTHORIZED_MESSAGES = 5
 # How often the "plugin alive" timestamp is written to the database.
 PLUGIN_TOUCH_INTERVAL = 30
+# How often started/ended competitions are checked.
+COMPETITION_CHECK_INTERVAL = 60
+# More new achievement tiers at once are not announced (first sync of an old player).
+MAX_ANNOUNCED_ACHIEVEMENTS = 2
 
 
 class ProtocolError(Exception):
@@ -150,6 +156,7 @@ class SocketServer:
         logger.info(f"Socket server listening on {self.host}:{self.port}")
         self._spawn(self._accept_loop, name="socket-accept")
         self._spawn(self._login_pin_loop, name="login-pins")
+        self._spawn(self._competition_loop, name="competitions")
 
     def _spawn(self, target, *args, name=None):
         thread = threading.Thread(target=target, args=args, name=name, daemon=True)
@@ -197,6 +204,50 @@ class SocketServer:
             except Exception:
                 logger.exception("Login pin listener failed, restarting in 5 seconds")
                 self._stop.wait(5)
+
+    def _competition_loop(self):
+        while not self._stop.is_set():
+            try:
+                self.announce_competitions()
+            except Exception:
+                logger.exception("Competition check failed")
+            self._stop.wait(COMPETITION_CHECK_INTERVAL)
+
+    # ------------------------------------------------------------------ announcements
+    def broadcast(self, server_id, color, text):
+        return self._send_to_server(server_id, f"!broadcast~{color}|{self._clean(text)}")
+
+    def announce_achievements(self, server_id, player_id, awards):
+        if not awards or len(awards) > MAX_ANNOUNCED_ACHIEVEMENTS:
+            return
+        name = self.db.get_player_name_from_player_id(player_id) or "Jemand"
+        for achievement, tier in awards:
+            self.broadcast(server_id, *achievements.announcement(name, achievement, tier))
+
+    def announce_competitions(self):
+        """Announce started and ended competitions on the connected servers (the others later)."""
+        with self._lock:
+            connected = list(self.active_connections)
+        if not connected:
+            return
+        for kind, competition in self.db.take_due_competition_announcements(connected):
+            metric = metrics.METRICS_BY_KEY.get(competition["metric"])
+            if metric is None:
+                continue
+            title = competition["title"]
+            if kind == "start":
+                text = (f"★ Wettbewerb »{title}« hat begonnen: {metric.label} bis "
+                        f"{competition['ends_on'].strftime('%d.%m.')}. Stand auf {self.competition_url(competition)}")
+            else:
+                top = self.db.get_competition_standings(competition)[:3]
+                places = ", ".join(f"{i}. {row['name']} ({metrics.format_value(metric, row['value'])})"
+                                   for i, row in enumerate(top, 1))
+                text = f"★ Wettbewerb »{title}« ist vorbei! " + (places or "Diesmal hat niemand mitgemacht.")
+            self.broadcast(competition["server_id"], "gold", text)
+
+    def competition_url(self, competition):
+        subdomain = self.db.get_subdomain_from_server_id(competition["server_id"])
+        return f"{config.PUBLIC_SCHEME}://{subdomain}.{config.BASE_DOMAIN}/wettbewerbe"
 
     # ------------------------------------------------------------------ login pins
     def deliver_login_pin(self, server_id, mojang_uuid, pin):
@@ -247,6 +298,8 @@ class SocketServer:
                                             f"{self._clean(event.get('reason'))}")
         elif kind == "unban":
             self._send_to_server(server_id, f"!unban~{event['uuid']}|{self._clean(event['name'])}")
+        elif kind == "broadcast":
+            self.broadcast(server_id, event.get("color") or "gold", event.get("text"))
         else:
             logger.warning(f"Unknown server event {kind}")
 
@@ -361,6 +414,7 @@ class SocketServer:
                 player_id = self.db.ensure_player_on_server(client.server_id, parse_uuid(player_uuid))
                 self.db.update_player_stats(player_id, stats)
                 client.send("success|102")
+                self.announce_achievements(client.server_id, player_id, self.db.award_achievements(player_id))
             elif command == "!BANS":
                 entries = json.loads(value)
                 if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):

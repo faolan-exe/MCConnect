@@ -28,6 +28,7 @@ from flask import (Blueprint, Flask, Response, abort, current_app, g, redirect, 
                    request, send_file, send_from_directory, session, stream_with_context, url_for)
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+from database import achievements as achievements_mod
 from database import config
 from database import metrics as metrics_mod
 from database.databaseManagerV2 import MAX_GALLERY_IMAGES, MODERATOR_LEVEL, DatabaseManager
@@ -139,10 +140,13 @@ def inject_server_context():
 @server_bp.route("/")
 def subdomain_index_route():
     images = db().get_server_images(g.server["id"])
-    records, recap = [], None
+    records, recap, competitions = [], None, []
     if current_app.config["FEATURE_RANKINGS"]:
         players = db().get_server_metrics(g.server["id"])
         recap = weekly_recap(g.server["id"], players)
+        today = db().get_today()
+        competitions = [v for v in (competition_view(c, today, limit=3) for c in db().list_competitions(g.server["id"])
+                                    if c["starts_on"] <= today <= c["ends_on"]) if v]
         for key in metrics_mod.RECORD_METRICS:
             metric = metrics_mod.METRICS_BY_KEY[key]
             best = max(players, key=lambda p: p["values"][key], default=None)
@@ -151,7 +155,7 @@ def subdomain_index_route():
                                 "text": metrics_mod.format_value(metric, best["values"][key])})
     return render_template("index-subpage.html",
                            player_total=len(db().get_all_player_ids_from_subdomain(g.subdomain)),
-                           records=records, recap=recap,
+                           records=records, recap=recap, competitions=competitions,
                            banner_url=image_url(images["banner"]) if images["banner"] else None,
                            gallery_urls=[image_url(image["filename"]) for image in images["gallery"]])
 
@@ -337,6 +341,62 @@ def server_stats_page():
         daily=daily if any(d["value"] is not None for d in daily) else None, months=months)
 
 
+@server_bp.route("/teams")
+@feature_rankings_required
+def teams_page():
+    """Prefixes as teams: sum of a metric over all members."""
+    period = selected_period()
+    metric = metrics_mod.METRICS_BY_KEY.get(request.args.get("kennzahl"), metrics_mod.METRICS_BY_KEY["play_time"])
+    players = db().get_server_metrics(g.server["id"], PERIODS[period])
+    prefixes = db().get_all_worn_prefixes(g.server["id"])
+    teams = {}
+    for p in players:
+        prefix = prefixes.get(p["uuid"])
+        if prefix:
+            team = teams.setdefault(prefix[0].lower(), {"text": prefix[0], "color": prefix[1], "members": [], "value": 0})
+            team["members"].append(p)
+            team["value"] += p["values"][metric.key]
+    ranked_teams = sorted(teams.values(), key=lambda t: (-t["value"], t["text"].lower()))
+    top = ranked_teams[0]["value"] if ranked_teams else 0
+    for index, team in enumerate(ranked_teams):
+        team["rank"] = index + 1
+        team["share"] = team["value"] / top if top else 0
+        team["text_value"] = metrics_mod.format_value(metric, team["value"])
+        team["average"] = metrics_mod.format_value(metric, team["value"] // len(team["members"]))
+        team["members"].sort(key=lambda p: -p["values"][metric.key])
+    extra = f"&kennzahl={metric.key}"
+    return render_template("teams.html", teams=ranked_teams, metric=metric, metrics=metrics_mod.METRICS,
+                           groups=metrics_mod.GROUPS, period=period, periods=PERIODS, extra=extra,
+                           hint=period_hint(g.server["id"], PERIODS[period]))
+
+
+def competition_view(competition, today, limit=None):
+    metric = metrics_mod.METRICS_BY_KEY.get(competition["metric"])
+    if metric is None:
+        return None
+    status = ("upcoming" if competition["starts_on"] > today else
+              "finished" if competition["ends_on"] < today else "running")
+    standings = db().get_competition_standings(competition) if status != "upcoming" else []
+    top = standings[0]["value"] if standings else 0
+    rows = [{"rank": i + 1, "name": r["name"], "uuid": r["uuid"], "text": metrics_mod.format_value(metric, r["value"]),
+             "share": r["value"] / top if top else 0} for i, r in enumerate(standings[:limit] if limit else standings)]
+    days_left = (competition["ends_on"] - today).days + 1
+    return dict(competition, metric_label=metric.label, status=status, rows=rows,
+                starts=competition["starts_on"].strftime("%d.%m.%Y"), ends=competition["ends_on"].strftime("%d.%m.%Y"),
+                days_left=days_left, days_until=(competition["starts_on"] - today).days)
+
+
+@server_bp.route("/wettbewerbe")
+@feature_rankings_required
+def competitions_page():
+    today = db().get_today()
+    views = [v for v in (competition_view(c, today) for c in db().list_competitions(g.server["id"])) if v]
+    return render_template("wettbewerbe.html",
+                           running=[v for v in views if v["status"] == "running"],
+                           upcoming=sorted((v for v in views if v["status"] == "upcoming"), key=lambda v: v["starts_on"]),
+                           finished=[v for v in views if v["status"] == "finished"])
+
+
 def best_indexes(values, lower_is_better):
     """Positions of the best value (none if all are equal, e.g. everyone at 0)."""
     if len(values) < 2 or len(set(values)) == 1:
@@ -461,7 +521,19 @@ def player_extras(player_id):
         highlights.append({"label": "Liebste Fortbewegung", "value": metrics_mod.MOVEMENT_LABELS[obj],
                            "detail": metrics_mod.format_distance(cm)})
 
-    extras = {"highlights": highlights, "places": [], "activity": None}
+    values = database.get_player_metrics(player_id)
+    earned = database.get_player_achievements(player_id)
+    achievements = []
+    for achievement in achievements_mod.ACHIEVEMENTS:
+        item = achievements_mod.progress(achievement, values[achievement.metric])
+        at = earned.get((achievement.key, item["tier"]))
+        item["earned"] = at.strftime("%d.%m.%Y") if at else None
+        achievements.append(item)
+    achievements.sort(key=lambda a: (-a["tier"], -a.get("next", {}).get("share", 1)))
+
+    extras = {"highlights": highlights, "places": [], "activity": None, "achievements": achievements,
+              "achievement_count": sum(a["tier"] + 1 for a in achievements),
+              "achievement_total": len(achievements_mod.ACHIEVEMENTS) * len(achievements_mod.TIERS)}
     if not current_app.config["FEATURE_RANKINGS"]:
         return extras
 
@@ -531,9 +603,14 @@ def prefix_join_page():
 @server_bp.route("/users")
 @moderator_required
 def moderation_page():
+    today = db().get_today()
     return render_template("moderation.html", ban_reasons=db().get_ban_reasons(), bans_api="/api/mod",
                            players=db().get_players_overview_from_subdomain(g.subdomain),
-                           activity=player_activity(g.server["id"]))
+                           activity=player_activity(g.server["id"]),
+                           competitions=[v for v in (competition_view(c, today) for c in db().list_competitions(g.server["id"])) if v]
+                           if current_app.config["FEATURE_RANKINGS"] else None,
+                           metrics=metrics_mod.METRICS, metric_groups=metrics_mod.GROUPS,
+                           today=today, default_end=today + timedelta(days=6))
 
 
 def player_activity(server_id):
@@ -626,6 +703,47 @@ def mod_ban_api():
 @moderator_required
 def mod_unban_api():
     return do_unban(g.server["id"], request.get_json(silent=True) or {})
+
+
+COMPETITION_TITLE_RE = re.compile(r"^[A-Za-z0-9ÄÖÜäöüß _.,:!?+*#()'-]{3,60}$")
+MAX_COMPETITION_DAYS = 90
+
+
+@server_bp.route("/api/mod/competitions", methods=["POST"])
+@moderator_required
+def mod_competition_create_api():
+    data = request.get_json(silent=True) or {}
+    title = str(data.get("title") or "").strip()
+    metric = str(data.get("metric") or "")
+    if not COMPETITION_TITLE_RE.match(title):
+        return {"error": "Der Titel muss 3-60 Zeichen lang sein (Buchstaben, Zahlen, Leerzeichen und einfache Satzzeichen)."}, 400
+    if metric not in metrics_mod.METRICS_BY_KEY:
+        return {"error": "Unbekannte Kennzahl."}, 400
+    try:
+        starts_on = date.fromisoformat(str(data.get("starts_on")))
+        ends_on = date.fromisoformat(str(data.get("ends_on")))
+    except ValueError:
+        return {"error": "Ungültiges Datum."}, 400
+    today = db().get_today()
+    if starts_on < today:
+        return {"error": "Der Wettbewerb kann frühestens heute beginnen."}, 400
+    if ends_on < starts_on or (ends_on - starts_on).days >= MAX_COMPETITION_DAYS:
+        return {"error": f"Das Ende muss nach dem Start liegen, höchstens {MAX_COMPETITION_DAYS} Tage."}, 400
+    competition_id = db().create_competition(g.server["id"], title, metric, starts_on, ends_on,
+                                             created_by=db().get_player_name_from_player_id(logged_in_player_id()))
+    return {"id": competition_id}, 200
+
+
+@server_bp.route("/api/mod/competitions/delete", methods=["POST"])
+@moderator_required
+def mod_competition_delete_api():
+    try:
+        competition_id = int((request.get_json(silent=True) or {}).get("id"))
+    except (TypeError, ValueError):
+        return {"error": "Unbekannter Wettbewerb."}, 400
+    if not db().delete_competition(g.server["id"], competition_id):
+        return {"error": "Unbekannter Wettbewerb."}, 404
+    return ("", 200)
 
 
 ################################ BANS (shared by moderators and server admins) #################################

@@ -79,12 +79,14 @@
           <li>
             <div class="dropdown">
               <button
-                class="dropbtn {% if request.path in ('/rangliste', '/vergleich', '/server-statistik') %} current{% endif %}"
+                class="dropbtn {% if request.path in ('/rangliste', '/teams', '/wettbewerbe', '/vergleich', '/server-statistik') %} current{% endif %}"
               >
                 ▼ Statistiken
               </button>
               <div class="dropdown-content">
                 <a href="/rangliste">Rangliste</a>
+                <a href="/teams">Teams</a>
+                <a href="/wettbewerbe">Wettbewerbe</a>
                 <a href="/vergleich">Spieler vergleichen</a>
                 <a href="/server-statistik">Server-Statistik</a>
               </div>

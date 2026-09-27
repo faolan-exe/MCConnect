@@ -12,6 +12,58 @@
   {{ bans_panel("mod-bans", bans_api ~ "/bans", bans_api ~ "/ban", bans_api ~ "/unban", ban_reasons, players) }}
 </section>
 
+{% if competitions is not none %}
+<section class="srv-card" id="competitions">
+  <h2>Wettbewerbe</h2>
+  <p class="mcc-hint">Gezählt wird, was die Spieler zwischen Start- und Endtag (jeweils ganzer Tag) dazugewinnen.
+    Start und Ende werden im Spiel im Chat angekündigt (ab Plugin-Version 3.1).</p>
+  <form class="mcc-form" data-role="competition-form">
+    <label for="cp-title">Titel</label>
+    <input class="mcc-input" id="cp-title" name="title" maxlength="60" placeholder="z. B. Mining-Woche" required/>
+    <div class="mcc-row">
+      <div>
+        <label for="cp-metric">Kennzahl</label>
+        <select class="mcc-select" id="cp-metric" name="metric">
+          {% for key, label in metric_groups %}
+          <optgroup label="{{ label }}">
+            {% for m in metrics if m.group == key %}<option value="{{ m.key }}">{{ m.label }}</option>{% endfor %}
+          </optgroup>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="cp-start">Erster Tag</label>
+        <input class="mcc-input" id="cp-start" name="starts_on" type="date" min="{{ today.isoformat() }}" value="{{ today.isoformat() }}" required/>
+      </div>
+      <div>
+        <label for="cp-end">Letzter Tag</label>
+        <input class="mcc-input" id="cp-end" name="ends_on" type="date" min="{{ today.isoformat() }}" value="{{ default_end.isoformat() }}" required/>
+      </div>
+    </div>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Wettbewerb anlegen</button></div>
+    <div class="mcc-message" data-role="message"></div>
+  </form>
+  {% if competitions %}
+  <div class="mcc-table-wrap" style="margin-top: 20px">
+    <table class="mcc-table">
+      <thead><tr><th>Titel</th><th>Kennzahl</th><th>Zeitraum</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for c in competitions %}
+        <tr>
+          <td>{{ c.title }}</td>
+          <td>{{ c.metric_label }}</td>
+          <td>{{ c.starts }} – {{ c.ends }}</td>
+          <td>{{ {"running": "läuft", "upcoming": "geplant", "finished": "beendet"}[c.status] }}</td>
+          <td><button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-delete="{{ c.id }}" data-title="{{ c.title }}">Löschen</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
 <section class="srv-card" id="activity">
   <h2>Aktivität der Spieler</h2>
   <p class="mcc-hint">Wer war lange nicht mehr da, wer ist neu? Hilft zum Beispiel beim Aufräumen der Whitelist.</p>
@@ -50,6 +102,26 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+  (() => {
+    const root = document.getElementById("competitions");
+    if (!root) return;
+    const form = root.querySelector('[data-role="competition-form"]');
+    const message = form.querySelector('[data-role="message"]');
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const result = await postJson("/api/mod/competitions", Object.fromEntries(new FormData(form)));
+      if (result.ok) location.reload();
+      else showMessage(message, result.data.error || "Anlegen fehlgeschlagen.", "error");
+    });
+    root.querySelectorAll("[data-delete]").forEach((button) => button.addEventListener("click", async () => {
+      if (!confirm(`Wettbewerb „${button.dataset.title}“ wirklich löschen?`)) return;
+      const result = await postJson("/api/mod/competitions/delete", { id: Number(button.dataset.delete) });
+      if (result.ok) location.reload();
+      else showMessage(message, result.data.error || "Löschen fehlgeschlagen.", "error");
+    }));
+  })();
+</script>
 <script>
   (() => {
     const root = document.getElementById("activity");

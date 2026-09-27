@@ -1,0 +1,57 @@
+{% extends "server_base.html" %}
+{% from "_components.html" import prefix_chip, period_switch %}
+{% block title %}Teams · {{ server_name }}{% endblock %}
+{% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block page_class %}srv-page-wide{% endblock %}
+{% block content %}
+<div class="st-head">
+  <div>
+    <h1>Teams</h1>
+    <p class="srv-lead">Jeder Prefix ist ein Team. Hier zählen die Werte aller Mitglieder zusammen.</p>
+  </div>
+  {{ period_switch("/teams", period, periods, extra) }}
+</div>
+{% if hint %}<p class="st-hint">{{ hint }}</p>{% endif %}
+
+<form class="tm-pick" method="get" action="/teams">
+  <input type="hidden" name="zeitraum" value="{{ period }}"/>
+  <label for="team-metric"><b>Kennzahl</b></label>
+  <select class="mcc-select" id="team-metric" name="kennzahl" onchange="this.form.submit()">
+    {% for key, label in groups %}
+    <optgroup label="{{ label }}">
+      {% for m in metrics if m.group == key %}<option value="{{ m.key }}"{% if m.key == metric.key %} selected{% endif %}>{{ m.label }}</option>{% endfor %}
+    </optgroup>
+    {% endfor %}
+  </select>
+  <noscript><button class="mcc-btn mcc-btn-small" type="submit">Anzeigen</button></noscript>
+</form>
+
+{% if teams %}
+<ol class="tm-list">
+  {% for team in teams %}
+  <li class="tm-row{% if team.rank == 1 %} tm-first{% endif %}">
+    <span class="tm-rank">{{ team.rank }}</span>
+    <div class="tm-main">
+      <div class="tm-title">{{ prefix_chip(team.text, team.color, prefix_colors) }}
+        <span class="tm-count">{{ team.members | length }} {{ "Mitglied" if team.members | length == 1 else "Mitglieder" }}</span></div>
+      <span class="st-bar"><span style="width: {{ '%.1f' | format(team.share * 100) }}%"></span></span>
+      <ul class="tm-members">
+        {% for p in team.members %}
+        <li><a href="/spieler?player={{ p.name | urlencode }}" title="{{ p.name }}"><img src="https://mc-heads.net/avatar/{{ p.uuid }}/32" alt="{{ p.name }}" width="24" height="24" loading="lazy"/></a></li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="tm-value">
+      <strong>{{ team.text_value }}</strong>
+      <span>Ø {{ team.average }} pro Mitglied</span>
+    </div>
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<div class="srv-card st-empty-card">
+  <h3>Noch keine Teams</h3>
+  <p>Sobald Spieler einen Prefix tragen, erscheinen ihre Teams hier.{% if config.FEATURE_PREFIXES %} Einen Prefix erstellst du unter <a href="/add_pref">Prefixes</a>.{% endif %}</p>
+</div>
+{% endif %}
+{% endblock %}

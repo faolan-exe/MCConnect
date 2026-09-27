@@ -218,8 +218,22 @@ public final class MCDataLink extends JavaPlugin {
             case "!unban":  // uuid|name
                 if (fields.length >= 2) runOnMainThread(() -> banSync.unban(fields[1]));
                 break;
+            case "!broadcast": {  // color|text (achievements, competitions)
+                if (fields.length < 2) break;
+                String text = broadcastColor(fields[0]) + ChatColor.stripColor(value.substring(value.indexOf('|') + 1));
+                runOnMainThread(() -> getServer().broadcastMessage(text));
+                break;
+            }
             default:
                 getLogger().fine("Unknown message from MCConnect: " + msg);
+        }
+    }
+
+    private static ChatColor broadcastColor(String name) {
+        try {
+            return ChatColor.valueOf(name.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return ChatColor.GOLD;
         }
     }
 

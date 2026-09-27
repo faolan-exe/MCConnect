@@ -11,7 +11,7 @@
     <link href="{{ url_for('static', filename='css/header.css') }}" rel="stylesheet"/>
     <link href="{{ url_for('static', filename='css/fonts.css') }}" rel="stylesheet"/>
     <link href="{{ url_for('static', filename='css/server.css') }}" rel="stylesheet"/>
-    {% if records or recap %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endif %}
+    {% if records or recap or competitions %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endif %}
     <link href="{{ url_for('static', filename='images/favicon.ico') }}" rel="icon" type="image/vnd.microsoft.icon"/>
 </head>
 
@@ -59,6 +59,25 @@
                     <span class="srv-number-label">{{ "nur mit Freischaltung" if whitelist else "jeder kann mitspielen" }}</span>
                 </div>
             </div>
+
+            {% for c in competitions %}
+            <section class="srv-section cp-banner">
+                <div>
+                    <span class="cp-badge">Wettbewerb · noch {{ c.days_left }} {{ "Tag" if c.days_left == 1 else "Tage" }}</span>
+                    <h2>{{ c.title }}</h2>
+                    <p class="cp-meta">{{ c.metric_label }} · bis {{ c.ends }}</p>
+                    <a class="srv-btn srv-btn-primary" href="/wettbewerbe">Zur Live-Rangliste</a>
+                </div>
+                <ol class="cp-podium">
+                    {% for row in c.rows %}
+                    <li><span class="cp-place">{{ row.rank }}</span><img src="https://mc-heads.net/avatar/{{ row.uuid }}/32" alt="" width="28" height="28" loading="lazy"/>
+                        <span class="cp-name">{{ row.name }}</span><span class="cp-value">{{ row.text }}</span></li>
+                    {% else %}
+                    <li class="cp-none">Noch hat niemand Punkte. Leg los!</li>
+                    {% endfor %}
+                </ol>
+            </section>
+            {% endfor %}
 
             {% if recap %}
             <section class="srv-section rc-card" aria-labelledby="recap-title">

@@ -338,7 +338,7 @@
 
         <!-- <p id="4" style="display: none">Loading</p> -->
 
-        {% if extras.highlights or extras.places or extras.activity %}
+        {% if extras.highlights or extras.places or extras.activity or extras.achievements %}
         <section class="pi-extra">
           {% if extras.activity %}
           <h2>Aktivität der letzten 30 Tage</h2>
@@ -360,6 +360,29 @@
               <span class="pi-rank"><b>Platz {{ place.rank }}</b><span>von {{ place.of }}</span></span>
               <span class="pi-tile-detail">{{ place.text }}</span>
             </a>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          {% if extras.achievements %}
+          <h2>Erfolge · {{ extras.achievement_count }} von {{ extras.achievement_total }} Stufen</h2>
+          <div class="pi-tiles ac-tiles">
+            {% for a in extras.achievements %}
+            <div class="pi-tile ac-tile{% if a.tier < 0 %} ac-locked{% endif %}"{% if a.tier >= 0 %} style="--tier: {{ a.tiers[a.tier].color }}"{% endif %}
+                 title="{% for t in a.tiers %}{{ t.label }}: {{ t.threshold }} {{ a.description }}{% if not loop.last %} · {% endif %}{% endfor %}">
+              <span class="ac-head">
+                <span class="ac-name">{{ a.name }}</span>
+                {% if a.tier_label %}<span class="ac-tier">{{ a.tier_label }}</span>{% endif %}
+              </span>
+              <span class="ac-pips" aria-hidden="true">{% for t in a.tiers %}<span{% if t.reached %} style="background: {{ t.color }}"{% endif %}></span>{% endfor %}</span>
+              <span class="pi-tile-detail">{{ a.value }} {{ a.description }}</span>
+              {% if a.next %}
+              <span class="ac-next"><span class="st-bar"><span style="width: {{ '%.1f' | format(a.next.share * 100) }}%"></span></span>
+                <span>{{ a.next.label }} ab {{ a.next.threshold }}</span></span>
+              {% else %}
+              <span class="ac-next ac-done">Höchste Stufe erreicht{% if a.earned %} am {{ a.earned }}{% endif %}</span>
+              {% endif %}
+            </div>
             {% endfor %}
           </div>
           {% endif %}

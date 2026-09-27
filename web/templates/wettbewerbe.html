@@ -1,0 +1,84 @@
+{% extends "server_base.html" %}
+{% block title %}Wettbewerbe · {{ server_name }}{% endblock %}
+{% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block page_class %}srv-page-wide{% endblock %}
+
+{% macro standings(c, limit=None) %}
+{% if c.rows %}
+{% set rows = c.rows[:limit] if limit else c.rows %}
+<ol class="st-list">
+  {% for row in rows %}
+  <li class="st-row cp-row{% if row.rank == 1 %} st-first{% endif %}">
+    <span class="st-rank">{{ row.rank }}</span>
+    <img class="st-avatar" src="https://mc-heads.net/avatar/{{ row.uuid }}/32" alt="" width="28" height="28" loading="lazy"/>
+    <span class="st-who">
+      <a class="st-name" href="/spieler?player={{ row.name | urlencode }}"><span>{{ row.name }}</span></a>
+      <span class="st-bar"><span style="width: {{ '%.1f' | format(row.share * 100) }}%"></span></span>
+    </span>
+    <span class="st-value">{{ row.text }}</span>
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<p class="st-empty">{{ "Noch hat niemand Punkte gesammelt." if c.status == "running" else "Niemand hat mitgemacht." }}</p>
+{% endif %}
+{% endmacro %}
+
+{% block content %}
+<h1>Wettbewerbe</h1>
+<p class="srv-lead">Wer schafft in einem Zeitraum am meisten? Gezählt wird nur, was in der Zeit dazukommt.
+  Wettbewerbe legen die Moderatoren an.</p>
+
+{% if running %}
+<section class="st-group">
+  <h2>Läuft gerade</h2>
+  <div class="st-boards cp-boards">
+    {% for c in running %}
+    <article class="st-board cp-board cp-running">
+      <span class="cp-badge">Noch {{ c.days_left }} {{ "Tag" if c.days_left == 1 else "Tage" }}</span>
+      <h3>{{ c.title }}</h3>
+      <p class="cp-meta">{{ c.metric_label }} · {{ c.starts }} bis {{ c.ends }}</p>
+      {{ standings(c) }}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if upcoming %}
+<section class="st-group">
+  <h2>Demnächst</h2>
+  <div class="st-boards">
+    {% for c in upcoming %}
+    <article class="st-board cp-board">
+      <span class="cp-badge cp-badge-soon">in {{ c.days_until }} {{ "Tag" if c.days_until == 1 else "Tagen" }}</span>
+      <h3>{{ c.title }}</h3>
+      <p class="cp-meta">{{ c.metric_label }} · {{ c.starts }} bis {{ c.ends }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if finished %}
+<section class="st-group">
+  <h2>Beendet</h2>
+  <div class="st-boards">
+    {% for c in finished %}
+    <article class="st-board cp-board">
+      <h3>{{ c.title }}</h3>
+      <p class="cp-meta">{{ c.metric_label }} · {{ c.starts }} bis {{ c.ends }}</p>
+      {{ standings(c, 3) }}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if not running and not upcoming and not finished %}
+<div class="srv-card st-empty-card">
+  <h3>Noch keine Wettbewerbe</h3>
+  <p>Sobald die Moderatoren einen Wettbewerb starten, siehst du ihn hier mit Live-Rangliste.</p>
+</div>
+{% endif %}
+{% endblock %}

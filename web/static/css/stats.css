@@ -730,3 +730,96 @@ a.pi-tile:hover { border-color: var(--srv-green); }
   background: #f7f8f7;
   resize: vertical;
 }
+
+/* ---------------------------------------------------------------- teams (/teams) */
+.tm-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 4px 0 18px; }
+.tm-pick .mcc-select { width: auto; min-width: 220px; }
+.tm-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.tm-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  background: var(--srv-card);
+  border: 1px solid var(--srv-border);
+  border-radius: 12px;
+}
+.tm-rank { font-family: var(--font-display); font-weight: 700; font-size: 22px; color: var(--srv-muted); text-align: right; }
+.tm-first .tm-rank { color: var(--srv-green-dark); }
+.tm-first .st-bar span { background: var(--srv-green-dark); }
+.tm-main { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.tm-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 18px; }
+.tm-count { color: var(--srv-muted); font-size: 14px; }
+.tm-members { list-style: none; display: flex; flex-wrap: wrap; gap: 4px; margin: 0; padding: 0; }
+.tm-members img { display: block; border-radius: 4px; image-rendering: pixelated; }
+.tm-value { text-align: right; }
+.tm-value strong { display: block; font-family: var(--font-display); font-size: 20px; white-space: nowrap; }
+.tm-value span { color: var(--srv-muted); font-size: 13px; white-space: nowrap; }
+@media (max-width: 600px) {
+  .tm-row { grid-template-columns: 28px minmax(0, 1fr); gap: 8px 12px; }
+  .tm-value { grid-column: 2; text-align: left; }
+}
+
+/* ---------------------------------------------------------------- competitions */
+.cp-row { grid-template-columns: 26px 28px minmax(0, 1fr) auto; }
+.cp-board { position: relative; }
+.cp-meta { color: var(--srv-muted); font-size: 14px; margin: -4px 0 10px; }
+.cp-badge {
+  display: inline-block;
+  margin-bottom: 8px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #e7f8ee;
+  color: #135f31;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.cp-badge-soon { background: #eef0ff; color: #3b44a8; }
+.cp-running { border-color: var(--srv-green); box-shadow: 0 0 0 1px var(--srv-green); }
+
+.cp-banner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px 32px;
+  align-items: center;
+  padding: 24px 28px;
+  background: var(--srv-card);
+  border: 1px solid var(--srv-green);
+  border-radius: 14px;
+  box-shadow: 0 0 0 1px var(--srv-green);
+}
+.cp-banner h2 { font-size: 28px; margin: 0 0 4px; }
+.cp-banner .cp-meta { margin: 0 0 16px; }
+.cp-podium { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.cp-podium li {
+  display: grid;
+  grid-template-columns: 26px 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--srv-bg);
+}
+.cp-podium li:first-child { background: #e7f8ee; }
+.cp-podium img { border-radius: 4px; image-rendering: pixelated; }
+.cp-place { font-family: var(--font-display); font-weight: 700; font-size: 18px; text-align: center; }
+.cp-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-value { font-family: var(--font-display); font-weight: 600; white-space: nowrap; }
+.cp-podium .cp-none { display: block; color: var(--srv-muted); }
+@media (max-width: 800px) { .cp-banner { grid-template-columns: 1fr; } }
+
+/* ---------------------------------------------------------------- achievements (player page) */
+.ac-tiles { grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); }
+.ac-tile { gap: 6px; border-top: 3px solid var(--tier, var(--srv-border)); }
+.ac-locked { background: #fafbfa; }
+.ac-locked .ac-name { color: var(--srv-muted); }
+.ac-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ac-name { font-family: var(--font-display); font-size: 18px; font-weight: 700; }
+.ac-tier { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--tier); }
+.ac-pips { display: flex; gap: 4px; }
+.ac-pips span { flex: 1; height: 5px; border-radius: 3px; background: #e6e9e6; }
+.ac-next { display: flex; flex-direction: column; gap: 4px; color: var(--srv-muted); font-size: 13px; }
+.ac-done { color: var(--srv-green-dark); font-weight: 700; }

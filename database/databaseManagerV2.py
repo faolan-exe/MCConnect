@@ -15,6 +15,7 @@ from psycopg2.pool import ThreadedConnectionPool
 from colorlogx import get_logger
 
 from . import config
+from . import achievements as achievements_mod
 from . import metrics as metrics_mod
 from . import stats as stats_mod
 from .minecraft import Minecraft
@@ -90,6 +91,29 @@ MIGRATIONS = {
              CHECK (ended_at IS NULL OR ended_at >= started_at))""",
         "CREATE INDEX player_sessions_player_idx ON player_sessions (player_id, started_at)",
         "CREATE INDEX player_sessions_started_idx ON player_sessions (started_at)",
+    ],
+    9: [
+        # earned tiers of the achievements in database/achievements.py
+        """CREATE TABLE player_achievements(
+             player_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             achievement text NOT NULL,
+             tier smallint NOT NULL,
+             earned_at timestamptz NOT NULL DEFAULT now(),
+             PRIMARY KEY (player_id, achievement, tier))""",
+        "CREATE INDEX player_achievements_earned_idx ON player_achievements (earned_at)",
+        # competitions: most gain of a metric between two days (inclusive)
+        """CREATE TABLE competitions(
+             id serial PRIMARY KEY,
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             title text NOT NULL,
+             metric text NOT NULL,
+             starts_on date NOT NULL,
+             ends_on date NOT NULL CHECK (ends_on >= starts_on),
+             created_by text,
+             created_at timestamptz NOT NULL DEFAULT now(),
+             start_announced boolean NOT NULL DEFAULT false,
+             end_announced boolean NOT NULL DEFAULT false)""",
+        "CREATE INDEX competitions_server_idx ON competitions (server_id, ends_on)",
     ],
 }
 MAX_GALLERY_IMAGES = 12
@@ -920,6 +944,9 @@ class DatabaseManager:
     def get_server_id_from_subdomain(self, subdomain):
         return self._fetchvalue("SELECT id FROM servers WHERE subdomain = lower(%s)", (subdomain,))
 
+    def get_subdomain_from_server_id(self, server_id):
+        return self._fetchvalue("SELECT subdomain FROM servers WHERE id = %s", (server_id,))
+
     def get_server_id_by_auth_key(self, auth_key):
         return self._fetchvalue("SELECT id FROM servers WHERE server_key = %s", (auth_key,))
 
@@ -1254,6 +1281,94 @@ class DatabaseManager:
         return self._fetchvalue("""SELECT count(*) FROM player_server_info WHERE server_id = %s
                                    AND first_seen >= %s::date::timestamptz AND first_seen < (%s::date + 1)::timestamptz""",
                                 (server_id, start, end))
+
+    ###----------------------------- Achievements ------------------------------------###
+
+    def get_player_metrics(self, player_id):
+        """{metric key: current value} of one player."""
+        columns, params = metrics_mod.sql_columns()
+        row = self._fetchone(f"SELECT {', '.join(columns)} FROM actions a WHERE a.player_id = %s AND a.category = ANY(%s)",
+                             (*params, player_id, metrics_mod.METRIC_CATEGORIES))
+        return {m.key: int(v) for m, v in zip(metrics_mod.METRICS, row)}
+
+    def award_achievements(self, player_id):
+        """Store the newly reached achievement tiers of a player. Returns [(achievement, tier)] of the new ones."""
+        values = self.get_player_metrics(player_id)
+        reached = [(a.key, tier) for a in achievements_mod.ACHIEVEMENTS
+                   for tier in range(achievements_mod.tier_of(a, values[a.metric]) + 1)]
+        if not reached:
+            return []
+        with self._cursor() as cur:
+            cur.execute("""INSERT INTO player_achievements (player_id, achievement, tier)
+                           SELECT %s, key, tier FROM unnest(%s::text[], %s::smallint[]) AS r(key, tier)
+                           ON CONFLICT DO NOTHING RETURNING achievement, tier""",
+                        (player_id, [k for k, _ in reached], [t for _, t in reached]))
+            rows = cur.fetchall()
+        return [(achievements_mod.ACHIEVEMENTS_BY_KEY[key], tier) for key, tier in rows]
+
+    def get_player_achievements(self, player_id):
+        """{(achievement key, tier): earned_at} of a player."""
+        return {(key, tier): at for key, tier, at in self._fetchall(
+            "SELECT achievement, tier, earned_at FROM player_achievements WHERE player_id = %s", (player_id,))}
+
+    ###----------------------------- Competitions ------------------------------------###
+
+    _COMPETITION_COLUMNS = "id, server_id, title, metric, starts_on, ends_on, created_by, start_announced, end_announced"
+
+    def _competition(self, row):
+        keys = [c.strip() for c in self._COMPETITION_COLUMNS.split(",")]
+        return dict(zip(keys, row))
+
+    def create_competition(self, server_id, title, metric, starts_on, ends_on, created_by=None):
+        return self._fetchvalue("""INSERT INTO competitions (server_id, title, metric, starts_on, ends_on, created_by)
+                                   VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
+                                (server_id, title, metric, starts_on, ends_on, created_by))
+
+    def delete_competition(self, server_id, competition_id):
+        return self._execute("DELETE FROM competitions WHERE id = %s AND server_id = %s",
+                             (competition_id, server_id)) > 0
+
+    def list_competitions(self, server_id):
+        """All competitions of a server, newest start first."""
+        return [self._competition(row) for row in self._fetchall(
+            f"SELECT {self._COMPETITION_COLUMNS} FROM competitions WHERE server_id = %s ORDER BY starts_on DESC, id DESC",
+            (server_id,))]
+
+    def get_competition(self, competition_id):
+        row = self._fetchone(f"SELECT {self._COMPETITION_COLUMNS} FROM competitions WHERE id = %s", (competition_id,))
+        return self._competition(row) if row else None
+
+    def get_competition_standings(self, competition):
+        """[{"player_id", "name", "uuid", "value"}] of a competition, best first (players with a gain only)."""
+        today = self.get_today()
+        if competition["starts_on"] > today:
+            return []
+        gains = self.get_metrics_between(competition["server_id"], competition["starts_on"],
+                                         min(competition["ends_on"], today))
+        names = {str(pid): (name, str(uuid)) for pid, name, uuid in self._fetchall(
+            """SELECT psi.player_id, p.name, psi.mojang_uuid FROM player_server_info psi
+               JOIN player p ON p.uuid = psi.mojang_uuid WHERE psi.server_id = %s""", (competition["server_id"],))}
+        rows = [{"player_id": pid, "name": names[pid][0], "uuid": names[pid][1], "value": values.get(competition["metric"], 0)}
+                for pid, values in gains.items() if pid in names]
+        return sorted((r for r in rows if r["value"] > 0), key=lambda r: (-r["value"], r["name"].lower()))
+
+    def take_due_competition_announcements(self, server_ids):
+        """
+        Competitions of the given servers that started or ended since the last call, marked
+        as announced: [("start" | "end", competition)]. A competition ends after its last day.
+        """
+        result = []
+        with self._cursor() as cur:
+            cur.execute(f"""UPDATE competitions SET start_announced = true
+                            WHERE server_id = ANY(%s) AND NOT start_announced
+                              AND starts_on <= current_date AND ends_on >= current_date
+                            RETURNING {self._COMPETITION_COLUMNS}""", (list(server_ids),))
+            result += [("start", self._competition(row)) for row in cur.fetchall()]
+            cur.execute(f"""UPDATE competitions SET end_announced = true, start_announced = true
+                            WHERE server_id = ANY(%s) AND NOT end_announced AND ends_on < current_date
+                            RETURNING {self._COMPETITION_COLUMNS}""", (list(server_ids),))
+            result += [("end", self._competition(row)) for row in cur.fetchall()]
+        return result
 
     def get_snapshot_start(self, server_id):
         """The day of the first snapshot on the server, or None."""
