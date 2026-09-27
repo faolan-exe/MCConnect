@@ -26,6 +26,17 @@ DISTANCE_OBJECTS = (
     "horse_one_cm", "minecart_one_cm", "pig_one_cm", "strider_one_cm", "happy_ghast_one_cm",
 )
 
+# German names of the ways to move (for the "favourite way to travel" highlight).
+MOVEMENT_LABELS = {
+    "minecraft:walk_one_cm": "Zu Fuß", "minecraft:sprint_one_cm": "Sprinten",
+    "minecraft:crouch_one_cm": "Schleichen", "minecraft:swim_one_cm": "Schwimmen",
+    "minecraft:walk_on_water_one_cm": "Über Wasser", "minecraft:walk_under_water_one_cm": "Unter Wasser",
+    "minecraft:climb_one_cm": "Klettern", "minecraft:fly_one_cm": "Fliegen", "minecraft:aviate_one_cm": "Elytra",
+    "minecraft:boat_one_cm": "Boot", "minecraft:horse_one_cm": "Pferd", "minecraft:minecart_one_cm": "Lore",
+    "minecraft:pig_one_cm": "Schwein", "minecraft:strider_one_cm": "Schreiter",
+    "minecraft:happy_ghast_one_cm": "Glücklicher Ghast",
+}
+
 GROUPS = (
     ("general", "Allgemein"),
     ("movement", "Bewegung"),
@@ -104,6 +115,14 @@ def format_value(metric, value):
     if metric.unit == "damage":
         return f"{_number(value / 20)} ♥"
     return _number(value)
+
+
+def format_count(value):
+    return _number(value)
+
+
+def format_distance(cm):
+    return format_value(METRICS_BY_KEY["distance"], cm)
 
 
 def object_label(name):

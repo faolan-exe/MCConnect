@@ -221,10 +221,16 @@
     rangeButtons.forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
     render();
   }));
-  let resizeTimer;
+  // only redraw when the width really changed (other scripts fire resize events too)
+  let timer;
+  let lastWidth = root.clientWidth;
   window.addEventListener("resize", () => {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(render, 150);
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (root.clientWidth === lastWidth) return;
+      lastWidth = root.clientWidth;
+      render();
+    }, 150);
   });
   render();
 })();

@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 
@@ -125,6 +126,7 @@ def test_player_info_stream(client, online_player):
     assert data[0] == PLAYER_UUID
     assert data[1] == "online"
     assert data[2] == 2
+    assert re.fullmatch(r"\d\d\.\d\d\.\d{4}, \d\d:\d\d Uhr", data[3])  # first seen with time
     assert data[6] == "1 Std."
 
 

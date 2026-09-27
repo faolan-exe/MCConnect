@@ -178,11 +178,7 @@ def player_overview_route():
     """Player list, or the stats of one player with ?player=<name>."""
     user_name = request.args.get("player")
     if not user_name:
-        players = db().get_players_overview_from_subdomain(g.subdomain)
-        prefixes = db().get_all_worn_prefixes(g.server["id"])
-        results = [[p["name"], p["uuid"], prefixes.get(p["uuid"])] for p in players]
-        status = ["online" if p["online"] else "offline" for p in players]
-        return render_template("spieler.html", results=results, status=status)
+        return player_list_page()
 
     player_id = db().get_player_id_from_player_name_and_server_id(user_name, g.server["id"])
     if player_id is None:
@@ -198,6 +194,7 @@ def player_overview_route():
 
     return render_template(
         "spieler-info.html", uuid=info["mojang_uuid"], user_name=info["name"], status=info["online"],
+        extras=player_extras(str(player_id)),
         player_prefix=db().get_player_prefix(player_id),
         banned=bool(banned), startdate=startdate, enddate=enddate,
         armor_stats=json.dumps(db().get_all_armor_stats(player_id)),
@@ -327,6 +324,85 @@ def compare_page():
                            period=period, periods=PERIODS, max_players=MAX_COMPARED_PLAYERS,
                            hint=period_hint(g.server["id"], PERIODS[period]),
                            prefixes=db().get_all_worn_prefixes(g.server["id"]))
+
+
+def top_placements(players):
+    """
+    {player_id: [(rank, metric, row)]} of every player's places in the rankings, best first.
+    Metrics where less is better (deaths) are left out: a top place there is no achievement.
+    """
+    places = {p["player_id"]: [] for p in players}
+    ids = {p["name"]: p["player_id"] for p in players}
+    for metric in (m for m in metrics_mod.METRICS if not m.lower_is_better):
+        for row in ranked(players, metric):
+            places[ids[row["name"]]].append((row["rank"], metric, row))
+    order = {m.key: i for i, m in enumerate(metrics_mod.METRICS)}
+    for player_id in places:
+        places[player_id].sort(key=lambda place: (place[0], order[place[1].key]))
+    return places
+
+
+def player_list_page():
+    players = db().get_server_metrics(g.server["id"])
+    details = db().get_player_list_details(g.server["id"])
+    prefixes = db().get_all_worn_prefixes(g.server["id"])
+    places = top_placements(players) if current_app.config["FEATURE_RANKINGS"] else {}
+    play_time = metrics_mod.METRICS_BY_KEY["play_time"]
+    rows = []
+    for index, p in enumerate(players):
+        info = details[p["player_id"]]
+        rows.append({
+            "index": index, "name": p["name"], "uuid": p["uuid"], "online": p["online"],
+            "prefix": prefixes.get(p["uuid"]),
+            "first_seen": info["first_seen"], "last_seen": info["last_seen"],
+            "moderator": info["moderator"], "is_op": info["is_op"], "banned": info["banned"],
+            "play_time": p["values"]["play_time"],
+            "play_time_text": metrics_mod.format_value(play_time, p["values"]["play_time"]),
+            "top": [(rank, metric.label) for rank, metric, _ in places.get(p["player_id"], []) if rank <= 3][:2],
+        })
+    return render_template("spieler.html", players=rows, online_count=sum(p["online"] for p in players))
+
+
+def player_extras(player_id):
+    """Highlights, ranking places and daily activity for the player page."""
+    database = db()
+    highlights = []
+    for label, category in (("Lieblingsblock", stats_mod.BLOCK_MINED), ("Meist getöteter Mob", stats_mod.MOB_KILLED),
+                            ("Häufigste Todesursache", stats_mod.MOB_KILLED_BY)):
+        top = database.get_top_objects([player_id], category, limit=1)
+        if top:
+            obj, values = top[0]
+            count = values[player_id]
+            suffix = {stats_mod.BLOCK_MINED: "abgebaut", stats_mod.MOB_KILLED: "getötet"}.get(category, "Tode")
+            highlights.append({"label": label, "value": metrics_mod.object_label(obj),
+                               "detail": f"{metrics_mod.format_count(count)} {suffix}"})
+    moves = database.get_stat_values(player_id, stats_mod.CUSTOM, metrics_mod.MOVEMENT_LABELS)
+    if moves:
+        obj, cm = max(moves.items(), key=lambda item: item[1])
+        highlights.append({"label": "Liebste Fortbewegung", "value": metrics_mod.MOVEMENT_LABELS[obj],
+                           "detail": metrics_mod.format_distance(cm)})
+
+    extras = {"highlights": highlights, "places": [], "activity": None}
+    if not current_app.config["FEATURE_RANKINGS"]:
+        return extras
+
+    players = database.get_server_metrics(g.server["id"])
+    places = top_placements(players).get(player_id, [])
+    extras["places"] = [{"rank": rank, "of": len(players), "label": metric.label, "text": row["text"]}
+                        for rank, metric, row in places[:6]]
+
+    dates, history = database.get_metric_history([player_id], 30)
+    cumulative = history[player_id]["play_time"]
+    days = []
+    for i in range(1, len(dates)):
+        before, after = cumulative[i - 1], cumulative[i]
+        seconds = None if before is None or after is None else max(0, after - before) / 20
+        days.append({"date": dates[i].isoformat(), "hours": None if seconds is None else round(seconds / 3600, 2),
+                     "text": "keine Daten" if seconds is None else format_time(seconds)})
+    if any(day["hours"] is not None for day in days):
+        extras["activity"] = {"days": days, "total": format_time(sum((d["hours"] or 0) * 3600 for d in days)),
+                              "active_days": sum(1 for d in days if d["hours"])}
+    return extras
 
 
 def player_required(view):
@@ -594,7 +670,7 @@ def stream_player_info(player_name):
 
     def player_info():
         info = database.get_player_info_by_player_id(player_id)
-        fmt = lambda ts: ts.strftime("%d.%m.%Y") if ts else "-"
+        fmt = lambda ts: ts.strftime("%d.%m.%Y, %H:%M Uhr") if ts else "-"
         deaths = _custom_stat(database, player_id, "minecraft:deaths")
         # Without a death the game counts time_since_death from the first join, which would be misleading.
         since_death = format_time(_custom_stat(database, player_id, "minecraft:time_since_death") / 20) if deaths else "-"

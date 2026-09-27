@@ -175,3 +175,37 @@ def test_rankings_can_be_disabled(db, server):
     client = app.test_client()
     assert client.get("/rangliste", base_url="http://testdomain.mc.test").status_code == 404
     assert "Rekorde" not in client.get("/", base_url="http://testdomain.mc.test").get_data(as_text=True)
+
+
+def test_player_list_page(client, db, server, two_players):
+    a, b = two_players
+    db.register_player_quit(server["id"], OTHER_UUID)
+    db.set_moderator(server["id"], "_Tobias4444", True)
+    db.set_player_op(server["id"], OTHER_UUID, True)
+    db.ban_player(server["id"], "Notch", "tobi", days=1)
+    html = client.get("/spieler", **on("testdomain")).get_data(as_text=True)
+    assert html.index("Notch") < html.index("_Tobias4444")  # sorted by name
+    assert "Moderator" in html and ">OP<" in html and "Gebannt" in html
+    assert 'data-online="1"' in html and 'data-last="20' in html
+    assert "Dabei seit" in html and "Spielzeit 1 Std." in html
+    assert "<b>#1</b> Blöcke abgebaut" in html
+    assert "</b> Tode" not in html  # no "achievement" for dying
+
+
+def test_player_page_extras(client, db, two_players):
+    a, _ = two_players
+    set_snapshot_day(db, a, 1)
+    db.update_player_stats(a, {"stats": dict(STATS_A["stats"], **{
+        "minecraft:custom": dict(STATS_A["stats"]["minecraft:custom"], **{"minecraft:play_time": 72000 + 36000})})})
+    html = client.get("/spieler?player=_Tobias4444", **on("testdomain")).get_data(as_text=True)
+    assert "Aktivität der letzten 30 Tage" in html
+    assert "Ranglisten-Plätze" in html and "Platz 1" in html
+    assert "Lieblingsblock" in html and "Stone" in html
+    assert "Liebste Fortbewegung" in html and "Zu Fuß" in html
+    assert '"text": "30 Min."' in html  # yesterday -> today
+
+
+def test_player_page_without_snapshots_has_no_activity(client, db, two_players):
+    html = client.get("/spieler?player=Notch", **on("testdomain")).get_data(as_text=True)
+    assert "Aktivität der letzten 30 Tage" not in html
+    assert "Highlights" in html

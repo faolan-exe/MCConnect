@@ -1075,6 +1075,29 @@ class DatabaseManager:
                                 for key, value in player["values"].items()}
         return players
 
+    def get_player_list_details(self, server_id):
+        """{player_id: {"first_seen", "last_seen", "is_op", "moderator", "banned"}} for the player list."""
+        rows = self._fetchall(f"""
+            SELECT psi.player_id, psi.first_seen, psi.last_seen, psi.is_op,
+                   psi.web_access_permissions <= %s OR (s.auto_mod_ops AND psi.is_op),
+                   EXISTS (SELECT 1 FROM banned_players bp
+                           WHERE bp.banned_player_id = psi.player_id AND {self._ACTIVE_BAN})
+            FROM player_server_info psi JOIN servers s ON s.id = psi.server_id
+            WHERE psi.server_id = %s""", (MODERATOR_LEVEL, server_id))
+        keys = ("first_seen", "last_seen", "is_op", "moderator", "banned")
+        return {str(row[0]): dict(zip(keys, row[1:])) for row in rows}
+
+    def get_stat_values(self, player_id, category, objects=None):
+        """{object: value} of one player and category, optionally only the given objects."""
+        if objects is None:
+            rows = self._fetchall("SELECT object, value FROM actions WHERE player_id = %s AND category = %s",
+                                  (player_id, category))
+        else:
+            rows = self._fetchall("""SELECT object, value FROM actions
+                                     WHERE player_id = %s AND category = %s AND object = ANY(%s)""",
+                                  (player_id, category, list(objects)))
+        return dict(rows)
+
     def get_snapshot_start(self, server_id):
         """The day of the first snapshot on the server, or None."""
         return self._fetchvalue("""SELECT min(s.day) FROM stat_snapshots s

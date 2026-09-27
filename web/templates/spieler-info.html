@@ -51,6 +51,9 @@
       href="{{ url_for ('static', filename='css/banned-banner.css') }}"
       rel="stylesheet"
     />
+    <link href="{{ url_for('static', filename='css/fonts.css') }}" rel="stylesheet" />
+    <link href="{{ url_for('static', filename='css/components.css') }}" rel="stylesheet" />
+    <link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet" />
 
     <style>
       :root {
@@ -335,6 +338,47 @@
 
         <!-- <p id="4" style="display: none">Loading</p> -->
 
+        {% if extras.highlights or extras.places or extras.activity %}
+        <section class="pi-extra">
+          {% if extras.activity %}
+          <h2>Aktivität der letzten 30 Tage</h2>
+          <div class="pi-activity">
+            <div class="pi-activity-sum">
+              <div><strong>{{ extras.activity.total }}</strong>gespielt</div>
+              <div><strong>{{ extras.activity.active_days }} von 30</strong>Tagen aktiv</div>
+            </div>
+            <div class="pi-chart" id="activity-chart"></div>
+          </div>
+          {% endif %}
+
+          {% if extras.places %}
+          <h2>Ranglisten-Plätze</h2>
+          <div class="pi-tiles">
+            {% for place in extras.places %}
+            <a class="pi-tile{% if place.rank == 1 %} pi-rank-1{% endif %}" href="/rangliste">
+              <span class="pi-tile-label">{{ place.label }}</span>
+              <span class="pi-rank"><b>Platz {{ place.rank }}</b><span>von {{ place.of }}</span></span>
+              <span class="pi-tile-detail">{{ place.text }}</span>
+            </a>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          {% if extras.highlights %}
+          <h2>Highlights</h2>
+          <div class="pi-tiles">
+            {% for item in extras.highlights %}
+            <div class="pi-tile">
+              <span class="pi-tile-label">{{ item.label }}</span>
+              <span class="pi-tile-value">{{ item.value }}</span>
+              <span class="pi-tile-detail">{{ item.detail }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </section>
+        {% endif %}
+
         <br />
         <br />
         <hr />
@@ -409,6 +453,10 @@
       </nav>
     </footer>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+    {% if extras.activity %}
+    <script id="activity-data" type="application/json">{{ extras.activity.days | tojson }}</script>
+    <script src="{{ url_for('static', filename='activity-chart.js') }}"></script>
+    {% endif %}
 
     <script>
       //Loading player model
@@ -436,6 +484,10 @@
           if (i == 0) {
             i += 1;
             continue;
+          }
+          if (i == 3) {
+            // "27.09.2026, 14:32 Uhr": date and time in two lines, the card is narrow
+            element = String(element).replace(", ", "<br>");
           }
           if (i == 1) {
             if (element == "offline") {

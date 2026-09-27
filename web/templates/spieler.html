@@ -1,93 +1,182 @@
+{% extends "server_base.html" %}
 {% from "_components.html" import prefix_chip %}
-<!DOCTYPE html>
-<html id="top" lang="en">
+{% block title %}Spieler · {{ server_name }}{% endblock %}
+{% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block page_class %}srv-page-wide{% endblock %}
+{% block content %}
+<div class="st-head">
+  <div>
+    <h1>Spieler</h1>
+    <p class="srv-lead">{{ players | length }} Spieler auf {{ server_name }} · <span id="online-count">{{ online_count }}</span> gerade online</p>
+  </div>
+</div>
 
-<head>
-    <meta charset="UTF-8" />
-    <meta content="IE=edge" http-equiv="X-UA-Compatible" />
-    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
-    <title>Spieler Übersicht</title>
+<div class="srv-card pl-tools">
+  <div class="pl-tools-row">
+    <label class="st-sr" for="player-search">Spieler suchen</label>
+    <input class="mcc-input pl-search" id="player-search" type="search" placeholder="Name suchen …" autocomplete="off"/>
+    <nav class="st-periods" aria-label="Sortierung">
+      <button type="button" data-sort="name">Name</button>
+      <button type="button" data-sort="last">Zuletzt online</button>
+      <button type="button" data-sort="play">Spielzeit</button>
+    </nav>
+  </div>
+  <div class="pl-filters" role="group" aria-label="Zuletzt online">
+    <button type="button" data-filter="all">Alle <span></span></button>
+    <button type="button" data-filter="online">Jetzt online <span></span></button>
+    <button type="button" data-filter="1">Letzte 24 Std. <span></span></button>
+    <button type="button" data-filter="7">Letzte 7 Tage <span></span></button>
+    <button type="button" data-filter="30">Letzte 30 Tage <span></span></button>
+    <button type="button" data-filter="inactive">Länger inaktiv <span></span></button>
+  </div>
+</div>
 
-    <link href="{{ url_for('static', filename='css/header.css') }}" rel="stylesheet"/>
-    <link href="{{ url_for('static', filename='css/index.css') }}" rel="stylesheet"/>
-    
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
-    <link href="{{ url_for('static', filename='css/player_list.css') }}" rel="stylesheet" />
-    <link href="{{ url_for('static', filename='css/fonts.css') }}" rel="stylesheet" />
-    <link href="{{ url_for('static', filename='css/components.css') }}" rel="stylesheet" />
-    {% if config.FEATURE_RANKINGS %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet" />{% endif %}
-
-    <link href="{{ url_for('static', filename='images/favicon.ico') }}" rel="icon" type="image/vnd.microsoft.icon"/>
-</head>
-
-<body>
-    {% include 'header.html' %}
-
-    <div class="content">
-        <div class="container mt-5">
-            {% for result in results %}
-            <ul class="list-group">
-                <li class="list-group-item" style="display: flex; align-items: center; gap: 12px;">
-                    <a class="text-decoration-none list-item-content" href="/spieler?player={{result[0]}}" style="justify-content: space-between;color:black;flex: 1;">
-
-
-                        <img alt="player_head" class="list-item-image" src="https://mc-heads.net/avatar/{{result[1]}}/64" />
-
-                        <div class="list-item-text">{% if result[2] %}{{ prefix_chip(result[2][0], result[2][1], prefix_colors) }} {% endif %}{{result[0]}}</div>
-
-                        <b class="status-text-{{ status[loop.index-1] | safe }} status-text-right" id="status-text-{{loop.index-1}}">{{ status[loop.index-1] | safe}}</b>
-
-
-                    </a>
-                    {% if config.FEATURE_RANKINGS %}<button class="cmp-add" type="button" data-compare="{{ result[0] }}" aria-label="{{ result[0] }} zum Vergleich hinzufügen">+</button>{% endif %}
-                </li>
-                {% endfor %}
-            </ul>
-        </div>
-        <div class="text"></div>
+<ul class="pl-list" id="player-list">
+  {% for p in players %}
+  <li class="pl-row" data-index="{{ p.index }}" data-name="{{ p.name | lower }}" data-online="{{ 1 if p.online else 0 }}"
+      data-last="{{ p.last_seen.isoformat() if p.last_seen else '' }}" data-play="{{ p.play_time }}">
+    <img class="pl-avatar" src="https://mc-heads.net/avatar/{{ p.uuid }}/64" alt="" width="44" height="44" loading="lazy"/>
+    <div class="pl-main">
+      <div class="pl-title">
+        <a class="pl-name" href="/spieler?player={{ p.name | urlencode }}">{% if p.prefix %}{{ prefix_chip(p.prefix[0], p.prefix[1], prefix_colors) }} {% endif %}{{ p.name }}</a>
+        {% if p.moderator %}<span class="pl-badge pl-badge-mod">Moderator</span>{% endif %}
+        {% if p.is_op %}<span class="pl-badge pl-badge-op">OP</span>{% endif %}
+        {% if p.banned %}<span class="pl-badge pl-badge-ban">Gebannt</span>{% endif %}
+      </div>
+      <div class="pl-meta">
+        {% if p.first_seen %}<span>Dabei seit {{ p.first_seen.strftime("%d.%m.%Y") }}</span>{% endif %}
+        <span>Spielzeit {{ p.play_time_text }}</span>
+      </div>
+      {% if p.top %}
+      <div class="pl-tops">
+        {% for rank, label in p.top %}<a class="pl-top" href="/rangliste"><b>#{{ rank }}</b> {{ label }}</a>{% endfor %}
+      </div>
+      {% endif %}
     </div>
-    <footer>
-        <nav>
-            <ul>
-                <li><a href="/impressum">Impressum</a></li>
-                <li><a href="/datenschutz">Datenschutz</a></li>
-                <li><a href="#">🡅</a></li>
-            </ul>
-        </nav>
-    </footer>
+    <div class="pl-status" data-role="status"></div>
+    {% if config.FEATURE_RANKINGS %}<button class="cmp-add" type="button" data-compare="{{ p.name }}" aria-label="{{ p.name }} zum Vergleich hinzufügen">+</button>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+<p class="srv-card st-empty-card pl-empty" id="player-empty" hidden>Kein Spieler passt zu deiner Suche.</p>
+{% endblock %}
 
-    {% if config.FEATURE_RANKINGS %}<script src="{{ url_for('static', filename='compare.js') }}"></script>{% endif %}
-    <script>
-        const eventSource = new EventSource("/api/status");
+{% block scripts %}
+{% if config.FEATURE_RANKINGS %}<script src="{{ url_for('static', filename='compare.js') }}"></script>{% endif %}
+<script>
+  (() => {
+    const DAY = 86400000;
+    const list = document.getElementById("player-list");
+    const rows = [...list.children];
+    const search = document.getElementById("player-search");
+    const sortButtons = [...document.querySelectorAll("[data-sort]")];
+    const filterButtons = [...document.querySelectorAll("[data-filter]")];
+    const params = new URLSearchParams(location.search);
+    const state = {
+      q: params.get("suche") || "",
+      sort: ["name", "last", "play"].includes(params.get("sortierung")) ? params.get("sortierung") : "name",
+      filter: filterButtons.some((b) => b.dataset.filter === params.get("filter")) ? params.get("filter") : "all",
+    };
+    search.value = state.q;
 
-        eventSource.onmessage = (event) => {
-            console.log(event.data.replaceAll("'", '"'));
-            const parsedArray = JSON.parse(event.data.replaceAll("'", '"'));
-            console.log(parsedArray);
-            // Iteration über das Array
-            i = 0;
-            for (const element of parsedArray) {
-                console.log(i + ": " + element);
-                if (element == "offline") {
-                    document
-                        .getElementById("status-text-" + i)
-                        .classList.remove("status-text-online");
-                    document
-                        .getElementById("status-text-" + i)
-                        .classList.add("status-text-offline");
-                } else {
-                    document
-                        .getElementById("status-text-" + i)
-                        .classList.remove("status-text-offline");
-                    document
-                        .getElementById("status-text-" + i)
-                        .classList.add("status-text-online");
-                }
-                document.getElementById("status-text-" + i).innerText = element;
-                i += 1;
-            }
-        };
-    </script>
-</body>
+    const pad = (n) => String(n).padStart(2, "0");
+    const absolute = (d) => `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}, ${pad(d.getHours())}:${pad(d.getMinutes())} Uhr`;
+    function relative(d) {
+      const minutes = Math.floor((Date.now() - d) / 60000);
+      if (minutes < 1) return "gerade eben";
+      if (minutes < 60) return `vor ${minutes} Min.`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `vor ${hours} Std.`;
+      const days = Math.floor(hours / 24);
+      if (days < 31) return days === 1 ? "gestern" : `vor ${days} Tagen`;
+      return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
+    }
+    const lastSeen = (row) => (row.dataset.online === "1" ? Date.now() : row.dataset.last ? Date.parse(row.dataset.last) : 0);
 
-</html>
+    function renderStatus(row) {
+      const status = row.querySelector('[data-role="status"]');
+      status.replaceChildren();
+      const dot = document.createElement("span");
+      const text = document.createElement("span");
+      if (row.dataset.online === "1") {
+        status.className = "pl-status pl-online";
+        text.textContent = "Online";
+        status.title = "Gerade auf dem Server";
+      } else if (row.dataset.last) {
+        const date = new Date(row.dataset.last);
+        status.className = "pl-status";
+        text.textContent = relative(date);
+        status.title = "Zuletzt online: " + absolute(date);
+      } else {
+        status.className = "pl-status";
+        text.textContent = "unbekannt";
+        status.title = "Noch nicht online gesehen";
+      }
+      status.append(dot, text);
+    }
+
+    function matches(row, filter) {
+      if (filter === "all") return true;
+      if (filter === "online") return row.dataset.online === "1";
+      const age = Date.now() - lastSeen(row);
+      if (filter === "inactive") return !lastSeen(row) || age > 30 * DAY;
+      return lastSeen(row) > 0 && age <= Number(filter) * DAY;
+    }
+
+    function apply() {
+      const query = state.q.trim().toLowerCase();
+      const found = rows.filter((row) => !query || row.dataset.name.includes(query));
+      filterButtons.forEach((b) => {
+        b.setAttribute("aria-pressed", String(b.dataset.filter === state.filter));
+        b.querySelector("span").textContent = found.filter((row) => matches(row, b.dataset.filter)).length;
+      });
+      sortButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.sort === state.sort)));
+
+      const sorted = [...rows].sort((a, b) => {
+        if (state.sort === "last") return lastSeen(b) - lastSeen(a) || a.dataset.index - b.dataset.index;
+        if (state.sort === "play") return b.dataset.play - a.dataset.play || a.dataset.index - b.dataset.index;
+        return a.dataset.index - b.dataset.index;
+      });
+      let visible = 0;
+      for (const row of sorted) {
+        row.hidden = !found.includes(row) || !matches(row, state.filter);
+        visible += row.hidden ? 0 : 1;
+        list.append(row);
+      }
+      document.getElementById("player-empty").hidden = visible > 0;
+
+      const url = new URLSearchParams();
+      if (state.q) url.set("suche", state.q);
+      if (state.sort !== "name") url.set("sortierung", state.sort);
+      if (state.filter !== "all") url.set("filter", state.filter);
+      history.replaceState(null, "", location.pathname + (url.toString() ? "?" + url : ""));
+    }
+
+    search.addEventListener("input", () => { state.q = search.value; apply(); });
+    sortButtons.forEach((b) => b.addEventListener("click", () => { state.sort = b.dataset.sort; apply(); }));
+    filterButtons.forEach((b) => b.addEventListener("click", () => { state.filter = b.dataset.filter; apply(); }));
+
+    rows.forEach(renderStatus);
+    apply();
+    setInterval(() => rows.forEach(renderStatus), 60000);
+
+    // live online status, in the same (name) order as the rows were rendered
+    const byIndex = [...rows].sort((a, b) => a.dataset.index - b.dataset.index);
+    new EventSource("/api/status").onmessage = (event) => {
+      const statuses = JSON.parse(event.data);
+      let changed = false;
+      statuses.forEach((status, i) => {
+        const row = byIndex[i];
+        const online = status === "online" ? "1" : "0";
+        if (!row || row.dataset.online === online) return;
+        if (online === "0") row.dataset.last = new Date().toISOString();  // just left
+        row.dataset.online = online;
+        renderStatus(row);
+        changed = true;
+      });
+      document.getElementById("online-count").textContent = statuses.filter((s) => s === "online").length;
+      if (changed) apply();
+    };
+  })();
+</script>
+{% endblock %}
