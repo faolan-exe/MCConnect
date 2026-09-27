@@ -1,3 +1,4 @@
+{% include "_theme.html" %}
 <script
   src="https://cdn.jsdelivr.net/gh/Tobias-Auer/messageBoxLib/messageBoxes.js"
   defer
@@ -139,6 +140,11 @@
             </div>
           </li>
           {% endif %}
+          <li class="theme-item">
+            <button type="button" class="theme-switch" id="theme-switch" onclick="mccCycleTheme()"
+                    title="Farbschema: Auto (wie das System), Dunkel oder Hell">Auto</button>
+            <script>window.mccApplyTheme();</script>
+          </li>
         </ul>
 
         <div class="login-group dropdown">

@@ -386,6 +386,7 @@ def server_stats_page():
     top_hour = max(max(row) for row in matrix)
     heatmap = [{"day": WEEKDAYS[d], "cells": [{
         "hour": h, "value": v,
+        "level": min(len(HEATMAP_RAMP) - 1, int(v / top_hour * len(HEATMAP_RAMP))) if v and top_hour else None,
         "color": HEATMAP_RAMP[min(len(HEATMAP_RAMP) - 1, int(v / top_hour * len(HEATMAP_RAMP)))] if v and top_hour else None,
         "tip": f"{WEEKDAYS[d]} {h}–{h + 1} Uhr: Ø {v:.1f} Spieler".replace(".", ","),
     } for h, v in enumerate(row)]} for d, row in enumerate(matrix)]
@@ -803,6 +804,116 @@ def duels_page():
 def report_page():
     return render_template("melden.html", players=db().get_players_overview_from_subdomain(g.subdomain),
                            reason_max=REPORT_REASON_MAX)
+
+
+################################ YEAR IN REVIEW #################################
+
+def year_rank(gains, visible, player_id, key):
+    """(rank, of) of a player by the year's gain of a metric among the visible players with a gain."""
+    values = sorted(((values.get(key, 0), pid) for pid, values in gains.items() if pid in visible and values.get(key, 0) > 0),
+                    reverse=True)
+    for index, (value, pid) in enumerate(values):
+        if pid == player_id:
+            return next(i for i, (v, _) in enumerate(values) if v == value) + 1, len(values)
+    return None, len(values)
+
+
+def year_review(player_id, year):
+    """Slides of a player's year: [{"kind", "kicker", "title", "big", "lines", "rank"}] and a summary."""
+    database = db()
+    server_id = g.server["id"]
+    gains, first_day = database.get_year_gains(server_id, year)
+    mine = gains.get(player_id, {})
+    visible = {p["player_id"] for p in database.get_server_metrics(server_id)}
+    m = metrics_mod.METRICS_BY_KEY
+    fmt = lambda key: metrics_mod.format_value(m[key], mine.get(key, 0))
+    rank_text = lambda key: (lambda r: f"Platz {r[0]} von {r[1]} auf dem Server" if r[0] else None)(
+        year_rank(gains, visible, player_id, key))
+    sessions = database.get_year_sessions(player_id, year)
+    events = database.get_year_events(player_id, year)
+    slides = []
+
+    if mine.get("play_time") or sessions["days"]:
+        lines = []
+        if sessions["days"]:
+            lines.append(f"An {len(sessions['days'])} Tagen online, {sessions['sessions']} Mal eingeloggt.")
+        if sessions["longest"] >= 60:
+            lines.append(f"Längste Sitzung: {format_time(sessions['longest'])}")
+        if sessions["weekday"] is not None:
+            lines.append(f"Am liebsten {WEEKDAY_NAMES[sessions['weekday']]}s gegen {sessions['hour']} Uhr.")
+        slides.append({"kind": "time", "kicker": "Spielzeit", "big": fmt("play_time"), "title": "hast du gespielt",
+                       "lines": lines, "rank": rank_text("play_time")})
+    if mine.get("blocks_mined"):
+        lines = [f"Darunter {fmt('diamonds')} Diamanterz und {fmt('ancient_debris')} Ancient Debris."
+                 if mine.get("diamonds") or mine.get("ancient_debris") else "Kein einziges Diamanterz – nächstes Jahr!"]
+        if mine.get("blocks_placed"):
+            lines.append(f"Und {fmt('blocks_placed')} Blöcke platziert.")
+        slides.append({"kind": "mining", "kicker": "Abbau", "big": fmt("blocks_mined"), "title": "Blöcke abgebaut",
+                       "lines": lines, "rank": rank_text("blocks_mined")})
+    if mine.get("distance"):
+        km = mine["distance"] / 100_000
+        lines = [f"Davon {fmt('distance_elytra')} mit der Elytra." if mine.get("distance_elytra") else "Alles ohne Elytra."]
+        if km >= motivation.MARATHON_KM:
+            lines.append(f"Das sind {metrics_mod.format_count(int(km / motivation.MARATHON_KM))} Marathons.")
+        if mine.get("jumps"):
+            lines.append(f"{fmt('jumps')} Mal gesprungen.")
+        slides.append({"kind": "travel", "kicker": "Unterwegs", "big": fmt("distance"), "title": "zurückgelegt",
+                       "lines": lines, "rank": rank_text("distance")})
+    if mine.get("mob_kills") or mine.get("deaths"):
+        lines = [f"{fmt('deaths')} Mal gestorben."] if mine.get("deaths") else ["Kein einziges Mal gestorben!"]
+        if mine.get("fish_caught"):
+            lines.append(f"Nebenbei {fmt('fish_caught')} Fische geangelt.")
+        slides.append({"kind": "fight", "kicker": "Abenteuer", "big": fmt("mob_kills"), "title": "Mobs besiegt",
+                       "lines": lines, "rank": rank_text("mob_kills")})
+    if events["achievements"]:
+        best = {}
+        for key, tier, _ in events["achievements"]:
+            best[key] = max(best.get(key, -1), tier)
+        top = sorted(best.items(), key=lambda item: -item[1])[:4]
+        slides.append({"kind": "achievements", "kicker": "Erfolge", "big": str(len(events["achievements"])),
+                       "title": "Erfolgsstufen erreicht",
+                       "lines": [f"{achievements_mod.ACHIEVEMENTS_BY_KEY[k].name}: {achievements_mod.TIERS[t][1]}"
+                                 for k, t in top if k in achievements_mod.ACHIEVEMENTS_BY_KEY], "rank": None})
+    honours = []
+    for t in events["trophies"]:
+        honours.append(f"{t['place']}. Platz im Wettbewerb »{t['title']}«" if t["kind"] == "competition"
+                       else f"Spieler der Woche ({t['title']})")
+    for metric_key, _, _ in events["records"]:
+        if metric_key in m:
+            honours.append(f"Rekord geholt: {m[metric_key].label}")
+    for milestone in events["milestones"]:
+        honours.append(motivation.milestone_label(milestone["kind"], milestone["value"]))
+    if honours:
+        slides.append({"kind": "honours", "kicker": "Ruhm", "big": str(len(honours)),
+                       "title": "Auszeichnungen" if len(honours) != 1 else "Auszeichnung",
+                       "lines": list(dict.fromkeys(honours))[:6], "rank": None})
+    summary = [(m[key].label, fmt(key)) for key in ("play_time", "blocks_mined", "distance", "mob_kills", "deaths")
+               if mine.get(key)]
+    return slides, summary, first_day
+
+
+@server_bp.route("/rueckblick/<path:player_name>")
+def year_review_page(player_name):
+    player_id = db().get_player_id_from_player_name_and_server_id(player_name, g.server["id"])
+    if player_id is None:
+        abort(404)
+    info = db().get_player_info_by_player_id(player_id)
+    viewer = logged_in_player_id()
+    if info["hide_stats"] and str(viewer) != str(player_id):
+        abort(404)
+    today = db().get_today()
+    try:
+        year = int(request.args.get("jahr", today.year))
+    except ValueError:
+        abort(404)
+    if not 2020 <= year <= today.year:
+        abort(404)
+    slides, summary, first_day = year_review(str(player_id), year)
+    since = first_day.strftime("%d.%m.") if first_day and (first_day.month, first_day.day) != (1, 1) else None
+    return render_template("rueckblick.html", player=info["name"], uuid=str(info["mojang_uuid"]), year=year,
+                           slides=slides, summary=summary, since=since, running=year == today.year,
+                           share_url=url_for("server.year_review_page", subdomain=g.subdomain, player_name=info["name"],
+                                             jahr=year, _external=True))
 
 
 ################################ ACCESS, RULES #################################
@@ -2224,7 +2335,11 @@ def admin_required(view=None, *, allow_upload=False):
 
 @main_bp.route("/")
 def main_index_route():
-    return render_template("index-main.html")
+    servers = db().get_directory()
+    for server in servers:
+        server["url"] = f"{config.PUBLIC_SCHEME}://{server['subdomain']}.{current_app.config['SERVER_NAME']}/"
+        server["banner_url"] = image_url(server["banner"]) if server["banner"] else None
+    return render_template("index-main.html", servers=servers)
 
 
 @main_bp.route("/login")
@@ -2440,7 +2555,7 @@ def _validate_server_fields(data, current=None):
             return None, f"Feld '{key}' muss {min_len}-{max_len} Zeichen lang sein."
         optional = key in ("mc_server_domain", "discord_url")
         fields[key] = (value or None) if optional else value
-    for flag in ("whitelist", "auto_mod_ops", "alerts_enabled"):
+    for flag in ("whitelist", "auto_mod_ops", "alerts_enabled", "listed"):
         if flag in data or current is None:
             fields[flag] = data.get(flag) in (True, "true", "on", "1", 1)
 

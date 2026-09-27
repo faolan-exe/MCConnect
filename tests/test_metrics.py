@@ -94,14 +94,17 @@ def test_gain_uses_newest_snapshot_before_range(db, server, two_players):
 
 
 def test_old_snapshots_are_pruned_but_newest_kept(db, two_players):
+    """Old snapshots go, except the newest old one (baseline) and the first and last of every year."""
     a, _ = two_players
-    set_snapshot_day(db, a, 200)
+    year = db.get_today().year - 2
+    with db._cursor() as cur:
+        for day in (f"{year}-01-05", f"{year}-02-10", f"{year}-03-15", f"{year + 1}-04-01", f"{year + 1}-05-01",
+                    f"{year + 1}-06-01"):
+            cur.execute("INSERT INTO stat_snapshots (player_id, metric, day, value) VALUES (%s, 'deaths', %s, 1)", (a, day))
     db.update_player_stats(a, STATS_A)
-    set_snapshot_day(db, a, 150)
-    db.update_player_stats(a, STATS_A)
-    days = [row[0] for row in db._fetchall(
-        "SELECT current_date - day FROM stat_snapshots WHERE player_id = %s AND metric = 'deaths' ORDER BY day", (a,))]
-    assert days == [150, 0]
+    days = [str(row[0]) for row in db._fetchall(
+        "SELECT day FROM stat_snapshots WHERE player_id = %s AND metric = 'deaths' AND day < current_date ORDER BY day", (a,))]
+    assert days == [f"{year}-01-05", f"{year}-03-15", f"{year + 1}-04-01", f"{year + 1}-06-01"]
 
 
 def test_metric_history(db, two_players):

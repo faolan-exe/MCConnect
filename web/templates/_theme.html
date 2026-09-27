@@ -1,0 +1,23 @@
+{# Dark mode: theme script (sets <html data-dark>) and dark.css; included by header.html and the pages without it. #}
+<script>
+  // theme: "light", "dark" or unset (follow the system); sets <html data-dark> for dark.css
+  (() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const stored = () => { try { return localStorage.getItem("mcc-theme"); } catch (e) { return null; } };
+    window.mccApplyTheme = () => {
+      const theme = stored();
+      const dark = theme === "dark" || (theme !== "light" && media.matches);
+      document.documentElement.toggleAttribute("data-dark", dark);
+      const button = document.getElementById("theme-switch");
+      if (button) button.textContent = theme === "dark" ? "Dunkel" : theme === "light" ? "Hell" : "Auto";
+    };
+    window.mccCycleTheme = () => {
+      const next = { null: "dark", dark: "light", light: null }[stored()];
+      try { next ? localStorage.setItem("mcc-theme", next) : localStorage.removeItem("mcc-theme"); } catch (e) {}
+      window.mccApplyTheme();
+    };
+    media.addEventListener("change", window.mccApplyTheme);
+    window.mccApplyTheme();
+  })();
+</script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dark.css') }}"/>

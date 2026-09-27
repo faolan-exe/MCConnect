@@ -52,6 +52,11 @@
     <p class="hint">Noch keine Messwerte. Das Plugin schickt sie ab Version 3.2 jede Minute.</p>
     {% endif %}
     <label style="font-weight: 400; display: flex; gap: 8px; align-items: center">
+      <input type="checkbox" style="width: auto" {% if server.listed %}checked{% endif %}
+             onchange="setListed({{ server.id }}, this)" />
+      Im öffentlichen Serververzeichnis auf der MCConnect-Startseite zeigen
+    </label>
+    <label style="font-weight: 400; display: flex; gap: 8px; align-items: center">
       <input type="checkbox" style="width: auto" {% if server.alerts_enabled %}checked{% endif %}
              onchange="setAlerts({{ server.id }}, this)" />
       E-Mail an mich, wenn der Server länger als 5 Minuten offline ist oder laggt (unter 15 TPS)
@@ -369,6 +374,17 @@ port: {{ plugin_port }}</pre>
       loadModerators(serverId);
     } else {
       showMessage(message, result.data.error || "Das hat nicht geklappt.", "error");
+    }
+  }
+
+  async function setListed(serverId, checkbox) {
+    const result = await postJson(`/api/servers/${serverId}/update`, { listed: checkbox.checked });
+    const message = document.getElementById("alerts-message-" + serverId);
+    if (result.ok) {
+      showMessage(message, checkbox.checked ? "Der Server steht im Verzeichnis." : "Der Server ist nicht mehr im Verzeichnis.", "success");
+    } else {
+      checkbox.checked = !checkbox.checked;
+      showMessage(message, result.data.error || "Speichern fehlgeschlagen.", "error");
     }
   }
 

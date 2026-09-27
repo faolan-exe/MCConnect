@@ -373,6 +373,10 @@ MIGRATIONS = {
         "ALTER TABLE player_server_info ADD COLUMN muted_until timestamptz",
         "ALTER TABLE player_server_info ADD COLUMN mute_reason text",
     ],
+    17: [
+        # public server directory on the main domain (owners can opt out)
+        "ALTER TABLE servers ADD COLUMN listed boolean NOT NULL DEFAULT true",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -810,13 +814,18 @@ class DatabaseManager:
                 ON CONFLICT (player_id, metric, day) DO UPDATE SET value = EXCLUDED.value
                 WHERE stat_snapshots.value IS DISTINCT FROM EXCLUDED.value""", snapshot)
             # Keep the newest snapshot before today even if it is old: it is the baseline
-            # for players that come back after a long break.
+            # for players that come back after a long break. The first and the last snapshot of
+            # every year are kept for the year in review.
             cur.execute("""
                 DELETE FROM stat_snapshots s
                 WHERE s.player_id = %s AND s.day < current_date - %s
                   AND EXISTS (SELECT 1 FROM stat_snapshots n
                               WHERE n.player_id = s.player_id AND n.metric = s.metric
-                                AND n.day > s.day AND n.day < current_date)""",
+                                AND n.day > s.day AND n.day < current_date)
+                  AND EXISTS (SELECT 1 FROM stat_snapshots e WHERE e.player_id = s.player_id AND e.metric = s.metric
+                                AND e.day < s.day AND date_trunc('year', e.day) = date_trunc('year', s.day))
+                  AND EXISTS (SELECT 1 FROM stat_snapshots l WHERE l.player_id = s.player_id AND l.metric = s.metric
+                                AND l.day > s.day AND date_trunc('year', l.day) = date_trunc('year', s.day))""",
                         (player_id, SNAPSHOT_RETENTION_DAYS))
         logger.info(f'Updated stats of player "{player_id}" ({len(data)} values)')
         return len(data)
@@ -1292,7 +1301,7 @@ class DatabaseManager:
 
     def update_server(self, server_id, owner_id, **fields):
         """Update editable server fields; only succeeds for the owner. Returns True if updated."""
-        allowed = {"server_name", "mc_server_domain", "discord_url", "whitelist", "auto_mod_ops", "alerts_enabled",
+        allowed = {"server_name", "mc_server_domain", "discord_url", "whitelist", "auto_mod_ops", "alerts_enabled", "listed",
                    "server_description_short", "server_description_long"}
         fields = {k: v for k, v in fields.items() if k in allowed}
         if not fields:
@@ -2859,6 +2868,74 @@ class DatabaseManager:
     def mark_alert_sent(self, server_id, kind):
         column = "alert_offline_at" if kind == "offline" else "alert_tps_at"
         self._execute(f"UPDATE servers SET {column} = now() WHERE id = %s", (server_id,))
+
+    ###----------------------------- Year in review ------------------------------------###
+
+    def get_year_gains(self, server_id, year):
+        """
+        ({player_id: {metric: gain}}, first day) of a calendar year: the last minus the first snapshot
+        within the year (a player's first snapshot is the start of the recording for them).
+        """
+        rows = self._fetchall("""
+            WITH s AS (SELECT s.player_id, s.metric, s.day, s.value FROM stat_snapshots s
+                       JOIN player_server_info psi ON psi.player_id = s.player_id
+                       WHERE psi.server_id = %s AND extract(year FROM s.day) = %s)
+            SELECT player_id, metric, (array_agg(value ORDER BY day DESC))[1] - (array_agg(value ORDER BY day))[1], min(day)
+            FROM s GROUP BY player_id, metric""", (server_id, year))
+        gains, first = {}, None
+        for player_id, metric, gain, day in rows:
+            gains.setdefault(str(player_id), {})[metric] = max(0, int(gain))
+            first = day if first is None or day < first else first
+        return gains, first
+
+    def get_year_sessions(self, player_id, year):
+        """Session facts of a player in a year: days, count, longest (seconds), per weekday/hour counts, first day."""
+        days = self._fetchall("""
+            SELECT DISTINCT d::date FROM player_sessions ps
+            CROSS JOIN LATERAL generate_series(ps.started_at::date, COALESCE(ps.ended_at, now())::date, interval '1 day') d
+            WHERE ps.player_id = %s AND extract(year FROM d) = %s ORDER BY 1""", (player_id, year))
+        row = self._fetchone("""
+            SELECT count(*), max(extract(epoch FROM COALESCE(ended_at, now()) - started_at)),
+                   mode() WITHIN GROUP (ORDER BY extract(isodow FROM started_at)),
+                   mode() WITHIN GROUP (ORDER BY extract(hour FROM started_at))
+            FROM player_sessions WHERE player_id = %s AND extract(year FROM started_at) = %s""", (player_id, year))
+        return {"days": [d[0] for d in days], "sessions": row[0] or 0, "longest": float(row[1] or 0),
+                "weekday": int(row[2]) - 1 if row[2] is not None else None, "hour": int(row[3]) if row[3] is not None else None}
+
+    def get_year_events(self, player_id, year):
+        """Achievement tiers, trophies, records taken and milestones of a player in a year."""
+        achievements = self._fetchall("""SELECT achievement, tier, earned_at FROM player_achievements
+                                        WHERE player_id = %s AND extract(year FROM earned_at) = %s ORDER BY earned_at""",
+                                      (player_id, year))
+        trophies = [t for t in self.get_player_trophies(player_id) if t["awarded_at"].year == year]
+        records = self._fetchall("""
+            SELECT h.metric, h.value, h.since FROM (
+                SELECT rh.*, lag(rh.id) OVER (PARTITION BY rh.server_id, rh.metric ORDER BY rh.since, rh.id) AS prev
+                FROM record_history rh
+                WHERE rh.server_id = (SELECT server_id FROM player_server_info WHERE player_id = %s)) h
+            WHERE h.player_id = %s AND h.prev IS NOT NULL AND extract(year FROM h.since) = %s""", (player_id, player_id, year))
+        milestones = [m for m in self.get_player_milestones(player_id) if m["reached_at"].year == year]
+        return {"achievements": achievements, "trophies": trophies, "records": records, "milestones": milestones}
+
+    ###----------------------------- Server directory ------------------------------------###
+
+    def get_directory(self):
+        """Listed servers that have been connected at least once, most players online first."""
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT s.id, s.subdomain, s.server_name, s.server_description_short, s.mc_server_domain, s.whitelist,
+                       s.discord_url,
+                       s.plugin_connected AND s.plugin_last_seen > now() - make_interval(secs => %s) AS online,
+                       (SELECT count(*) FROM player_server_info psi WHERE psi.server_id = s.id AND psi.online) AS players_online,
+                       (SELECT count(*) FROM player_server_info psi WHERE psi.server_id = s.id) AS players,
+                       (SELECT count(DISTINCT ps.player_id) FROM player_sessions ps JOIN player_server_info psi
+                          ON psi.player_id = ps.player_id WHERE psi.server_id = s.id
+                          AND ps.started_at > now() - interval '7 days') AS active_week,
+                       (SELECT filename FROM server_images si WHERE si.server_id = s.id AND si.kind = 'banner' LIMIT 1) AS banner
+                FROM servers s WHERE s.listed AND s.plugin_last_seen IS NOT NULL
+                ORDER BY online DESC, players_online DESC, active_week DESC, lower(s.server_name)""", (PLUGIN_ONLINE_SECONDS,))
+            columns = [d[0] for d in cur.description]
+            return [dict(zip(columns, row)) for row in cur.fetchall()]
 
     ###----------------------------- Hall of fame ------------------------------------###
 

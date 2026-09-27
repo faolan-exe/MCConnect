@@ -231,3 +231,21 @@ summary { cursor: pointer; font-weight: 600; }
 .health-good { color: #1f8f47; }
 .health-warning { color: #9a6700; }
 .health-critical { color: #b3261e; }
+
+/* public server directory on the main page */
+.dir { margin: 8px 0 28px; }
+.dir-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.dir-head h2 { margin: 0; }
+.dir-search { max-width: 280px; }
+.dir-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 14px; }
+.dir-card { display: flex; flex-direction: column; border: 1px solid #dfe3df; border-radius: 12px; overflow: hidden; background: #fff; color: #1b1f1d; text-decoration: none; }
+.dir-card[hidden] { display: none; }
+.dir-card:hover { border-color: #2fbf62; }
+.dir-banner { height: 92px; background: #0f1512 center / cover; }
+.dir-body { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px 14px; }
+.dir-title { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.dir-title b { font-size: 18px; }
+.dir-status { font-size: 12px; font-weight: 700; color: #5c6862; white-space: nowrap; }
+.dir-online { color: #1f8f47; }
+.dir-text { font-size: 15px; }
+.dir-meta { font-size: 13px; color: #5c6862; }

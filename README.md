@@ -31,7 +31,7 @@ Preview:
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 docker compose -f docker/db/docker-compose.yml -p mcconnect up -d   # local postgres
-.venv/bin/python -m pytest -q -p no:logging                         # ~350 tests, uses database mcconnect_test
+.venv/bin/python -m pytest -q -p no:logging                         # ~410 tests, uses database mcconnect_test
 .venv/bin/python -m database.manage seed                            # dev admin 'tobi' + server 'testdomain'
 .venv/bin/python mc_socket/main.py                                  # plugin socket on :9991
 .venv/bin/python web/main.py                                        # http://mc.t-auer.local:5000
@@ -45,7 +45,7 @@ docker compose -f docker/db/docker-compose.yml -p mcconnect up -d   # local post
 
 ## Status and next steps
 
-State of 2026-09-27 (schema version 16, plugin 3.6). Written as a handoff for the next development
+State of 2026-09-27 (schema version 17, plugin 3.6). Written as a handoff for the next development
 session; `docs/HANDOFF_spielervergleich.md` is the older handoff for the rankings feature (data model,
 stat units, screenshot workflow) and still useful as background.
 
@@ -69,6 +69,7 @@ stat units, screenshot workflow) and still useful as background.
 | In game (phase 6) | `mc_socket/commands.py` | `/stats`, `/top`, `/wettbewerb`, `/duell`, `/report`, `/seitenleiste` answered by the socket server (`!CMD` → `!tell`); scoreboard sidebar (`!sidebar`, setting also on `/profil`); duels (`duels`, `/duelle`), reports (`reports`, `/melden`, list on `/users`, online moderators get a chat message) |
 | Community (phase 7) | `/events`, `/umfragen`, `/galerie`, player page | event calendar with sign up and chat reminder (`events`, `event_signups`, `/events` in game), polls (`polls`, `poll_votes`, `/vote`, result in chat), build gallery with approval and likes (`builds`, `build_likes`, uploads like the server images), guestbook on the player page (`guestbook`, report/delete); created and moderated on `/users` (jump links at the top) |
 | Moderation & access (phase 8) | `/mitmachen`, `/regeln`, `/users`, `/manage` | whitelist access per server by application and/or invite code (`access_requests`, `invite_codes`; the plugin runs `whitelist add`, also after a reconnect; the kick message links to `/mitmachen`) – codes can only be entered on the website, a player who is not on the whitelist cannot run commands; warnings with automatic ban after X (`warnings`), mutes (chat and `/msg`), also `/verwarnen`, `/stumm`, `/entstummen` in the game; X-ray hints; e-mail alerts to the owner (offline > 5 min, TPS < 15, sent by the socket server); rules & FAQ page, link on the first join; server health on the admin page |
+| Reach & design (phase 9) | `/rueckblick/<name>`, main page, `web/static/css/dark.css` | year in review to click through and share (year gains from the first/last snapshot of the year – both are now kept forever, sessions, achievements, trophies, records); public server directory on the main domain (`servers.listed`, opt out on `/manage`); dark mode for all server pages incl. the old ones: `_theme.html` sets `<html data-dark>` from the system setting or the switch in the header (Auto/Dunkel/Hell, localStorage), `dark.css` redefines the `--srv-*` tokens and overrides the hard-coded colors |
 | Plugin | `java plugin/MCDataLink` | 3.1 `!broadcast` (chat), 3.2 `!HEALTH` every minute, 3.3 live stats of online players every minute (`live-stats` in config.yml), 3.4 in-game commands and sidebar (`InGameCommands`, `Sidebar`), 3.5 `/vote` and `/events`, 3.6 mutes, whitelist sync, join link, moderator commands (`Moderation`) |
 
 Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all of the above in
@@ -78,10 +79,17 @@ Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all
 
 - Privacy policy (`web/templates/legal_datenschutz.html`): the stat card makes the server fetch heads
   from mc-heads.net (only the UUID is sent); not mentioned yet.
+- Phases 5-9 were built in one go without feedback rounds; screenshots were checked, the owner's visual feedback is
+  still missing. The plugin 3.4-3.6 features compile but were not tested on a real Minecraft server
+  (sidebar with prefix name tags, mutes, `whitelist add`, kick message).
+- Invite codes can only be redeemed on the website: a player who is not on the whitelist cannot join, so there is
+  no way to type a code in the game.
+- The year in review only knows gains since the snapshots started (schema 7); 2026 starts at the first snapshot.
+- New CSS should use the `--srv-*` / `--st-*` tokens (or get a rule in `dark.css`), otherwise it stays light in dark mode.
 - Older open points: `/pardon` in game does not lift a website ban; `database/manage.py seed` is dev only;
   the plugin connection (port 9991) is not encrypted.
 
-### Planned (picked on 2026-09-27, build phase by phase with screenshots and feedback)
+### Built on 2026-09-27 (phases 5-9, all done – feedback from the owner still open)
 
 1. ~~**Phase 5 – Motivation**~~ (done, see above): streaks (days online in a row, ranking, badges at 7/30/100),
    community goals (server-wide goal with progress bar, created by moderators), record history
@@ -101,7 +109,7 @@ Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all
    X-ray suspicion hints for moderators (unusual ore/stone ratio or ores per hour, hint only); e-mail alert
    to the admin when the server goes offline or the TPS stay below 15 (SMTP exists); rules & FAQ page,
    **optional per server**, shown with a link on the first join.
-5. **Phase 9 – Reach & design**: personal year in review "Wrapped" (to click through and share; best built
+5. ~~**Phase 9 – Reach & design**~~ (done, see above): personal year in review "Wrapped" (to click through and share; best built
    for December when a year of snapshots exists), public server directory on the main domain (opt out per
    server), dark mode for all server pages (incl. the old templates).
 

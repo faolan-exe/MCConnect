@@ -1,0 +1,91 @@
+{% extends "server_base.html" %}
+{% block title %}Jahresrückblick {{ year }} von {{ player }} · {{ server_name }}{% endblock %}
+{% block head %}
+<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>
+<meta property="og:title" content="Jahresrückblick {{ year }} von {{ player }} auf {{ server_name }}"/>
+<meta property="og:image" content="{{ url_for('server.player_card', subdomain=g.subdomain, player_name=player, _external=True) }}"/>
+{% endblock %}
+{% block content %}
+<div class="yr" id="review" tabindex="-1">
+  <div class="yr-stage" aria-live="polite">
+    <section class="yr-slide yr-intro" data-slide>
+      <img src="https://mc-heads.net/body/{{ uuid }}/120" alt="" width="84" loading="lazy"/>
+      <span class="yr-kicker">{{ server_name }}</span>
+      <h1>{{ player ~ ("’" if player[-1] in "sSßxXzZ" else "s") }} Jahr {{ year }}</h1>
+      <p>{% if running %}Bisher – das Jahr läuft noch.{% else %}Ein Rückblick in {{ slides | length + 2 }} Bildern.{% endif %}
+        {% if since %}<br/>Aufgezeichnet seit dem {{ since }}{% endif %}</p>
+    </section>
+    {% for s in slides %}
+    <section class="yr-slide yr-{{ s.kind }}" data-slide hidden>
+      <span class="yr-kicker">{{ s.kicker }}</span>
+      <strong class="yr-big">{{ s.big }}</strong>
+      <span class="yr-title">{{ s.title }}</span>
+      {% if s.lines %}<ul class="yr-lines">{% for line in s.lines %}<li>{{ line }}</li>{% endfor %}</ul>{% endif %}
+      {% if s.rank %}<span class="yr-rank">{{ s.rank }}</span>{% endif %}
+    </section>
+    {% endfor %}
+    <section class="yr-slide yr-summary" data-slide hidden>
+      <span class="yr-kicker">Zusammengefasst</span>
+      <h2>{{ player }} · {{ year }}</h2>
+      {% if summary %}
+      <dl class="yr-grid">{% for label, value in summary %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endfor %}</dl>
+      {% else %}
+      <p>Für {{ year }} gibt es noch keine Werte.</p>
+      {% endif %}
+      <div class="yr-share">
+        <button class="mcc-btn" type="button" id="yr-share">Rückblick teilen</button>
+        <a class="mcc-btn mcc-btn-secondary" href="/spieler?player={{ player | urlencode }}">Zur Spielerseite</a>
+      </div>
+    </section>
+  </div>
+  <div class="yr-controls">
+    <button type="button" class="yr-nav" data-step="-1" aria-label="Zurück">←</button>
+    <div class="yr-dots" aria-hidden="true">{% for _ in range(slides | length + 2) %}<span></span>{% endfor %}</div>
+    <button type="button" class="yr-nav" data-step="1" aria-label="Weiter">→</button>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  (() => {
+    const slides = [...document.querySelectorAll("[data-slide]")];
+    const dots = [...document.querySelectorAll(".yr-dots span")];
+    let index = 0;
+    function show(next) {
+      index = Math.max(0, Math.min(slides.length - 1, next));
+      slides.forEach((slide, i) => (slide.hidden = i !== index));
+      dots.forEach((dot, i) => dot.classList.toggle("yr-on", i <= index));
+      document.querySelector('[data-step="-1"]').disabled = index === 0;
+      document.querySelector('[data-step="1"]').disabled = index === slides.length - 1;
+    }
+    document.querySelectorAll("[data-step]").forEach((button) =>
+      button.addEventListener("click", () => show(index + Number(button.dataset.step))));
+    document.querySelector(".yr-stage").addEventListener("click", (event) => {
+      if (event.target.closest("a, button")) return;
+      const box = event.currentTarget.getBoundingClientRect();
+      show(index + (event.clientX - box.left < box.width / 3 ? -1 : 1));
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowRight" || event.key === " ") { event.preventDefault(); show(index + 1); }
+      if (event.key === "ArrowLeft") show(index - 1);
+    });
+    let touchX = null;
+    document.querySelector(".yr-stage").addEventListener("touchstart", (e) => (touchX = e.touches[0].clientX), { passive: true });
+    document.querySelector(".yr-stage").addEventListener("touchend", (e) => {
+      if (touchX === null) return;
+      const dx = e.changedTouches[0].clientX - touchX;
+      if (Math.abs(dx) > 40) show(index + (dx < 0 ? 1 : -1));
+      touchX = null;
+    });
+    document.getElementById("yr-share").addEventListener("click", async (event) => {
+      const url = {{ share_url | tojson }};
+      if (navigator.share) {
+        try { await navigator.share({ title: document.title, url }); return; } catch (e) { return; }
+      }
+      await navigator.clipboard.writeText(url);
+      event.target.textContent = "Link kopiert";
+    });
+    show(0);
+  })();
+</script>
+{% endblock %}

@@ -261,6 +261,7 @@
           {% if not hidden %}
           <a class="mcc-btn mcc-btn-secondary mcc-btn-small" href="{{ card_url }}" target="_blank" rel="noopener">Statistik-Karte</a>
           <button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" id="share-link">Link teilen</button>
+          <a class="mcc-btn mcc-btn-secondary mcc-btn-small" href="/rueckblick/{{ user_name | urlencode }}">Jahresrückblick</a>
           {% endif %}
           {% if is_self %}<a class="mcc-btn mcc-btn-secondary mcc-btn-small" href="/profil">Profil bearbeiten</a>{% endif %}
         </div>

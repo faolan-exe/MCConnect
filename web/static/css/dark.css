@@ -1,0 +1,140 @@
+/* Dark mode of the server pages, loaded by header.html (so it covers all server pages incl. the
+   old ones). The theme script in header.html sets <html data-dark> when the system prefers dark
+   and the player did not choose light, or when the player chose dark (switch in the header,
+   stored in localStorage). */
+
+:root[data-dark], :root[data-dark] .pi-extra, :root[data-dark] .cmp-bar, :root[data-dark] .cmp-add {
+  color-scheme: dark;
+  --srv-bg: #111513;
+  --srv-card: #1a201d;
+  --srv-text: #e4e9e5;
+  --srv-muted: #9ba69f;
+  --srv-border: #2e3833;
+  --srv-green: #34c46a;
+  --srv-green-dark: #5fd68a;
+  --srv-night: #0a0d0b;
+  --st-grid: #26302b;
+  --st-axis: #3b4641;
+  --st-track: #28322d;
+  --dk-tint-green: #173524;
+  --dk-tint-green-text: #8be3ad;
+  --dk-tint-blue: #1d2448;
+  --dk-tint-blue-text: #aab3ff;
+  --dk-tint-red: #3d1a1a;
+  --dk-tint-red-text: #ffaaaa;
+  --dk-tint-amber: #3b2c10;
+  --dk-tint-amber-text: #ffd27a;
+  --dk-tint-violet: #2c2144;
+  --dk-tint-violet-text: #cdb6ff;
+}
+
+:root[data-dark] body { background: var(--srv-bg); color: var(--srv-text); }
+
+/* forms and components (components.css) */
+:root[data-dark] .mcc-input, :root[data-dark] .mcc-select {
+  background: #141916; color: var(--srv-text); border-color: var(--srv-border);
+}
+:root[data-dark] .mcc-input::placeholder { color: #6f7a74; }
+:root[data-dark] .mcc-hint, :root[data-dark] .mcc-form .mcc-hint, :root[data-dark] .mcc-empty { color: var(--srv-muted); }
+:root[data-dark] .mcc-btn { color: #0b1a10; }
+:root[data-dark] .mcc-btn:hover { background: #5fd68a; }
+:root[data-dark] .mcc-btn-secondary { background: var(--srv-card); color: var(--srv-text); border-color: var(--srv-border); }
+:root[data-dark] .mcc-btn-secondary:hover { background: #242c28; }
+:root[data-dark] .mcc-btn-danger { color: #fff; }
+:root[data-dark] .mcc-table th { color: var(--srv-muted); border-color: var(--srv-border); }
+:root[data-dark] .mcc-table td { border-color: #242c28; }
+:root[data-dark] .mcc-message.error { background: var(--dk-tint-red); color: var(--dk-tint-red-text); }
+:root[data-dark] .mcc-message.success { background: var(--dk-tint-green); color: var(--dk-tint-green-text); }
+:root[data-dark] .mcc-badge-web { background: var(--dk-tint-green); color: var(--dk-tint-green-text); }
+:root[data-dark] .mcc-badge-ingame { background: var(--dk-tint-blue); color: var(--dk-tint-blue-text); }
+:root[data-dark] .mcc-colors input:checked + span { outline-color: var(--srv-text); }
+/* links in running text (the old pages leave them browser blue, which is too dark here) */
+:root[data-dark] .srv-lead a, :root[data-dark] .mcc-hint a, :root[data-dark] .st-hint a, :root[data-dark] .st-empty a,
+:root[data-dark] .srv-card p a, :root[data-dark] .rl-text a, :root[data-dark] .bg-meta a, :root[data-dark] .mcc-table a,
+:root[data-dark] .pi-extra > p a, :root[data-dark] .gb-section > p a { color: #7cc8ff; }
+:root[data-dark] .gb-head a, :root[data-dark] .hf-what a { color: var(--srv-text); }
+:root[data-dark] .st-periods [aria-current="page"], :root[data-dark] .st-periods [aria-pressed="true"] {
+  background: var(--srv-green); color: #0b1a10;
+}
+
+/* tinted badges and notes (stats.css) */
+:root[data-dark] .cp-badge, :root[data-dark] .pl-badge-mod, :root[data-dark] .cp-podium li:first-child,
+:root[data-dark] .po-mine .po-fill, :root[data-dark] .po-winner .po-fill, :root[data-dark] .lg-unban,
+:root[data-dark] .lg-ingame_unban { background: var(--dk-tint-green); color: var(--dk-tint-green-text); }
+:root[data-dark] .cp-badge-soon, :root[data-dark] .pl-badge-op, :root[data-dark] .cm-icon, :root[data-dark] .lg-mod_add,
+:root[data-dark] .lg-mod_remove { background: var(--dk-tint-blue); color: var(--dk-tint-blue-text); }
+:root[data-dark] .pl-badge-ban, :root[data-dark] .gl-status-failed, :root[data-dark] .md-nav b, :root[data-dark] .lg-ban,
+:root[data-dark] .lg-ingame_ban { background: var(--dk-tint-red); color: var(--dk-tint-red-text); }
+:root[data-dark] .xr-flag { color: var(--dk-tint-red-text); }
+:root[data-dark] .pl-badge-streak { background: var(--dk-tint-amber); color: var(--dk-tint-amber-text); }
+:root[data-dark] .pl-badge-anniversary { background: var(--dk-tint-violet); color: var(--dk-tint-violet-text); }
+:root[data-dark] .du-badge-off { background: #242c28; color: var(--srv-muted); }
+:root[data-dark] .bg-like[aria-pressed="true"] { background: var(--dk-tint-red); color: var(--dk-tint-red-text); border-color: #6b2b2b; }
+:root[data-dark] .pl-star[aria-pressed="true"], :root[data-dark] .pi-fav[aria-pressed="true"] {
+  background: var(--dk-tint-amber); color: var(--dk-tint-amber-text); border-color: #6b5220;
+}
+:root[data-dark] .cmp-detail-table td.cmp-best { color: var(--dk-tint-green-text); }
+:root[data-dark] .ac-locked { background: #161b18; }
+:root[data-dark] .pi-nodata { fill: #242c28; }
+:root[data-dark] .nt-card { background: #1f2622; border-color: var(--srv-border); }
+:root[data-dark] .st-hint { background: var(--srv-card); color: var(--srv-text); }
+:root[data-dark] .pl-filters button[aria-pressed="true"] { background: var(--srv-green); color: #0b1a10; }
+:root[data-dark] .cp-banner, :root[data-dark] .srv-numbers { box-shadow: none; }
+:root[data-dark] .ss-legend-cell[style*="#eef1ee"] { background: #242c28 !important; }
+:root[data-dark] .yr-nav { background: var(--srv-card); color: var(--srv-text); }
+
+/* header dropdowns (header.css, responsiveHeader.css) */
+:root[data-dark] .dropdown-content { background-color: #1a201d; box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5); }
+:root[data-dark] .dropdown-content a { color: var(--srv-text); }
+:root[data-dark] .dropdown-content a:hover { background-color: #242c28; }
+
+/* old player page (spieler-info.html, player-info.css) */
+:root[data-dark] .box { background: var(--srv-card); color: var(--srv-text); box-shadow: 0 0 0 1px var(--srv-border); }
+:root[data-dark] .box img { filter: invert(0.9); }
+:root[data-dark] #mySkinContainer { background: #1f2622; box-shadow: 0 0 0 1px var(--srv-border); }
+:root[data-dark] .item-3 abc { color: var(--srv-text) !important; }
+:root[data-dark] .player-name { color: var(--srv-text); }
+:root[data-dark] .downloadButton button { background: var(--srv-card); border-color: var(--srv-border); }
+:root[data-dark] .downloadButton svg { fill: var(--srv-text); }
+:root[data-dark] .tabBlock, :root[data-dark] .tabBlock-content, :root[data-dark] .stats_div_outer_outer,
+:root[data-dark] .stats_table, :root[data-dark] .stats_table td { background: var(--srv-card) !important; color: var(--srv-text) !important; }
+:root[data-dark] .tabBlock-tab { background: #1f2622 !important; color: var(--srv-text) !important; border-color: var(--srv-border) !important; }
+:root[data-dark] .tabBlock-tab.is-active { background: var(--srv-card) !important; color: var(--srv-green-dark) !important; }
+:root[data-dark] .stats_table tr:nth-child(even) td { background: #1f2622 !important; }
+:root[data-dark] hr { border-color: var(--srv-border); }
+
+/* theme switch in the header */
+.theme-switch {
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  background: none;
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.theme-switch:hover { border-color: #53ffb1; }
+.theme-item { display: flex; align-items: center; }
+
+/* charts, achievement pips, player page leftovers */
+:root[data-dark] .ac-pips span { background: var(--st-track); }
+:root[data-dark] .pi-chart .cmp-grid, :root[data-dark] .cmp-grid { stroke: var(--st-grid); }
+:root[data-dark] .pi-chart .cmp-axis, :root[data-dark] .cmp-axis { stroke: var(--st-axis); }
+:root[data-dark] .bottomDiv p span { background-color: transparent; }
+:root[data-dark] .pi-extra a.bg-item, :root[data-dark] .pi-extra a.pi-tile, :root[data-dark] .srv-page a.bg-item { color: var(--srv-text); }
+:root[data-dark] .lg-action { background: #242c28; }
+:root[data-dark] .ss-heat td:not([style]) { background: #1f2622; }
+
+/* peak time heatmap: on dark ground few players = dark, many = bright */
+:root[data-dark] .ss-heat td[data-level="0"], :root[data-dark] .ss-legend-cell[data-level="0"] { background: #15301f !important; }
+:root[data-dark] .ss-heat td[data-level="1"], :root[data-dark] .ss-legend-cell[data-level="1"] { background: #1a4529 !important; }
+:root[data-dark] .ss-heat td[data-level="2"], :root[data-dark] .ss-legend-cell[data-level="2"] { background: #1f5c34 !important; }
+:root[data-dark] .ss-heat td[data-level="3"], :root[data-dark] .ss-legend-cell[data-level="3"] { background: #277640 !important; }
+:root[data-dark] .ss-heat td[data-level="4"], :root[data-dark] .ss-legend-cell[data-level="4"] { background: #34924f !important; }
+:root[data-dark] .ss-heat td[data-level="5"], :root[data-dark] .ss-legend-cell[data-level="5"] { background: #4cb065 !important; }
+:root[data-dark] .ss-heat td[data-level="6"], :root[data-dark] .ss-legend-cell[data-level="6"] { background: #74d18a !important; }
+
+/* login page (login.html, login.css): the blue shapes become dark blue */
+:root[data-dark] svg.bg circle, :root[data-dark] svg.bg path { fill: #17244a; }

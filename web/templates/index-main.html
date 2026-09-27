@@ -17,6 +17,29 @@
   </div>
 </section>
 
+{% if servers %}
+<section class="dir" aria-labelledby="dir-title">
+  <div class="dir-head">
+    <h2 id="dir-title">Server entdecken</h2>
+    <input class="mcc-input dir-search" type="search" placeholder="Server suchen …" aria-label="Server suchen" id="dir-search"/>
+  </div>
+  <div class="dir-list">
+    {% for s in servers %}
+    <a class="dir-card" href="{{ s.url }}" data-search="{{ (s.server_name ~ ' ' ~ (s.server_description_short or '') ~ ' ' ~ (s.mc_server_domain or '')) | lower }}">
+      <span class="dir-banner"{% if s.banner_url %} style="background-image: url('{{ s.banner_url }}')"{% endif %}></span>
+      <span class="dir-body">
+        <span class="dir-title"><b>{{ s.server_name }}</b>
+          <span class="dir-status{% if s.online %} dir-online{% endif %}">{{ (s.players_online ~ " online") if s.online else "offline" }}</span></span>
+        <span class="dir-text">{{ s.server_description_short }}</span>
+        <span class="dir-meta">{{ "Whitelist" if s.whitelist else (s.mc_server_domain or "Öffentlich") }} · {{ s.players }} Spieler
+          {% if s.active_week %} · {{ s.active_week }} aktiv diese Woche{% endif %}</span>
+      </span>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
 <div class="grid-2">
   <div class="card">
     <h2>Eigene Serverseite</h2>
@@ -38,6 +61,11 @@
 {% endblock %}
 {% block scripts %}
 <script>
+  const search = document.getElementById("dir-search");
+  if (search) search.addEventListener("input", () => {
+    const query = search.value.trim().toLowerCase();
+    document.querySelectorAll(".dir-card").forEach((card) => (card.hidden = query && !card.dataset.search.includes(query)));
+  });
   const eventSource = new EventSource("/api/player_count");
   eventSource.onmessage = (event) => {
     document.getElementById("player-count").innerText = JSON.parse(event.data);
