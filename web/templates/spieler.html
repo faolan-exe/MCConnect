@@ -44,6 +44,7 @@
         {% if p.moderator %}<span class="pl-badge pl-badge-mod">Moderator</span>{% endif %}
         {% if p.is_op %}<span class="pl-badge pl-badge-op">OP</span>{% endif %}
         {% if p.banned %}<span class="pl-badge pl-badge-ban">Gebannt</span>{% endif %}
+        {% for badge in p.badges %}<span class="pl-badge {{ 'pl-badge-streak' if 'Serie' in badge else 'pl-badge-anniversary' }}">{{ badge }}</span>{% endfor %}
       </div>
       <div class="pl-meta">
         {% if p.hidden %}<span>Statistiken verborgen</span>{% else %}

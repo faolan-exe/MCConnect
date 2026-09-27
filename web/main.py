@@ -31,6 +31,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from database import achievements as achievements_mod
 from database import config
 from database import metrics as metrics_mod
+from database import motivation
 from database.databaseManagerV2 import MAX_GALLERY_IMAGES, MODERATOR_LEVEL, DatabaseManager
 from database import stats as stats_mod
 from database.stats import format_time
@@ -140,22 +141,28 @@ def inject_server_context():
 @server_bp.route("/")
 def subdomain_index_route():
     images = db().get_server_images(g.server["id"])
-    records, recap, competitions = [], None, []
+    records, recap, competitions, goals = [], None, [], []
     if current_app.config["FEATURE_RANKINGS"]:
         players = db().get_server_metrics(g.server["id"])
         recap = weekly_recap(g.server["id"], players)
         today = db().get_today()
         competitions = [v for v in (competition_view(c, today, limit=3) for c in db().list_competitions(g.server["id"])
                                     if c["starts_on"] <= today <= c["ends_on"]) if v]
+        goals = [v for v in (goal_view(goal, today) for goal in db().list_goals(g.server["id"]))
+                 if v and v["status"] in ("running", "reached_recently")]
+        held = db().get_current_records(g.server["id"])
         for key in metrics_mod.RECORD_METRICS:
             metric = metrics_mod.METRICS_BY_KEY[key]
             best = max(players, key=lambda p: p["values"][key], default=None)
             if best and best["values"][key] > 0:
+                record = held.get(key)
+                since = record["since"] if record and record["name"] == best["name"] and not record["first"] else None
                 records.append({"label": metric.label, "name": best["name"], "uuid": best["uuid"],
-                                "text": metrics_mod.format_value(metric, best["values"][key])})
+                                "text": metrics_mod.format_value(metric, best["values"][key]),
+                                "since": since.strftime("%d.%m.%Y") if since else None})
     return render_template("index-subpage.html",
                            player_total=len(db().get_all_player_ids_from_subdomain(g.subdomain)),
-                           records=records, recap=recap, competitions=competitions,
+                           records=records, recap=recap, competitions=competitions, goals=goals,
                            banner_url=image_url(images["banner"]) if images["banner"] else None,
                            gallery_urls=[image_url(image["filename"]) for image in images["gallery"]])
 
@@ -327,10 +334,10 @@ def server_stats_page():
                  for t, n in db().get_online_history(server_id, 24 * 7, 60)],
     }
     matrix = db().get_peak_times(server_id)
-    top = max(max(row) for row in matrix)
+    top_hour = max(max(row) for row in matrix)
     heatmap = [{"day": WEEKDAYS[d], "cells": [{
         "hour": h, "value": v,
-        "color": HEATMAP_RAMP[min(len(HEATMAP_RAMP) - 1, int(v / top * len(HEATMAP_RAMP)))] if v and top else None,
+        "color": HEATMAP_RAMP[min(len(HEATMAP_RAMP) - 1, int(v / top_hour * len(HEATMAP_RAMP)))] if v and top_hour else None,
         "tip": f"{WEEKDAYS[d]} {h}–{h + 1} Uhr: Ø {v:.1f} Spieler".replace(".", ","),
     } for h, v in enumerate(row)]} for d, row in enumerate(matrix)]
 
@@ -338,6 +345,11 @@ def server_stats_page():
               "value": None if v is None else round(v / 20 / 3600, 2),
               "text": "keine Daten" if v is None else format_time(v / 20)}
              for d, v in db().get_server_daily_gain(server_id, "play_time", 30)]
+    all_ids = [p["player_id"] for p in players]
+    top = lambda category: next(((obj, sum(v.values())) for obj, v in db().get_top_objects(all_ids, category, 1)), None) \
+        if all_ids else None
+    facts = motivation.fun_facts(totals, len(players), top_block=top(stats_mod.BLOCK_MINED),
+                                 top_killer=top(stats_mod.MOB_KILLED_BY), top_mob=top(stats_mod.MOB_KILLED))[:8]
     months = [{"label": MONTHS[m.month - 1], "tip": f"{MONTHS[m.month - 1]} {m.year}", "value": n,
                "text": f"{n} neue Spieler" if n != 1 else "1 neuer Spieler"}
               for m, n in db().get_new_players_per_month(server_id)]
@@ -347,7 +359,7 @@ def server_stats_page():
         new_players=db().get_new_players_between(server_id, today - timedelta(days=29), today),
         play_time_total=metrics_mod.format_value(metrics_mod.METRICS_BY_KEY["play_time"], totals["play_time"]),
         peak=peak, peak_at=peak_at.strftime("%d.%m.%Y, %H:%M Uhr") if peak_at else None,
-        online=online, heatmap=heatmap, heatmap_ramp=HEATMAP_RAMP, heatmap_top=top,
+        online=online, heatmap=heatmap, heatmap_ramp=HEATMAP_RAMP, heatmap_top=top_hour, facts=facts,
         daily=daily if any(d["value"] is not None for d in daily) else None, months=months)
 
 
@@ -401,10 +413,105 @@ def competition_view(competition, today, limit=None):
 def competitions_page():
     today = db().get_today()
     views = [v for v in (competition_view(c, today) for c in db().list_competitions(g.server["id"])) if v]
-    return render_template("wettbewerbe.html",
+    goals = [v for v in (goal_view(goal, today) for goal in db().list_goals(g.server["id"])) if v]
+    return render_template("wettbewerbe.html", goals=goals,
                            running=[v for v in views if v["status"] == "running"],
                            upcoming=sorted((v for v in views if v["status"] == "upcoming"), key=lambda v: v["starts_on"]),
                            finished=[v for v in views if v["status"] == "finished"])
+
+
+def since_text(when, today):
+    """"seit 3 Tagen", "seit 2 Jahren" ..."""
+    days = (today - when).days
+    if days >= 365:
+        years = days // 365
+        return "seit 1 Jahr" if years == 1 else f"seit {years} Jahren"
+    if days >= 60:
+        return f"seit {days // 30} Monaten"
+    return "seit heute" if days == 0 else "seit 1 Tag" if days == 1 else f"seit {days} Tagen"
+
+
+def streak_rows(streaks, names, key, limit=10):
+    rows = sorted(((pid, s) for pid, s in streaks.items() if s[key] > 0 and pid in names),
+                  key=lambda item: (-item[1][key], names[item[0]]["name"].lower()))[:limit]
+    return [{"name": names[pid]["name"], "uuid": names[pid]["uuid"], "days": s[key],
+             "range": f"{s['best_first'].strftime('%d.%m.%Y')} – {s['best_last'].strftime('%d.%m.%Y')}" if key == "best" else None}
+            for pid, s in rows]
+
+
+@server_bp.route("/ruhmeshalle")
+@feature_rankings_required
+def hall_of_fame_page():
+    server_id = g.server["id"]
+    today = db().get_today()
+    players = db().get_server_metrics(server_id)
+    names = {p["player_id"]: p for p in players}
+    held = db().get_current_records(server_id)
+    records = []
+    for metric in motivation.RECORD_METRICS:
+        record = held.get(metric.key)
+        if record:
+            records.append({"label": metric.label, "name": record["name"], "uuid": record["uuid"],
+                            "text": metrics_mod.format_value(metric, record["value"]),
+                            "since": None if record["first"] else record["since"].strftime("%d.%m.%Y")})
+    history = [dict(h, label=metrics_mod.METRICS_BY_KEY[h["metric"]].label, when=h["at"].strftime("%d.%m.%Y, %H:%M"),
+                    text=metrics_mod.format_value(metrics_mod.METRICS_BY_KEY[h["metric"]], h["value"]))
+               for h in db().get_record_history(server_id, 25) if h["metric"] in metrics_mod.METRICS_BY_KEY]
+    winners = {}
+    for t in db().get_server_trophies(server_id, "competition", 60):
+        entry = winners.setdefault(t["ref"], {"title": t["title"], "date": t["awarded_at"].strftime("%d.%m.%Y"), "places": []})
+        entry["places"].append(dict(t, color=motivation.PLACE_COLORS.get(t["place"])))
+    for entry in winners.values():
+        entry["places"].sort(key=lambda t: t["place"])
+    weekly = db().get_server_trophies(server_id, "player_of_week", 12)
+    week_counts = {}
+    for t in db().get_server_trophies(server_id, "player_of_week", 1000):
+        week_counts[t["name"]] = week_counts.get(t["name"], 0) + 1
+    streaks = db().get_streaks(server_id)
+    goals = [v for v in (goal_view(goal, today) for goal in db().list_goals(server_id)) if v and v["done"]]
+    return render_template(
+        "ruhmeshalle.html", records=records, history=history, winners=list(winners.values()),
+        weekly=[dict(t, total=week_counts.get(t["name"], 1)) for t in weekly],
+        best_streaks=streak_rows(streaks, names, "best"), current_streaks=streak_rows(streaks, names, "current"),
+        milestones=motivation.STREAK_MILESTONES,
+        veterans=[dict(v, since=since_text(v["first_seen"].date(), today), date=v["first_seen"].strftime("%d.%m.%Y"))
+                  for v in db().get_veterans(server_id)],
+        collectors=db().get_achievement_leaders(server_id),
+        achievement_total=len(achievements_mod.ACHIEVEMENTS) * len(achievements_mod.TIERS), goals=goals)
+
+
+GOAL_RECENT_DAYS = 7
+
+
+def goal_view(goal, today, contributors=3):
+    """Display data of a community goal: progress, status and the players who contributed most."""
+    metric = metrics_mod.METRICS_BY_KEY.get(goal["metric"])
+    if metric is None:
+        return None
+    total, per_player = db().get_goal_progress(goal, today)
+    done = goal["reached_at"] is not None or total >= goal["target"]
+    if goal["starts_on"] > today:
+        status = "upcoming"
+    elif done:
+        reached = goal["reached_at"].date() if goal["reached_at"] else today
+        status = "reached_recently" if (today - reached).days < GOAL_RECENT_DAYS else "reached"
+    elif goal["ends_on"] and goal["ends_on"] < today:
+        status = "failed"
+    else:
+        status = "running"
+    visible = {p["player_id"]: p for p in db().get_server_metrics(goal["server_id"])}
+    top = sorted(((pid, v) for pid, v in per_player.items() if v > 0 and pid in visible),
+                 key=lambda item: (-item[1], visible[item[0]]["name"].lower()))[:contributors]
+    return dict(goal, metric_label=metric.label, status=status, done=done,
+                share=min(1.0, total / goal["target"]), percent=min(100, int(total * 100 // goal["target"])),
+                total_text=motivation.format_goal_value(metric, total),
+                target_text=motivation.format_goal_value(metric, goal["target"]),
+                starts=goal["starts_on"].strftime("%d.%m.%Y"),
+                ends=goal["ends_on"].strftime("%d.%m.%Y") if goal["ends_on"] else None,
+                days_left=(goal["ends_on"] - today).days + 1 if goal["ends_on"] else None,
+                reached=goal["reached_at"].strftime("%d.%m.%Y") if goal["reached_at"] else None,
+                top=[{"name": visible[pid]["name"], "uuid": visible[pid]["uuid"],
+                      "text": metrics_mod.format_value(metric, v)} for pid, v in top])
 
 
 def best_indexes(values, lower_is_better):
@@ -507,6 +614,7 @@ def player_list_page():
     play_time = metrics_mod.METRICS_BY_KEY["play_time"]
     viewer = logged_in_player_id()
     favorites = {f["name"] for f in db().get_favorites(viewer)} if viewer else set()
+    milestones = db().get_server_milestones(g.server["id"])
     rows = []
     for index, p in enumerate(players):
         info = details[p["player_id"]]
@@ -520,6 +628,8 @@ def player_list_page():
             "prefix": prefixes.get(p["uuid"]),
             "first_seen": info["first_seen"], "last_seen": info["last_seen"],
             "moderator": info["moderator"], "is_op": info["is_op"], "banned": info["banned"],
+            "badges": [] if p["hidden"] else [motivation.milestone_label(kind, value) for kind, value in
+                                               sorted(milestones.get(p["player_id"], {}).items(), reverse=True)],
             "play_time": p["values"]["play_time"],
             "play_time_text": metrics_mod.format_value(play_time, p["values"]["play_time"]),
             "top": [(rank, metric.label) for rank, metric, _ in places.get(p["player_id"], []) if rank <= 3][:2],
@@ -558,6 +668,7 @@ def player_extras(player_id):
     achievements.sort(key=lambda a: (-a["tier"], -a.get("next", {}).get("share", 1)))
 
     extras = {"highlights": highlights, "places": [], "activity": None, "achievements": achievements,
+              "cabinet": trophy_cabinet(player_id),
               "achievement_count": sum(a["tier"] + 1 for a in achievements),
               "achievement_total": len(achievements_mod.ACHIEVEMENTS) * len(achievements_mod.TIERS)}
     if not current_app.config["FEATURE_RANKINGS"]:
@@ -581,6 +692,31 @@ def player_extras(player_id):
         extras["activity"] = {"days": days, "total": format_time(sum((d["value"] or 0) * 3600 for d in days)),
                               "active_days": sum(1 for d in days if d["value"])}
     return extras
+
+
+def trophy_cabinet(player_id):
+    """Competition places, players of the week, records held, streak and badges of a player (or None if empty)."""
+    database = db()
+    trophies = database.get_player_trophies(player_id)
+    competitions = [dict(t, color=motivation.PLACE_COLORS.get(t["place"]), date=t["awarded_at"].strftime("%d.%m.%Y"))
+                    for t in trophies if t["kind"] == "competition"]
+    weeks = [t for t in trophies if t["kind"] == "player_of_week"]
+    records = []
+    for key, record in database.get_current_records(database.get_server_id_from_player_id(player_id)).items():
+        metric = metrics_mod.METRICS_BY_KEY.get(key)
+        if metric and record["player_id"] == str(player_id):
+            records.append({"label": metric.label, "text": metrics_mod.format_value(metric, record["value"]),
+                            "since": None if record["first"] else record["since"].strftime("%d.%m.%Y")})
+    streak = database.get_player_streak(player_id)
+    badges = [{"label": motivation.milestone_label(m["kind"], m["value"]), "kind": m["kind"],
+               "date": m["reached_at"].strftime("%d.%m.%Y")} for m in database.get_player_milestones(player_id)]
+    if not (competitions or weeks or records or badges or streak["best"] > 1):
+        return None
+    next_badge = next((n for n in motivation.STREAK_MILESTONES if n > streak["current"]), None)
+    return {"competitions": competitions, "weeks": weeks, "records": records, "badges": badges, "streak": streak,
+            "wins": sum(1 for t in competitions if t["place"] == 1), "next_badge": next_badge,
+            "best_range": f"{streak['best_first'].strftime('%d.%m.')} – {streak['best_last'].strftime('%d.%m.%Y')}"
+            if streak["best_first"] else None}
 
 
 BIO_MAX_LENGTH = 160
@@ -667,6 +803,19 @@ def feed_api():
             if achievement is None:
                 continue
             text = f"hat den Erfolg »{achievement.name}« ({achievements_mod.TIERS[e['tier']][1]}) erreicht"
+        elif e["kind"] == "record":
+            metric = metrics_mod.METRICS_BY_KEY.get(e["detail"])
+            if metric is None:
+                continue
+            text = f"hat den Rekord »{metric.label}« geholt"
+        elif e["kind"] == "streak":
+            text = f"war {e['detail']} Tage in Folge online"
+        elif e["kind"] == "anniversary":
+            text = f"ist seit {motivation.years_text(int(e['detail']))} dabei"
+        elif e["kind"] == "goal":
+            text = f"Gemeinschaftsziel »{e['detail']}« geschafft!"
+        elif e["kind"] == "player_of_week":
+            text = f"ist Spieler der Woche ({e['detail']})"
         elif e["kind"] == "competition_start":
             text = f"Wettbewerb »{e['detail']}« hat begonnen"
         else:
@@ -729,6 +878,9 @@ def moderation_page():
                            competitions=[v for v in (competition_view(c, today) for c in db().list_competitions(g.server["id"])) if v]
                            if current_app.config["FEATURE_RANKINGS"] else None,
                            metrics=metrics_mod.METRICS, metric_groups=metrics_mod.GROUPS,
+                           goals=[v for v in (goal_view(goal, today) for goal in db().list_goals(g.server["id"])) if v]
+                           if current_app.config["FEATURE_RANKINGS"] else None,
+                           goal_units={m.key: motivation.goal_unit(m) for m in metrics_mod.METRICS},
                            today=today, default_end=today + timedelta(days=6),
                            log=mod_log_view(g.server["id"]), health=health_view(g.server["id"]))
 
@@ -738,6 +890,7 @@ MOD_LOG_ACTIONS = {
     "mod_add": "zum Moderator gemacht", "mod_remove": "Moderatorrechte entzogen",
     "competition_create": "Wettbewerb angelegt", "competition_delete": "Wettbewerb gelöscht",
     "note_add": "Notiz geschrieben", "note_delete": "Notiz gelöscht",
+    "goal_create": "Gemeinschaftsziel angelegt", "goal_delete": "Gemeinschaftsziel gelöscht",
 }
 
 
@@ -945,6 +1098,54 @@ def mod_competition_delete_api():
         return {"error": "Unbekannter Wettbewerb."}, 404
     db().add_mod_log(g.server["id"], db().get_player_name_from_player_id(logged_in_player_id()),
                      "competition_delete", None, competition["title"])
+    return ("", 200)
+
+
+MAX_GOAL_DAYS = 365
+
+
+@server_bp.route("/api/mod/goals", methods=["POST"])
+@moderator_required
+def mod_goal_create_api():
+    data = request.get_json(silent=True) or {}
+    title = str(data.get("title") or "").strip()
+    metric = metrics_mod.METRICS_BY_KEY.get(str(data.get("metric") or ""))
+    if not COMPETITION_TITLE_RE.match(title):
+        return {"error": "Der Titel muss 3-60 Zeichen lang sein (Buchstaben, Zahlen, Leerzeichen und einfache Satzzeichen)."}, 400
+    if metric is None:
+        return {"error": "Unbekannte Kennzahl."}, 400
+    try:
+        amount = float(str(data.get("amount") or "").replace(",", "."))
+        starts_on = date.fromisoformat(str(data.get("starts_on")))
+        ends_on = date.fromisoformat(str(data["ends_on"])) if data.get("ends_on") else None
+    except ValueError:
+        return {"error": "Ungültige Angaben."}, 400
+    target = motivation.goal_target(metric, amount) if amount == amount else 0  # NaN
+    if not 0 < target < 10 ** 15:
+        return {"error": "Das Ziel muss größer als 0 sein."}, 400
+    today = db().get_today()
+    if starts_on < today:
+        return {"error": "Das Ziel kann frühestens heute beginnen."}, 400
+    if ends_on and (ends_on < starts_on or (ends_on - starts_on).days >= MAX_GOAL_DAYS):
+        return {"error": f"Das Ende muss nach dem Start liegen, höchstens {MAX_GOAL_DAYS} Tage."}, 400
+    actor = db().get_player_name_from_player_id(logged_in_player_id())
+    goal_id = db().create_goal(g.server["id"], title, metric.key, target, starts_on, ends_on, created_by=actor)
+    db().add_mod_log(g.server["id"], actor, "goal_create", None,
+                     f"{title} · {motivation.format_goal_value(metric, target)} {metric.label}")
+    return {"id": goal_id}, 200
+
+
+@server_bp.route("/api/mod/goals/delete", methods=["POST"])
+@moderator_required
+def mod_goal_delete_api():
+    try:
+        goal_id = int((request.get_json(silent=True) or {}).get("id"))
+    except (TypeError, ValueError):
+        return {"error": "Unbekanntes Ziel."}, 400
+    title = db().delete_goal(g.server["id"], goal_id)
+    if title is None:
+        return {"error": "Unbekanntes Ziel."}, 404
+    db().add_mod_log(g.server["id"], db().get_player_name_from_player_id(logged_in_player_id()), "goal_delete", None, title)
     return ("", 200)
 
 

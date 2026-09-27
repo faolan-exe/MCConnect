@@ -79,6 +79,17 @@
             </section>
             {% endfor %}
 
+            {% if goals %}
+            {% from "_goals.html" import goal_card %}
+            <section class="srv-section">
+                <div class="st-section-head">
+                    <h2>Gemeinschaftsziele</h2>
+                    <a href="/wettbewerbe#ziele">Alle Ziele →</a>
+                </div>
+                <div class="gl-list">{% for goal in goals %}{{ goal_card(goal) }}{% endfor %}</div>
+            </section>
+            {% endif %}
+
             {% if recap %}
             <section class="srv-section rc-card" aria-labelledby="recap-title">
                 <div class="rc-head">
@@ -113,17 +124,18 @@
             <section class="srv-section">
                 <div class="st-section-head">
                     <h2>Rekorde</h2>
-                    <a href="/rangliste">Zur Rangliste →</a>
+                    <a href="/ruhmeshalle">Zur Ruhmeshalle →</a>
                 </div>
                 <div class="st-records">
                     {% for record in records %}
-                    <a class="st-record" href="/rangliste">
+                    <a class="st-record" href="/ruhmeshalle">
                         <span class="st-record-label">{{ record.label }}</span>
                         <span class="st-record-value">{{ record.text }}</span>
                         <span class="st-record-who">
                             <img src="https://mc-heads.net/avatar/{{ record.uuid }}/32" alt="" width="22" height="22" loading="lazy"/>
                             <span>{{ record.name }}</span>
                         </span>
+                        {% if record.since %}<span class="ss-note">seit {{ record.since }}</span>{% endif %}
                     </a>
                     {% endfor %}
                 </div>
@@ -239,9 +251,9 @@
                     b.textContent = e.name;
                     link.append(b);
                     text.append(link, " ");
-                } else if (e.kind.startsWith("competition")) {
+                } else if (e.kind.startsWith("competition") || e.kind === "goal") {
                     const link = document.createElement("a");
-                    link.href = "/wettbewerbe";
+                    link.href = e.kind === "goal" ? "/wettbewerbe#ziele" : "/wettbewerbe";
                     link.textContent = e.text;
                     text.append(link);
                 }

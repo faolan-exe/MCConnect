@@ -363,7 +363,7 @@
 
         <!-- <p id="4" style="display: none">Loading</p> -->
 
-        {% if extras.highlights or extras.places or extras.activity or extras.achievements %}
+        {% if extras.highlights or extras.places or extras.activity or extras.achievements or extras.cabinet %}
         <section class="pi-extra">
           {% if extras.activity %}
           <h2>Aktivität der letzten 30 Tage</h2>
@@ -386,6 +386,53 @@
               <span class="pi-tile-detail">{{ place.text }}</span>
             </a>
             {% endfor %}
+          </div>
+          {% endif %}
+
+          {% if extras.cabinet %}
+          {% set cab = extras.cabinet %}
+          <h2>Trophäenschrank</h2>
+          <div class="tc-grid">
+            {% if cab.streak.best > 1 %}
+            <div class="tc-box">
+              <span class="pi-tile-label">Serie</span>
+              <span class="tc-big">{{ cab.streak.current }} {{ "Tag" if cab.streak.current == 1 else "Tage" }}</span>
+              <span class="pi-tile-detail">in Folge online · Rekord {{ cab.streak.best }} Tage{% if cab.best_range %} ({{ cab.best_range }}){% endif %}</span>
+              {% if cab.next_badge %}<span class="pi-tile-detail">Nächstes Abzeichen bei {{ cab.next_badge }} Tagen</span>{% endif %}
+            </div>
+            {% endif %}
+            {% if cab.badges %}
+            <div class="tc-box">
+              <span class="pi-tile-label">Abzeichen</span>
+              <div class="tc-badges">
+                {% for b in cab.badges %}<span class="pl-badge pl-badge-{{ b.kind }}" title="erreicht am {{ b.date }}">{{ b.label }}</span>{% endfor %}
+              </div>
+            </div>
+            {% endif %}
+            {% if cab.records %}
+            <div class="tc-box">
+              <span class="pi-tile-label">Rekorde · {{ cab.records | length }}</span>
+              <ul class="tc-list">
+                {% for r in cab.records %}<li><span>★</span><span>{{ r.label }}</span><small>{{ r.text }}</small></li>{% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+            {% if cab.competitions %}
+            <div class="tc-box">
+              <span class="pi-tile-label">Wettbewerbe{% if cab.wins %} · {{ cab.wins }} {{ "Sieg" if cab.wins == 1 else "Siege" }}{% endif %}</span>
+              <ul class="tc-list">
+                {% for t in cab.competitions %}<li><span class="hf-medal" style="--medal: {{ t.color }}">{{ t.place }}</span><span>{{ t.title }}</span><small>{{ t.date }}</small></li>{% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+            {% if cab.weeks %}
+            <div class="tc-box">
+              <span class="pi-tile-label">Spieler der Woche · {{ cab.weeks | length }}×</span>
+              <ul class="tc-list">
+                {% for t in cab.weeks[:5] %}<li><span>★</span><span>{{ t.title }}</span><small>{{ t.detail }}</small></li>{% endfor %}
+              </ul>
+            </div>
+            {% endif %}
           </div>
           {% endif %}
 

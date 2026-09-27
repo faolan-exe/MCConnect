@@ -1,0 +1,24 @@
+{# Community goal card (goal from web.main.goal_view). #}
+{% macro goal_card(goal) %}
+<article class="gl-card{% if goal.done %} gl-done{% endif %}{% if goal.status == 'failed' %} gl-failed{% endif %}">
+  {% if goal.done %}
+  <span class="cp-badge gl-status">Geschafft{% if goal.reached %} am {{ goal.reached }}{% endif %}</span>
+  {% elif goal.status == "failed" %}
+  <span class="cp-badge gl-status gl-status-failed">Nicht geschafft</span>
+  {% elif goal.status == "upcoming" %}
+  <span class="cp-badge cp-badge-soon gl-status">Ab {{ goal.starts }}</span>
+  {% else %}
+  <span class="cp-badge gl-status">Gemeinschaftsziel{% if goal.days_left %} · noch {{ goal.days_left }} {{ "Tag" if goal.days_left == 1 else "Tage" }}{% endif %}</span>
+  {% endif %}
+  <h3>{{ goal.title }}</h3>
+  <p class="gl-meta">{{ goal.metric_label }} · alle zusammen ab {{ goal.starts }}{% if goal.ends %} bis {{ goal.ends }}{% endif %}</p>
+  <span class="gl-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ goal.percent }}"
+        aria-label="{{ goal.percent }} % geschafft"><span style="width: {{ '%.1f' | format(goal.share * 100) }}%"></span></span>
+  <div class="gl-numbers"><span><b>{{ goal.total_text }}</b> von {{ goal.target_text }}</span><span>{{ goal.percent }} %</span></div>
+  {% if goal.top %}
+  <ul class="gl-top" aria-label="Am meisten beigetragen">
+    {% for p in goal.top %}<li><img src="https://mc-heads.net/avatar/{{ p.uuid }}/16" alt="" loading="lazy"/>{{ p.name }} · {{ p.text }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+</article>
+{% endmacro %}

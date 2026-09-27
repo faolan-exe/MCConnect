@@ -17,6 +17,18 @@
     <span class="ss-note">zusammengerechnet</span></div>
 </div>
 
+{% if facts %}
+<section class="st-group">
+  <h2>Schon gewusst?</h2>
+  <div class="ff-grid">
+    {% for fact in facts %}
+    <div class="ff-fact"><span class="ff-label">{{ fact.label }}</span><span class="ff-value">{{ fact.value }}</span>
+      <span class="ff-text">{{ fact.text }}</span></div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
 <section class="st-group">
   <h2>Online-Verlauf</h2>
   <div class="srv-card ss-card" id="online">

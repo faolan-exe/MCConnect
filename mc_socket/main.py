@@ -22,7 +22,8 @@ Server -> plugin:
     !prefix~<uuid>|<color>|<text>  show a prefix (empty color and text: remove it)
     !ban~<uuid>|<name>|<end ms, 0 = permanent>|<reason>   ban (and kick) a player
     !unban~<uuid>|<name>         lift a ban
-    !broadcast~<color>|<text>    chat message to everyone (achievements, competitions);
+    !broadcast~<color>|<text>    chat message to everyone (achievements, competitions, records, streaks,
+                                 anniversaries, community goals, player of the week);
                                  color is a ChatColor name, e.g. gold
     success|<code> / error|<code>
 
@@ -55,7 +56,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from colorlogx import get_logger
-from database import achievements, config, metrics
+from database import achievements, config, metrics, motivation
 from database.databaseManagerV2 import DatabaseManager
 
 logger = get_logger("socket")
@@ -67,10 +68,12 @@ HEARTBEAT_TIMEOUT = 20
 MAX_UNAUTHORIZED_MESSAGES = 5
 # How often the "plugin alive" timestamp is written to the database.
 PLUGIN_TOUCH_INTERVAL = 30
-# How often started/ended competitions are checked.
+# How often started/ended competitions, reached community goals and the player of the week are checked.
 COMPETITION_CHECK_INTERVAL = 60
 # More new achievement tiers at once are not announced (first sync of an old player).
 MAX_ANNOUNCED_ACHIEVEMENTS = 2
+# More records taken with one stats update are not announced.
+MAX_ANNOUNCED_RECORDS = 3
 
 
 class ProtocolError(Exception):
@@ -232,9 +235,9 @@ class SocketServer:
     def _competition_loop(self):
         while not self._stop.is_set():
             try:
-                self.announce_competitions()
+                self.periodic_checks()
             except Exception:
-                logger.exception("Competition check failed")
+                logger.exception("Periodic check failed")
             self._stop.wait(COMPETITION_CHECK_INTERVAL)
 
     # ------------------------------------------------------------------ announcements
@@ -248,12 +251,48 @@ class SocketServer:
         for achievement, tier in awards:
             self.broadcast(server_id, *achievements.announcement(name, achievement, tier))
 
-    def announce_competitions(self):
-        """Announce started and ended competitions on the connected servers (the others later)."""
+    def announce_milestones(self, server_id, player_id, milestones):
+        if not milestones or self.db.is_stats_hidden(player_id):
+            return
+        name = self.db.get_player_name_from_player_id(player_id) or "Jemand"
+        for kind, value in milestones:
+            self.broadcast(server_id, *motivation.milestone_announcement(name, kind, value))
+
+    def announce_records(self, server_id, player_id, records):
+        if not records or len(records) > MAX_ANNOUNCED_RECORDS:
+            return
+        name = self.db.get_player_name_from_player_id(player_id) or "Jemand"
+        for metric, previous, value in records:
+            self.broadcast(server_id, *motivation.record_announcement(name, metric, previous, value))
+
+    def after_stats(self, server_id, player_id):
+        """Achievements, records and milestones after new stats of a player."""
+        self.announce_achievements(server_id, player_id, self.db.award_achievements(player_id))
+        self.announce_records(server_id, player_id, self.db.update_records(player_id))
+        self.announce_milestones(server_id, player_id, self.db.check_milestones(player_id))
+
+    def periodic_checks(self):
+        """Competitions, community goals and the player of the week on the connected servers (the others later)."""
         with self._lock:
             connected = list(self.active_connections)
         if not connected:
             return
+        self.announce_competitions(connected)
+        self.db.award_finished_competitions(connected)
+        for goal in self.db.take_reached_goals(connected):
+            self.broadcast(goal["server_id"], *motivation.goal_announcement(goal))
+        for server_id in connected:
+            trophy = self.db.settle_player_of_week(server_id)
+            if trophy:
+                self.broadcast(server_id, *motivation.player_of_week_announcement(trophy))
+
+    def announce_competitions(self, connected=None):
+        """Announce started and ended competitions on the given (default: connected) servers."""
+        if connected is None:
+            with self._lock:
+                connected = list(self.active_connections)
+            if not connected:
+                return
         for kind, competition in self.db.take_due_competition_announcements(connected):
             metric = metrics.METRICS_BY_KEY.get(competition["metric"])
             if metric is None:
@@ -422,11 +461,12 @@ class SocketServer:
             if command == "!JOIN":
                 player_uuid, name, is_op = (value.split("|") + ["", ""])[:3]
                 player_uuid = parse_uuid(player_uuid)
-                self.db.register_player_join(client.server_id, player_uuid, name.strip() or None)
+                player_id = self.db.register_player_join(client.server_id, player_uuid, name.strip() or None)
                 if is_op.strip() in ("0", "1"):
                     self.db.set_player_op(client.server_id, player_uuid, is_op.strip() == "1")
                 client.send("success|101")
                 client.send(self.prefix_message(client.server_id, player_uuid))
+                self.announce_milestones(client.server_id, player_id, self.db.check_milestones(player_id))
             elif command == "!QUIT":
                 ok = self.db.register_player_quit(client.server_id, parse_uuid(value))
                 client.send("success|101" if ok else "error|003")
@@ -438,7 +478,7 @@ class SocketServer:
                 player_id = self.db.ensure_player_on_server(client.server_id, parse_uuid(player_uuid))
                 self.db.update_player_stats(player_id, stats)
                 client.send("success|102")
-                self.announce_achievements(client.server_id, player_id, self.db.award_achievements(player_id))
+                self.after_stats(client.server_id, player_id)
             elif command == "!HEALTH":
                 self.db.add_health_sample(client.server_id, parse_health(value))
                 client.send("success|104")

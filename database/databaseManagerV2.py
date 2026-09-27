@@ -17,6 +17,7 @@ from colorlogx import get_logger
 from . import config
 from . import achievements as achievements_mod
 from . import metrics as metrics_mod
+from . import motivation
 from . import stats as stats_mod
 from .minecraft import Minecraft
 
@@ -169,6 +170,56 @@ MIGRATIONS = {
              plugin_version text)""",
         "CREATE INDEX server_health_server_idx ON server_health (server_id, at)",
     ],
+    13: [
+        # streak badges (days online in a row) and anniversaries, reached once per player
+        """CREATE TABLE player_milestones(
+             player_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             kind text NOT NULL CHECK (kind IN ('streak', 'anniversary')),
+             value integer NOT NULL,
+             reached_at timestamptz NOT NULL DEFAULT now(),
+             silent boolean NOT NULL DEFAULT false,
+             PRIMARY KEY (player_id, kind, value))""",
+        "CREATE INDEX player_milestones_reached_idx ON player_milestones (reached_at)",
+        # every change of the best player of a metric; the newest row per metric is the current record
+        """CREATE TABLE record_history(
+             id bigserial PRIMARY KEY,
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             metric text NOT NULL,
+             player_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             value bigint NOT NULL,
+             since timestamptz NOT NULL DEFAULT now(),
+             silent boolean NOT NULL DEFAULT false)""",
+        "CREATE INDEX record_history_server_idx ON record_history (server_id, metric, since DESC)",
+        # server-wide goals: all players together gain `target` of a metric from starts_on on
+        """CREATE TABLE community_goals(
+             id serial PRIMARY KEY,
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             title text NOT NULL,
+             metric text NOT NULL,
+             target bigint NOT NULL CHECK (target > 0),
+             starts_on date NOT NULL,
+             ends_on date CHECK (ends_on IS NULL OR ends_on >= starts_on),
+             created_by text,
+             created_at timestamptz NOT NULL DEFAULT now(),
+             reached_at timestamptz)""",
+        "CREATE INDEX community_goals_server_idx ON community_goals (server_id)",
+        # competition places and players of the week (kept, the snapshots they come from are not)
+        """CREATE TABLE trophies(
+             id serial PRIMARY KEY,
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             player_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             kind text NOT NULL CHECK (kind IN ('competition', 'player_of_week')),
+             ref text NOT NULL,
+             place smallint NOT NULL DEFAULT 1,
+             title text NOT NULL,
+             detail text,
+             awarded_at timestamptz NOT NULL DEFAULT now(),
+             UNIQUE (server_id, kind, ref, player_id))""",
+        "CREATE INDEX trophies_player_idx ON trophies (player_id)",
+        "ALTER TABLE competitions ADD COLUMN awarded boolean NOT NULL DEFAULT false",
+        # the last Sunday up to which the player of the week was chosen
+        "ALTER TABLE servers ADD COLUMN weekly_awarded_until date",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -176,6 +227,9 @@ SESSION_MERGE_SECONDS = 120
 # An achievement counts as reached while playing if the player is online or left at most this
 # long ago (the plugin sends the stats shortly after a quit). Otherwise it is stored silently.
 ACHIEVEMENT_ACTIVE_MINUTES = 10
+# A record that changes hands again within this time is not announced (two players passing
+# each other while playing together); taking it straight back undoes the change.
+RECORD_COOLDOWN_MINUTES = 60
 # Health samples older than this are deleted.
 HEALTH_RETENTION_DAYS = 7
 # Snapshots older than this are deleted (the newest older one of each metric is kept as baseline).
@@ -1392,8 +1446,10 @@ class DatabaseManager:
     def get_feed(self, server_id, limit=15, days=7):
         """
         Latest events of a server, newest first: [{"at", "kind", "name", "uuid", "detail", "tier"}].
-        kind: join, new, achievement, competition_start, competition_end. Players who hide their
-        stats, silent achievements and bulks (more than 2 at once) are left out.
+        kind: join, new, achievement, competition_start, competition_end, record (detail: metric),
+        streak / anniversary (detail: days / years), goal (detail: title), player_of_week (detail: week).
+        Players who hide their stats, silent achievements, records and milestones and bulks of
+        achievements (more than 2 at once) are left out.
         """
         rows = self._fetchall("""
             WITH visible AS (
@@ -1420,7 +1476,21 @@ class DatabaseManager:
                 UNION ALL
                 SELECT (c.ends_on + 1)::timestamptz, 'competition_end', NULL, NULL, c.title, NULL FROM competitions c
                 WHERE c.server_id = %s AND c.ends_on < current_date AND c.ends_on >= current_date - %s
-            ) events ORDER BY at DESC LIMIT %s""", (server_id, days, days, server_id, days, server_id, days, limit))
+                UNION ALL
+                SELECT rh.since, 'record', v.name, v.mojang_uuid::text, rh.metric, NULL FROM record_history rh
+                JOIN visible v USING (player_id) WHERE rh.server_id = %s AND NOT rh.silent
+                  AND rh.since > now() - %s * interval '1 day'
+                UNION ALL
+                SELECT pm.reached_at, pm.kind, v.name, v.mojang_uuid::text, pm.value::text, NULL FROM player_milestones pm
+                JOIN visible v USING (player_id) WHERE NOT pm.silent AND pm.reached_at > now() - %s * interval '1 day'
+                UNION ALL
+                SELECT g.reached_at, 'goal', NULL, NULL, g.title, NULL FROM community_goals g
+                WHERE g.server_id = %s AND g.reached_at > now() - %s * interval '1 day'
+                UNION ALL
+                SELECT t.awarded_at, 'player_of_week', v.name, v.mojang_uuid::text, t.title, NULL FROM trophies t
+                JOIN visible v USING (player_id) WHERE t.kind = 'player_of_week' AND t.awarded_at > now() - %s * interval '1 day'
+            ) events ORDER BY at DESC LIMIT %s""", (server_id, days, days, server_id, days, server_id, days,
+                                                   server_id, days, days, server_id, days, days, limit))
         return [dict(zip(("at", "kind", "name", "uuid", "detail", "tier"), row)) for row in rows]
 
     ###----------------------------- Moderation log and notes ------------------------------------###
@@ -1654,6 +1724,347 @@ class DatabaseManager:
         for obj, player_id, value in rows:
             totals.setdefault(obj, {})[str(player_id)] = value
         return sorted(totals.items(), key=lambda item: (-sum(item[1].values()), item[0]))
+
+    ###----------------------------- Streaks and milestones ------------------------------------###
+
+    # Runs of days in a row with a session (a session over midnight counts for both days).
+    _STREAK_RUNS = """
+        WITH days AS (
+            SELECT DISTINCT ps.player_id, d::date AS day
+            FROM player_sessions ps JOIN player_server_info psi ON psi.player_id = ps.player_id
+            CROSS JOIN LATERAL generate_series(ps.started_at::date, COALESCE(ps.ended_at, now())::date,
+                                               interval '1 day') AS d
+            WHERE {where}),
+        runs AS (
+            SELECT player_id, min(day) AS first, max(day) AS last, count(*)::int AS length
+            FROM (SELECT player_id, day, day - (row_number() OVER (PARTITION BY player_id ORDER BY day))::int AS grp
+                  FROM days) numbered
+            GROUP BY player_id, grp)
+        SELECT player_id, max(length),
+               COALESCE(max(length) FILTER (WHERE last >= current_date - 1), 0),
+               (array_agg(first ORDER BY length DESC, last DESC))[1],
+               (array_agg(last ORDER BY length DESC, last DESC))[1]
+        FROM runs GROUP BY player_id"""
+
+    @staticmethod
+    def _streak(row):
+        return {"best": row[1], "current": row[2], "best_first": row[3], "best_last": row[4]}
+
+    def get_streaks(self, server_id, include_hidden=False):
+        """
+        {player_id: {"best", "current", "best_first", "best_last"}} of the players with any session.
+        current counts while the player was online today or yesterday (the streak can still go on).
+        """
+        rows = self._fetchall(self._STREAK_RUNS.format(where="psi.server_id = %s AND (%s OR NOT psi.hide_stats)"),
+                              (server_id, include_hidden))
+        return {str(row[0]): self._streak(row) for row in rows}
+
+    def get_player_streak(self, player_id):
+        row = self._fetchone(self._STREAK_RUNS.format(where="ps.player_id = %s"), (player_id,))
+        return self._streak(row) if row else {"best": 0, "current": 0, "best_first": None, "best_last": None}
+
+    def _played_recently(self, cur, player_id):
+        """Online now or left at most ACHIEVEMENT_ACTIVE_MINUTES ago (news worth announcing)."""
+        cur.execute("""SELECT EXISTS (SELECT 1 FROM player_sessions WHERE player_id = %s
+                                        AND COALESCE(ended_at, now()) >= now() - %s * interval '1 minute')""",
+                    (player_id, ACHIEVEMENT_ACTIVE_MINUTES))
+        return cur.fetchone()[0]
+
+    def check_milestones(self, player_id):
+        """
+        Store the streak badges and the anniversary the player has reached. Returns [(kind, value)]
+        of the new ones to announce: streak badges reached with the current streak and anniversaries,
+        both only while playing. Badges of an older streak are stored silently.
+        """
+        streak = self.get_player_streak(player_id)
+        with self._cursor() as cur:
+            cur.execute("""SELECT extract(year FROM age(current_date, first_seen::date))::int
+                           FROM player_server_info WHERE player_id = %s""", (player_id,))
+            row = cur.fetchone()
+            years = (row[0] or 0) if row else 0
+            active = self._played_recently(cur, player_id)
+            reached = [("streak", n, not active or streak["current"] < n)
+                       for n in motivation.STREAK_MILESTONES if streak["best"] >= n]
+            if years >= 1:
+                reached.append(("anniversary", years, not active))
+            if not reached:
+                return []
+            cur.execute("""INSERT INTO player_milestones (player_id, kind, value, silent)
+                           SELECT %s, kind, value, silent
+                           FROM unnest(%s::text[], %s::int[], %s::boolean[]) AS r(kind, value, silent)
+                           ON CONFLICT DO NOTHING RETURNING kind, value, silent""",
+                        (player_id, [r[0] for r in reached], [r[1] for r in reached], [r[2] for r in reached]))
+            rows = cur.fetchall()
+        return sorted((kind, value) for kind, value, silent in rows if not silent)
+
+    def get_player_milestones(self, player_id):
+        """[{"kind", "value", "reached_at"}] of a player, streaks first."""
+        rows = self._fetchall("""SELECT kind, value, reached_at FROM player_milestones WHERE player_id = %s
+                                 ORDER BY kind DESC, value""", (player_id,))
+        return [dict(zip(("kind", "value", "reached_at"), row)) for row in rows]
+
+    def get_server_milestones(self, server_id):
+        """{player_id: {"streak": highest badge, "anniversary": years}} of the visible players."""
+        result = {}
+        for player_id, kind, value in self._fetchall("""
+                SELECT pm.player_id, pm.kind, max(pm.value) FROM player_milestones pm
+                JOIN player_server_info psi ON psi.player_id = pm.player_id
+                WHERE psi.server_id = %s AND NOT psi.hide_stats GROUP BY pm.player_id, pm.kind""", (server_id,)):
+            result.setdefault(str(player_id), {})[kind] = value
+        return result
+
+    ###----------------------------- Records ------------------------------------###
+
+    def update_records(self, player_id):
+        """
+        Check the player's values against the records of the server (record_history) after new stats.
+        Returns [(metric, previous holder's name, value)] of the records the player took while playing
+        (to announce). The first record of a metric is taken from all players and stored silently.
+        Players who hide their stats take no records.
+        """
+        info = self._fetchone("SELECT server_id, hide_stats FROM player_server_info WHERE player_id = %s", (player_id,))
+        if info is None or info[1]:
+            return []
+        server_id = info[0]
+        values = self.get_player_metrics(player_id)
+        keys = [m.key for m in motivation.RECORD_METRICS]
+        events = []
+        with self._cursor() as cur:
+            cur.execute("SELECT id FROM servers WHERE id = %s FOR UPDATE", (server_id,))  # one check at a time
+            current = self._current_records(cur, server_id)
+            missing = [key for key in keys if key not in current]
+            if missing:
+                best = {}
+                for p in self.get_server_metrics(server_id):
+                    for key in missing:
+                        if p["values"][key] > best.get(key, (None, 0))[1]:
+                            best[key] = (p["player_id"], p["values"][key])
+                for key, (holder, value) in best.items():
+                    cur.execute("""INSERT INTO record_history (server_id, metric, player_id, value, silent)
+                                   VALUES (%s, %s, %s, %s, true)""", (server_id, key, holder, value))
+                current = self._current_records(cur, server_id)
+            active = None
+            for key in keys:
+                value, record = values[key], current.get(key)
+                if record is None or value <= record["value"]:
+                    continue
+                if record["player_id"] == str(player_id):
+                    cur.execute("UPDATE record_history SET value = %s WHERE id = %s", (value, record["id"]))
+                    continue
+                cur.execute("""SELECT id, player_id FROM record_history
+                               WHERE server_id = %s AND metric = %s AND (since, id) < (%s, %s)
+                               ORDER BY since DESC, id DESC LIMIT 1""", (server_id, key, record["since"], record["id"]))
+                before = cur.fetchone()
+                recent = record["age_minutes"] < RECORD_COOLDOWN_MINUTES and before is not None
+                if recent and str(before[1]) == str(player_id):
+                    # taken straight back: the short change in between did not happen
+                    cur.execute("DELETE FROM record_history WHERE id = %s", (record["id"],))
+                    cur.execute("UPDATE record_history SET value = %s WHERE id = %s", (value, before[0]))
+                    continue
+                if active is None:
+                    active = self._played_recently(cur, player_id)
+                silent = recent or not active
+                cur.execute("""INSERT INTO record_history (server_id, metric, player_id, value, silent)
+                               VALUES (%s, %s, %s, %s, %s)""", (server_id, key, player_id, value, silent))
+                if not silent:
+                    cur.execute("""SELECT p.name FROM player p JOIN player_server_info psi ON psi.mojang_uuid = p.uuid
+                                   WHERE psi.player_id = %s""", (record["player_id"],))
+                    events.append((metrics_mod.METRICS_BY_KEY[key], cur.fetchone()[0], value))
+        return events
+
+    @staticmethod
+    def _current_records(cur, server_id):
+        cur.execute("""SELECT DISTINCT ON (metric) id, metric, player_id, value, since,
+                              extract(epoch FROM now() - since) / 60
+                       FROM record_history WHERE server_id = %s ORDER BY metric, since DESC, id DESC""", (server_id,))
+        return {metric: {"id": rid, "player_id": str(pid), "value": value, "since": since, "age_minutes": float(age)}
+                for rid, metric, pid, value, since, age in cur.fetchall()}
+
+    def get_current_records(self, server_id):
+        """
+        {metric: {"player_id", "name", "uuid", "value", "since", "first"}} of the current record holders
+        (players who hide their stats are left out). first: the record is the first one recorded.
+        """
+        rows = self._fetchall("""
+            WITH cur AS (SELECT DISTINCT ON (metric) id, metric, player_id, value, since FROM record_history
+                         WHERE server_id = %s ORDER BY metric, since DESC, id DESC)
+            SELECT cur.metric, cur.player_id, p.name, psi.mojang_uuid, cur.value, cur.since,
+                   NOT EXISTS (SELECT 1 FROM record_history e WHERE e.server_id = %s AND e.metric = cur.metric
+                                                              AND (e.since, e.id) < (cur.since, cur.id))
+            FROM cur JOIN player_server_info psi ON psi.player_id = cur.player_id
+            JOIN player p ON p.uuid = psi.mojang_uuid
+            WHERE NOT psi.hide_stats""", (server_id, server_id))
+        return {row[0]: {"player_id": str(row[1]), "name": row[2], "uuid": str(row[3]), "value": row[4],
+                         "since": row[5], "first": row[6]} for row in rows}
+
+    def get_record_history(self, server_id, limit=30):
+        """
+        Record changes, newest first: [{"at", "metric", "name", "uuid", "value", "previous"}]
+        (without the first record of each metric; previous is None if that player hides the stats).
+        """
+        rows = self._fetchall("""
+            WITH h AS (SELECT rh.*, lag(rh.player_id) OVER (PARTITION BY rh.metric ORDER BY rh.since, rh.id) AS prev_id
+                       FROM record_history rh WHERE rh.server_id = %s)
+            SELECT h.since, h.metric, p.name, psi.mojang_uuid, h.value, CASE WHEN ppsi.hide_stats THEN NULL ELSE pp.name END
+            FROM h JOIN player_server_info psi ON psi.player_id = h.player_id
+            JOIN player p ON p.uuid = psi.mojang_uuid
+            JOIN player_server_info ppsi ON ppsi.player_id = h.prev_id
+            JOIN player pp ON pp.uuid = ppsi.mojang_uuid
+            WHERE NOT psi.hide_stats
+            ORDER BY h.since DESC, h.id DESC LIMIT %s""", (server_id, limit))
+        return [{"at": at, "metric": metric, "name": name, "uuid": str(uuid), "value": value, "previous": previous}
+                for at, metric, name, uuid, value, previous in rows]
+
+    ###----------------------------- Community goals ------------------------------------###
+
+    _GOAL_COLUMNS = "id, server_id, title, metric, target, starts_on, ends_on, created_by, reached_at"
+
+    def _goal(self, row):
+        return dict(zip([c.strip() for c in self._GOAL_COLUMNS.split(",")], row))
+
+    def create_goal(self, server_id, title, metric, target, starts_on, ends_on=None, created_by=None):
+        return self._fetchvalue("""INSERT INTO community_goals (server_id, title, metric, target, starts_on, ends_on, created_by)
+                                   VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                                (server_id, title, metric, target, starts_on, ends_on, created_by))
+
+    def delete_goal(self, server_id, goal_id):
+        """Returns the title of the deleted goal, or None."""
+        return self._fetchvalue("DELETE FROM community_goals WHERE id = %s AND server_id = %s RETURNING title",
+                                (goal_id, server_id))
+
+    def list_goals(self, server_id):
+        """All goals of a server, newest start first."""
+        return [self._goal(row) for row in self._fetchall(
+            f"SELECT {self._GOAL_COLUMNS} FROM community_goals WHERE server_id = %s ORDER BY starts_on DESC, id DESC",
+            (server_id,))]
+
+    def get_goal_progress(self, goal, today=None):
+        """(total gain of all players, {player_id: gain}) of a goal up to today (or its end)."""
+        today = today or self.get_today()
+        if goal["starts_on"] > today:
+            return 0, {}
+        end = min(goal["ends_on"], today) if goal["ends_on"] else today
+        gains = self.get_metrics_between(goal["server_id"], goal["starts_on"], end)
+        per_player = {pid: values.get(goal["metric"], 0) for pid, values in gains.items()}
+        return sum(per_player.values()), per_player
+
+    def take_reached_goals(self, server_ids):
+        """Goals of the given servers that reached their target since the last call, marked as reached."""
+        today = self.get_today()
+        reached = []
+        for row in self._fetchall(f"""SELECT {self._GOAL_COLUMNS} FROM community_goals
+                                      WHERE server_id = ANY(%s) AND reached_at IS NULL AND starts_on <= current_date
+                                        AND (ends_on IS NULL OR ends_on >= current_date - 1)""", (list(server_ids),)):
+            goal = self._goal(row)
+            if self.get_goal_progress(goal, today)[0] >= goal["target"]:
+                row = self._fetchone(f"""UPDATE community_goals SET reached_at = now()
+                                         WHERE id = %s AND reached_at IS NULL RETURNING {self._GOAL_COLUMNS}""",
+                                     (goal["id"],))
+                if row:
+                    reached.append(self._goal(row))
+        return reached
+
+    ###----------------------------- Trophies ------------------------------------###
+
+    def award_finished_competitions(self, server_ids):
+        """Store the places 1-3 of competitions that ended as trophies (once). Returns the number of trophies."""
+        count = 0
+        for row in self._fetchall(f"""SELECT {self._COMPETITION_COLUMNS} FROM competitions
+                                      WHERE server_id = ANY(%s) AND NOT awarded AND ends_on < current_date""",
+                                  (list(server_ids),)):
+            competition = self._competition(row)
+            metric = metrics_mod.METRICS_BY_KEY.get(competition["metric"])
+            standings = self.get_competition_standings(competition)[:3] if metric else []
+            with self._cursor() as cur:
+                cur.execute("UPDATE competitions SET awarded = true WHERE id = %s AND NOT awarded", (competition["id"],))
+                if cur.rowcount == 0:
+                    continue
+                for place, entry in enumerate(standings, 1):
+                    cur.execute("""INSERT INTO trophies (server_id, player_id, kind, ref, place, title, detail, awarded_at)
+                                   VALUES (%s, %s, 'competition', %s, %s, %s, %s, (%s + 1)::timestamptz)
+                                   ON CONFLICT DO NOTHING""",
+                                (competition["server_id"], entry["player_id"], str(competition["id"]), place,
+                                 competition["title"], metrics_mod.format_value(metric, entry["value"]),
+                                 competition["ends_on"]))
+                    count += cur.rowcount
+        return count
+
+    def settle_player_of_week(self, server_id):
+        """
+        Choose the player of the last full week (Monday to Sunday: most play time, visible players only)
+        once. Returns {"name", "uuid", "title", "detail"} of the new trophy, or None (already chosen,
+        nobody played, or the snapshots do not reach back before the week yet).
+        """
+        today = self.get_today()
+        end = today - timedelta(days=today.weekday() + 1)
+        start = end - timedelta(days=6)
+        done = self._fetchvalue("SELECT weekly_awarded_until FROM servers WHERE id = %s", (server_id,))
+        if done is not None and done >= end:
+            return None
+        first = self.get_snapshot_start(server_id)
+        if first is None or first >= start:
+            return None
+        gains = self.get_metrics_between(server_id, start, end)
+        visible = {str(pid): (name, str(uuid)) for pid, name, uuid in self._fetchall(
+            """SELECT psi.player_id, p.name, psi.mojang_uuid FROM player_server_info psi
+               JOIN player p ON p.uuid = psi.mojang_uuid WHERE psi.server_id = %s AND NOT psi.hide_stats""", (server_id,))}
+        best = max(((pid, values.get("play_time", 0)) for pid, values in gains.items() if pid in visible),
+                   key=lambda item: (item[1], visible[item[0]][0].lower()), default=None)
+        year, week, _ = start.isocalendar()
+        trophy = None
+        with self._cursor() as cur:
+            cur.execute("""UPDATE servers SET weekly_awarded_until = %s WHERE id = %s
+                             AND (weekly_awarded_until IS NULL OR weekly_awarded_until < %s)""", (end, server_id, end))
+            if cur.rowcount == 0:
+                return None
+            if best and best[1] > 0:
+                trophy = {"name": visible[best[0]][0], "uuid": visible[best[0]][1], "title": f"KW {week}",
+                          "detail": f"{metrics_mod.format_value(metrics_mod.METRICS_BY_KEY['play_time'], best[1])} Spielzeit"}
+                cur.execute("""INSERT INTO trophies (server_id, player_id, kind, ref, title, detail)
+                               VALUES (%s, %s, 'player_of_week', %s, %s, %s) ON CONFLICT DO NOTHING""",
+                            (server_id, best[0], f"{year}-W{week:02d}", trophy["title"], trophy["detail"]))
+        return trophy
+
+    _TROPHY_SELECT = """SELECT t.kind, t.ref, t.place, t.title, t.detail, t.awarded_at, p.name, psi.mojang_uuid
+                        FROM trophies t JOIN player_server_info psi ON psi.player_id = t.player_id
+                        JOIN player p ON p.uuid = psi.mojang_uuid"""
+
+    @staticmethod
+    def _trophy(row):
+        trophy = dict(zip(("kind", "ref", "place", "title", "detail", "awarded_at", "name", "uuid"), row))
+        trophy["uuid"] = str(trophy["uuid"])
+        return trophy
+
+    def get_player_trophies(self, player_id):
+        """[{"kind", "ref", "place", "title", "detail", "awarded_at", "name", "uuid"}] newest first."""
+        return [self._trophy(row) for row in self._fetchall(
+            self._TROPHY_SELECT + " WHERE t.player_id = %s ORDER BY t.awarded_at DESC, t.place", (player_id,))]
+
+    def get_server_trophies(self, server_id, kind, limit=50):
+        """Trophies of one kind on the server (visible players only), newest first."""
+        return [self._trophy(row) for row in self._fetchall(
+            self._TROPHY_SELECT + """ WHERE t.server_id = %s AND t.kind = %s AND NOT psi.hide_stats
+                                      ORDER BY t.awarded_at DESC, t.ref DESC, t.place LIMIT %s""",
+            (server_id, kind, limit))]
+
+    ###----------------------------- Hall of fame ------------------------------------###
+
+    def get_veterans(self, server_id, limit=10):
+        """[{"name", "uuid", "first_seen"}] of the visible players who joined first."""
+        return [{"name": n, "uuid": str(u), "first_seen": f} for n, u, f in self._fetchall("""
+            SELECT p.name, psi.mojang_uuid, psi.first_seen FROM player_server_info psi
+            JOIN player p ON p.uuid = psi.mojang_uuid
+            WHERE psi.server_id = %s AND NOT psi.hide_stats AND psi.first_seen IS NOT NULL
+            ORDER BY psi.first_seen LIMIT %s""", (server_id, limit))]
+
+    def get_achievement_leaders(self, server_id, limit=10):
+        """[{"name", "uuid", "tiers", "diamond"}] of the visible players with the most achievement tiers."""
+        return [{"name": n, "uuid": str(u), "tiers": t, "diamond": d} for n, u, t, d in self._fetchall("""
+            SELECT p.name, psi.mojang_uuid, count(*)::int, (count(*) FILTER (WHERE pa.tier = 3))::int
+            FROM player_achievements pa JOIN player_server_info psi ON psi.player_id = pa.player_id
+            JOIN player p ON p.uuid = psi.mojang_uuid
+            WHERE psi.server_id = %s AND NOT psi.hide_stats
+            GROUP BY p.name, psi.mojang_uuid ORDER BY 3 DESC, 4 DESC, lower(p.name) LIMIT %s""", (server_id, limit))]
 
     ################################# Verify Functions #######################################
 

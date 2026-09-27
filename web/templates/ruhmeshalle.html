@@ -1,0 +1,192 @@
+{% extends "server_base.html" %}
+{% block title %}Ruhmeshalle · {{ server_name }}{% endblock %}
+{% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block page_class %}srv-page-wide{% endblock %}
+
+{% macro who(name, uuid, size=28) %}
+<img class="st-avatar" src="https://mc-heads.net/avatar/{{ uuid }}/32" alt="" width="{{ size }}" height="{{ size }}" loading="lazy"/>
+<a class="st-name" href="/spieler?player={{ name | urlencode }}"><span>{{ name }}</span></a>
+{% endmacro %}
+
+{% block content %}
+<h1>Ruhmeshalle</h1>
+<p class="srv-lead">Rekorde, Sieger und Dauerbrenner von {{ server_name }} – und wer sie wann geholt hat.</p>
+
+<section class="st-group">
+  <h2>Rekordhalter</h2>
+  {% if records %}
+  <div class="hf-records">
+    {% for r in records %}
+    <a class="st-record" href="/spieler?player={{ r.name | urlencode }}">
+      <span class="st-record-label">{{ r.label }}</span>
+      <span class="st-record-value">{{ r.text }}</span>
+      <span class="st-record-who"><img src="https://mc-heads.net/avatar/{{ r.uuid }}/32" alt="" width="22" height="22" loading="lazy"/><span>{{ r.name }}</span></span>
+      <span class="ss-note">{{ "seit " ~ r.since if r.since else "seit Aufzeichnungsbeginn" }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="st-empty">Rekorde werden ab jetzt aufgezeichnet, sobald der Server Statistiken schickt.</p>
+  {% endif %}
+</section>
+
+<div class="ss-two">
+  <section class="st-group">
+    <h2>Rekordchronik</h2>
+    <div class="srv-card ss-card">
+      {% if history %}
+      <ol class="hf-timeline">
+        {% for h in history %}
+        <li>
+          <span class="hf-when">{{ h.when }}</span>
+          <span class="hf-what"><a href="/spieler?player={{ h.name | urlencode }}"><b>{{ h.name }}</b></a>
+            holt »{{ h.label }}«{% if h.previous %} von {{ h.previous }}{% endif %}</span>
+          <span class="hf-value">{{ h.text }}</span>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="st-empty">Noch hat niemand einen Rekord übernommen. Wer ist der Erste?</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="st-group">
+    <h2>Spieler der Woche</h2>
+    <div class="srv-card ss-card">
+      {% if weekly %}
+      <ol class="st-list">
+        {% for t in weekly %}
+        <li class="st-row hf-row">
+          <span class="hf-week">{{ t.title }}</span>
+          {{ who(t.name, t.uuid) }}
+          <span class="st-value">{{ t.detail }}{% if t.total > 1 %}<small class="hf-sub">{{ t.total }}× insgesamt</small>{% endif %}</span>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="st-empty">Jeden Montag wird gekürt, wer in der Vorwoche am längsten online war.</p>
+      {% endif %}
+    </div>
+  </section>
+</div>
+
+<section class="st-group">
+  <h2>Wettbewerbssieger</h2>
+  {% if winners %}
+  <div class="st-boards">
+    {% for c in winners %}
+    <article class="st-board">
+      <h3>{{ c.title }}</h3>
+      <p class="cp-meta">beendet am {{ c.date }}</p>
+      <ol class="st-list">
+        {% for t in c.places %}
+        <li class="st-row hf-row">
+          <span class="hf-medal" style="--medal: {{ t.color }}">{{ t.place }}</span>
+          {{ who(t.name, t.uuid) }}
+          <span class="st-value">{{ t.detail }}</span>
+        </li>
+        {% endfor %}
+      </ol>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="st-empty">Sobald ein <a href="/wettbewerbe">Wettbewerb</a> endet, landen die ersten drei hier.</p>
+  {% endif %}
+</section>
+
+<div class="ss-two">
+  <section class="st-group">
+    <h2>Längste Serien</h2>
+    <div class="srv-card ss-card">
+      <p class="cmp-chart-sub">Tage in Folge online. Abzeichen gibt es ab {{ milestones | join(", ") }} Tagen.</p>
+      {% if best_streaks %}
+      <ol class="st-list">
+        {% for row in best_streaks %}
+        <li class="st-row hf-row">
+          <span class="st-rank">{{ loop.index }}</span>
+          {{ who(row.name, row.uuid) }}
+          <span class="st-value">{{ row.days }} {{ "Tag" if row.days == 1 else "Tage" }}<small class="hf-sub">{{ row.range }}</small></span>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="st-empty">Noch keine Serien aufgezeichnet.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="st-group">
+    <h2>Laufende Serien</h2>
+    <div class="srv-card ss-card">
+      <p class="cmp-chart-sub">Wer heute oder gestern online war, kann die Serie noch fortsetzen.</p>
+      {% if current_streaks %}
+      <ol class="st-list">
+        {% for row in current_streaks %}
+        <li class="st-row hf-row">
+          <span class="st-rank">{{ loop.index }}</span>
+          {{ who(row.name, row.uuid) }}
+          <span class="st-value">{{ row.days }} {{ "Tag" if row.days == 1 else "Tage" }}</span>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="st-empty">Gerade läuft keine Serie.</p>
+      {% endif %}
+    </div>
+  </section>
+</div>
+
+<div class="ss-two">
+  <section class="st-group">
+    <h2>Dienstälteste</h2>
+    <div class="srv-card ss-card">
+      {% if veterans %}
+      <ol class="st-list">
+        {% for v in veterans %}
+        <li class="st-row hf-row">
+          <span class="st-rank">{{ loop.index }}</span>
+          {{ who(v.name, v.uuid) }}
+          <span class="st-value">{{ v.since }}<small class="hf-sub">erstmals am {{ v.date }}</small></span>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="st-empty">Noch keine Spieler.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="st-group">
+    <h2>Erfolgssammler</h2>
+    <div class="srv-card ss-card">
+      {% if collectors %}
+      <ol class="st-list">
+        {% for c in collectors %}
+        <li class="st-row hf-row">
+          <span class="st-rank">{{ loop.index }}</span>
+          {{ who(c.name, c.uuid) }}
+          <span class="st-value">{{ c.tiers }} von {{ achievement_total }}{% if c.diamond %}<small class="hf-sub">{{ c.diamond }}× Diamant</small>{% endif %}</span>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="st-empty">Noch hat niemand einen Erfolg erreicht.</p>
+      {% endif %}
+    </div>
+  </section>
+</div>
+
+{% if goals %}
+<section class="st-group">
+  <h2>Geschaffte Gemeinschaftsziele</h2>
+  <ul class="hf-goals">
+    {% for goal in goals %}
+    <li class="srv-card"><b>{{ goal.title }}</b> <span>{{ goal.target_text }} {{ goal.metric_label }}</span>
+      <span class="ss-note">{% if goal.reached %}geschafft am {{ goal.reached }}{% else %}geschafft{% endif %}</span></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}

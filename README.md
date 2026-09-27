@@ -31,7 +31,7 @@ Preview:
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 docker compose -f docker/db/docker-compose.yml -p mcconnect up -d   # local postgres
-.venv/bin/python -m pytest -q -p no:logging                         # ~320 tests, uses database mcconnect_test
+.venv/bin/python -m pytest -q -p no:logging                         # ~350 tests, uses database mcconnect_test
 .venv/bin/python -m database.manage seed                            # dev admin 'tobi' + server 'testdomain'
 .venv/bin/python mc_socket/main.py                                  # plugin socket on :9991
 .venv/bin/python web/main.py                                        # http://mc.t-auer.local:5000
@@ -45,7 +45,7 @@ docker compose -f docker/db/docker-compose.yml -p mcconnect up -d   # local post
 
 ## Status and next steps
 
-State of 2026-09-27 (schema version 12, plugin 3.3). Written as a handoff for the next development
+State of 2026-09-27 (schema version 13, plugin 3.3). Written as a handoff for the next development
 session; `docs/HANDOFF_spielervergleich.md` is the older handoff for the rankings feature (data model,
 stat units, screenshot workflow) and still useful as background.
 
@@ -65,6 +65,7 @@ stat units, screenshot workflow) and still useful as background.
 | Profile & privacy | `/profil` | bio, "hide my stats" (`hide_stats`: left out of every public view except server totals), favourites |
 | Stat card | `/spieler/<name>/karte.png` | Pillow, fonts in `web/card_fonts/`, used as `og:image` |
 | Moderation | `/users` (moderators only) | server health (TPS, RAM, uptime, 24 h charts, availability), log of all moderation actions, inactive players, competitions, bans |
+| Motivation (phase 5) | `database/motivation.py` | streaks + badges 7/30/100, anniversaries (`player_milestones`), record history (`record_history`, cooldown against flip-flops), community goals (`community_goals`, `/wettbewerbe#ziele`, created on `/users`), trophies (`trophies`: competition places, player of the week), fun facts on `/server-statistik`, trophy cabinet on the player page, hall of fame `/ruhmeshalle`; news in feed and chat |
 | Plugin | `java plugin/MCDataLink` | 3.1 `!broadcast` (chat), 3.2 `!HEALTH` every minute, 3.3 live stats of online players every minute (`live-stats` in config.yml) |
 
 Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all of the above in
@@ -80,7 +81,7 @@ Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all
 
 ### Planned (picked on 2026-09-27, build phase by phase with screenshots and feedback)
 
-1. **Phase 5 – Motivation** (mostly web): streaks (days online in a row, ranking, badges at 7/30/100),
+1. ~~**Phase 5 – Motivation**~~ (done, see above): streaks (days online in a row, ranking, badges at 7/30/100),
    community goals (server-wide goal with progress bar, created by moderators), record history
    ("new record!" in feed and chat, who held which record when), anniversaries ("1 year on the server"
    in feed/chat, badge), fun facts on the server statistics page, trophy cabinet on the player page

@@ -109,6 +109,64 @@
 </section>
 {% endif %}
 
+{% if goals is not none %}
+<section class="srv-card" id="goals">
+  <h2>Gemeinschaftsziele</h2>
+  <p class="mcc-hint">Alle Spieler zusammen sammeln ab dem Starttag für ein Ziel. Der Fortschritt steht auf der Startseite,
+    das Erreichen wird im Chat angekündigt. Ohne letzten Tag läuft das Ziel, bis es geschafft ist.</p>
+  <form class="mcc-form" data-role="goal-form">
+    <label for="gl-title">Titel</label>
+    <input class="mcc-input" id="gl-title" name="title" maxlength="60" placeholder="z. B. Eine Million Blöcke" required/>
+    <div class="mcc-row">
+      <div>
+        <label for="gl-metric">Kennzahl</label>
+        <select class="mcc-select" id="gl-metric" name="metric">
+          {% for key, label in metric_groups %}
+          <optgroup label="{{ label }}">
+            {% for m in metrics if m.group == key and not m.lower_is_better %}<option value="{{ m.key }}" data-unit="{{ goal_units[m.key] }}">{{ m.label }}</option>{% endfor %}
+          </optgroup>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="gl-amount">Ziel <span data-role="unit"></span></label>
+        <input class="mcc-input" id="gl-amount" name="amount" type="number" min="1" step="any" required/>
+      </div>
+    </div>
+    <div class="mcc-row">
+      <div>
+        <label for="gl-start">Erster Tag</label>
+        <input class="mcc-input" id="gl-start" name="starts_on" type="date" min="{{ today.isoformat() }}" value="{{ today.isoformat() }}" required/>
+      </div>
+      <div>
+        <label for="gl-end">Letzter Tag (optional)</label>
+        <input class="mcc-input" id="gl-end" name="ends_on" type="date" min="{{ today.isoformat() }}"/>
+      </div>
+    </div>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Ziel anlegen</button></div>
+    <div class="mcc-message" data-role="message"></div>
+  </form>
+  {% if goals %}
+  <div class="mcc-table-wrap" style="margin-top: 20px">
+    <table class="mcc-table">
+      <thead><tr><th>Titel</th><th>Ziel</th><th>Stand</th><th>Zeitraum</th><th></th></tr></thead>
+      <tbody>
+        {% for goal in goals %}
+        <tr>
+          <td>{{ goal.title }}</td>
+          <td>{{ goal.target_text }} {{ goal.metric_label }}</td>
+          <td>{{ goal.percent }} %{% if goal.done %} · geschafft{% elif goal.status == "failed" %} · verfehlt{% endif %}</td>
+          <td>{{ goal.starts }}{% if goal.ends %} – {{ goal.ends }}{% else %} – offen{% endif %}</td>
+          <td><button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-delete="{{ goal.id }}" data-title="{{ goal.title }}">Löschen</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
 <section class="srv-card" id="log">
   <h2>Protokoll</h2>
   <p class="mcc-hint">Die letzten 100 Aktionen: Bans (auch aus dem Spiel), Moderatoren, Wettbewerbe und Notizen.</p>
@@ -199,6 +257,33 @@
     root.querySelectorAll("[data-delete]").forEach((button) => button.addEventListener("click", async () => {
       if (!confirm(`Wettbewerb „${button.dataset.title}“ wirklich löschen?`)) return;
       const result = await postJson("/api/mod/competitions/delete", { id: Number(button.dataset.delete) });
+      if (result.ok) location.reload();
+      else showMessage(message, result.data.error || "Löschen fehlgeschlagen.", "error");
+    }));
+  })();
+</script>
+<script>
+  (() => {
+    const root = document.getElementById("goals");
+    if (!root) return;
+    const form = root.querySelector('[data-role="goal-form"]');
+    const message = form.querySelector('[data-role="message"]');
+    const metric = form.querySelector('[name="metric"]');
+    const showUnit = () => {
+      const unit = metric.selectedOptions[0].dataset.unit;
+      form.querySelector('[data-role="unit"]').textContent = unit ? `(in ${unit})` : "";
+    };
+    metric.addEventListener("change", showUnit);
+    showUnit();
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const result = await postJson("/api/mod/goals", Object.fromEntries(new FormData(form)));
+      if (result.ok) location.reload();
+      else showMessage(message, result.data.error || "Anlegen fehlgeschlagen.", "error");
+    });
+    root.querySelectorAll("[data-delete]").forEach((button) => button.addEventListener("click", async () => {
+      if (!confirm(`Ziel „${button.dataset.title}“ wirklich löschen?`)) return;
+      const result = await postJson("/api/mod/goals/delete", { id: Number(button.dataset.delete) });
       if (result.ok) location.reload();
       else showMessage(message, result.data.error || "Löschen fehlgeschlagen.", "error");
     }));

@@ -25,9 +25,26 @@
 {% endmacro %}
 
 {% block content %}
+{% from "_goals.html" import goal_card %}
 <h1>Wettbewerbe</h1>
 <p class="srv-lead">Wer schafft in einem Zeitraum am meisten? Gezählt wird nur, was in der Zeit dazukommt.
   Wettbewerbe legen die Moderatoren an.</p>
+
+{% set active_goals = goals | rejectattr("status", "in", ["reached", "failed"]) | list %}
+{% set old_goals = goals | selectattr("status", "in", ["reached", "failed"]) | list %}
+<section class="st-group" id="ziele">
+  <h2>Gemeinschaftsziele</h2>
+  {% if active_goals %}
+  <div class="gl-list">{% for goal in active_goals %}{{ goal_card(goal) }}{% endfor %}</div>
+  {% else %}
+  <p class="st-empty">Gerade gibt es kein Gemeinschaftsziel. Die Moderatoren können eins anlegen – dann zählt, was alle zusammen schaffen.</p>
+  {% endif %}
+  {% if old_goals %}
+  <details class="gl-old"><summary>Frühere Ziele ({{ old_goals | length }})</summary>
+    <div class="gl-list" style="margin-top: 12px">{% for goal in old_goals %}{{ goal_card(goal) }}{% endfor %}</div>
+  </details>
+  {% endif %}
+</section>
 
 {% if running %}
 <section class="st-group">
