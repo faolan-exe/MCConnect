@@ -5,3 +5,23 @@ api-version: '1.13'
 authors: [Tobias Auer]
 description: Connects the server to MCConnect and provides the in-game stats
 website: mc.tobisit.de
+commands:
+  stats:
+    description: Statistik von dir oder einem anderen Spieler
+    usage: /stats [spieler]
+  top:
+    description: Die Besten einer Kennzahl
+    usage: /top <kennzahl> [7|30]
+  wettbewerb:
+    description: Laufende Wettbewerbe und Gemeinschaftsziele
+    usage: /wettbewerb
+  duell:
+    description: Andere zum Duell herausfordern
+    usage: /duell [<spieler> <kennzahl> [tage]|annehmen|ablehnen]
+  report:
+    description: Etwas an die Moderatoren melden
+    usage: /report <spieler oder -> <was ist passiert>
+  seitenleiste:
+    description: Seitenleiste mit Wettbewerb oder Spielzeit ein- und ausschalten
+    usage: /seitenleiste [aus|wettbewerb|spielzeit]
+    aliases: [sidebar]

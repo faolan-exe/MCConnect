@@ -236,6 +236,29 @@ def feature_rankings_required(view):
     return wrapper
 
 
+def player_required(view):
+    """Server pages that need a logged in player; POST API calls must be JSON (CSRF protection)."""
+    @functools.wraps(view)
+    def wrapper(*args, **kwargs):
+        is_api = request.path.startswith("/api/")
+        if not logged_in_player_id():
+            return ({"error": "Bitte zuerst einloggen."}, 401) if is_api else redirect(f"/login?next={request.path}")
+        if is_api and request.method == "POST" and not request.is_json:
+            return {"error": "json required"}, 415
+        return view(*args, **kwargs)
+    return wrapper
+
+
+def moderator_required(view):
+    @functools.wraps(view)
+    @player_required
+    def wrapper(*args, **kwargs):
+        if not db().is_moderator(logged_in_player_id()):
+            abort(403)
+        return view(*args, **kwargs)
+    return wrapper
+
+
 def selected_period():
     period = request.args.get("zeitraum", "gesamt")
     return period if period in PERIODS else "gesamt"
@@ -719,6 +742,43 @@ def trophy_cabinet(player_id):
             if streak["best_first"] else None}
 
 
+def duel_view(duel):
+    metric = metrics_mod.METRICS_BY_KEY.get(duel["metric"])
+    if metric is None:
+        return None
+    gain_c, gain_o = db().duel_gains(duel)
+    top = max(gain_c, gain_o)
+    leader = None if gain_c == gain_o else ("challenger" if gain_c > gain_o else "opponent")
+    fmt = lambda ts: ts.strftime("%d.%m.%Y, %H:%M") if ts else None
+    return dict(duel, metric_label=metric.label, leader=leader,
+                challenger_text=metrics_mod.format_value(metric, gain_c), opponent_text=metrics_mod.format_value(metric, gain_o),
+                challenger_share=gain_c / top if top else 0, opponent_share=gain_o / top if top else 0,
+                created=fmt(duel["created_at"]), starts=fmt(duel["starts_at"]), ends=fmt(duel["ends_at"]))
+
+
+DUEL_STATUS = {"pending": "wartet auf Antwort", "running": "läuft", "finished": "beendet",
+               "declined": "abgelehnt", "expired": "abgelaufen"}
+
+
+@server_bp.route("/duelle")
+@feature_rankings_required
+def duels_page():
+    viewer = logged_in_player_id()
+    duels = [v for v in (duel_view(d) for d in db().list_duels(g.server["id"])) if v]
+    players = [p for p in db().get_server_metrics(g.server["id"]) if not viewer or p["player_id"] != str(viewer)]
+    return render_template("duelle.html", duels=duels, viewer=str(viewer) if viewer else None,
+                           status_labels=DUEL_STATUS, players=players,
+                           metrics=[m for m in metrics_mod.METRICS if not m.lower_is_better], metric_groups=metrics_mod.GROUPS,
+                           can_duel=bool(viewer) and not db().is_stats_hidden(viewer))
+
+
+@server_bp.route("/melden")
+@player_required
+def report_page():
+    return render_template("melden.html", players=db().get_players_overview_from_subdomain(g.subdomain),
+                           reason_max=REPORT_REASON_MAX)
+
+
 BIO_MAX_LENGTH = 160
 
 
@@ -728,7 +788,7 @@ def profile_page():
     if not player_id:
         return redirect("/login?next=/profil")
     return render_template("profil.html", profile=db().get_profile(player_id), bio_max=BIO_MAX_LENGTH,
-                           favorites=db().get_favorites(player_id))
+                           favorites=db().get_favorites(player_id), sidebar=db().get_sidebar(player_id))
 
 
 @server_bp.route("/spieler/<path:player_name>/karte.png")
@@ -825,29 +885,6 @@ def feed_api():
     return {"events": events}
 
 
-def player_required(view):
-    """Server pages that need a logged in player; POST API calls must be JSON (CSRF protection)."""
-    @functools.wraps(view)
-    def wrapper(*args, **kwargs):
-        is_api = request.path.startswith("/api/")
-        if not logged_in_player_id():
-            return ({"error": "Bitte zuerst einloggen."}, 401) if is_api else redirect(f"/login?next={request.path}")
-        if is_api and request.method == "POST" and not request.is_json:
-            return {"error": "json required"}, 415
-        return view(*args, **kwargs)
-    return wrapper
-
-
-def moderator_required(view):
-    @functools.wraps(view)
-    @player_required
-    def wrapper(*args, **kwargs):
-        if not db().is_moderator(logged_in_player_id()):
-            abort(403)
-        return view(*args, **kwargs)
-    return wrapper
-
-
 @server_bp.route("/add_pref")
 @player_required
 def prefix_edit_page():
@@ -882,7 +919,10 @@ def moderation_page():
                            if current_app.config["FEATURE_RANKINGS"] else None,
                            goal_units={m.key: motivation.goal_unit(m) for m in metrics_mod.METRICS},
                            today=today, default_end=today + timedelta(days=6),
-                           log=mod_log_view(g.server["id"]), health=health_view(g.server["id"]))
+                           log=mod_log_view(g.server["id"]), health=health_view(g.server["id"]),
+                           reports=[dict(r, when=r["created_at"].strftime("%d.%m.%Y, %H:%M"),
+                                         handled=r["handled_at"].strftime("%d.%m.%Y, %H:%M") if r["handled_at"] else None)
+                                    for r in db().list_reports(g.server["id"], include_handled=True, limit=50)])
 
 
 MOD_LOG_ACTIONS = {
@@ -891,6 +931,7 @@ MOD_LOG_ACTIONS = {
     "competition_create": "Wettbewerb angelegt", "competition_delete": "Wettbewerb gelöscht",
     "note_add": "Notiz geschrieben", "note_delete": "Notiz gelöscht",
     "goal_create": "Gemeinschaftsziel angelegt", "goal_delete": "Gemeinschaftsziel gelöscht",
+    "report_resolve": "Meldung erledigt",
 }
 
 
@@ -965,6 +1006,116 @@ def profile_save_api():
     if len(bio) > BIO_MAX_LENGTH:
         return {"error": f"Der Text darf höchstens {BIO_MAX_LENGTH} Zeichen lang sein."}, 400
     db().save_profile(logged_in_player_id(), bio, bool(data.get("hide_stats")))
+    return ("", 200)
+
+
+SIDEBAR_MODES = ("off", "competition", "playtime")
+
+
+@server_bp.route("/api/sidebar", methods=["POST"])
+@player_required
+def sidebar_save_api():
+    mode = str((request.get_json(silent=True) or {}).get("mode") or "")
+    if mode not in SIDEBAR_MODES:
+        return {"error": "Unbekannte Einstellung."}, 400
+    player_id = logged_in_player_id()
+    db().set_sidebar(player_id, mode)
+    db().notify_server_event(g.server["id"], "sidebar", player_id=str(player_id))
+    return ("", 200)
+
+
+@server_bp.route("/api/duels", methods=["POST"])
+@player_required
+def duel_create_api():
+    data = request.get_json(silent=True) or {}
+    metric = metrics_mod.METRICS_BY_KEY.get(str(data.get("metric") or ""))
+    if metric is None or metric.lower_is_better:
+        return {"error": "Unbekannte Kennzahl."}, 400
+    try:
+        days = int(data.get("days"))
+    except (TypeError, ValueError):
+        days = 0
+    if not 1 <= days <= 7:
+        return {"error": "Ein Duell dauert 1 bis 7 Tage."}, 400
+    opponent_id = db().get_player_id_from_player_name_and_server_id(str(data.get("name") or ""), g.server["id"])
+    if opponent_id is None:
+        return {"error": "Unbekannter Spieler."}, 404
+    player_id = logged_in_player_id()
+    duel_id, error = db().create_duel(g.server["id"], player_id, opponent_id, metric.key, days)
+    if error:
+        return {"error": {"self": "Du kannst dich nicht selbst herausfordern.",
+                          "hidden": "Duelle gehen nur, wenn ihr beide eure Statistiken öffentlich zeigt.",
+                          "open": "Mit diesem Spieler hast du schon ein offenes Duell."}[error]}, 409
+    name = db().get_player_name_from_player_id(player_id)
+    db().notify_server_event(g.server["id"], "tell", uuids=[str(db().get_mojang_uuid_from_player_id(opponent_id))],
+                             text=f"&6{name} fordert dich zum Duell heraus: &f{metric.label}, {days} "
+                                  f"{'Tag' if days == 1 else 'Tage'}. &a/duell annehmen &7oder &c/duell ablehnen")
+    return {"id": duel_id}, 200
+
+
+@server_bp.route("/api/duels/respond", methods=["POST"])
+@player_required
+def duel_respond_api():
+    data = request.get_json(silent=True) or {}
+    try:
+        duel_id = int(data.get("id"))
+    except (TypeError, ValueError):
+        return {"error": "Unbekanntes Duell."}, 400
+    accept = bool(data.get("accept"))
+    duel = db().respond_duel(duel_id, logged_in_player_id(), accept)
+    if duel is None:
+        return {"error": "Diese Herausforderung gibt es nicht mehr."}, 404
+    metric = metrics_mod.METRICS_BY_KEY[duel["metric"]]
+    if accept:
+        db().notify_server_event(g.server["id"], "broadcast", color="gold",
+                                 text=f"⚔ Duell: {duel['challenger']} gegen {duel['opponent']} – wer schafft in "
+                                      f"{duel['days']} {'Tag' if duel['days'] == 1 else 'Tagen'} mehr {metric.label}?")
+    else:
+        db().notify_server_event(g.server["id"], "tell", uuids=[duel["challenger_uuid"]],
+                                 text=f"&7{duel['opponent']} hat dein Duell abgelehnt.")
+    return ("", 200)
+
+
+REPORT_REASON_MAX = 300
+
+
+@server_bp.route("/api/reports", methods=["POST"])
+@player_required
+def report_create_api():
+    data = request.get_json(silent=True) or {}
+    reason = " ".join(str(data.get("reason") or "").split())
+    if not 5 <= len(reason) <= REPORT_REASON_MAX:
+        return {"error": f"Beschreibe kurz, was passiert ist (5-{REPORT_REASON_MAX} Zeichen)."}, 400
+    target = str(data.get("name") or "").strip() or None
+    if target:
+        target_id = db().get_player_id_from_player_name_and_server_id(target, g.server["id"])
+        if target_id is None:
+            return {"error": "Diesen Spieler gibt es auf dem Server nicht."}, 404
+        target = db().get_player_name_from_player_id(target_id)
+    player_id = logged_in_player_id()
+    if db().create_report(g.server["id"], player_id, target, reason, source="web") is None:
+        return {"error": "Du hast in der letzten Stunde schon genug gemeldet."}, 429
+    reporter = db().get_player_name_from_player_id(player_id)
+    moderators = db().get_online_moderator_uuids(g.server["id"])
+    if moderators:
+        db().notify_server_event(g.server["id"], "tell", uuids=moderators,
+                                 text=f"&c[Meldung] &f{reporter}{' meldet ' + target if target else ' hat etwas gemeldet'} "
+                                      "&7(Website) – siehe Verwaltung")
+    return ("", 200)
+
+
+@server_bp.route("/api/mod/reports/resolve", methods=["POST"])
+@moderator_required
+def mod_report_resolve_api():
+    try:
+        report_id = int((request.get_json(silent=True) or {}).get("id"))
+    except (TypeError, ValueError):
+        return {"error": "Unbekannte Meldung."}, 400
+    actor = db().get_player_name_from_player_id(logged_in_player_id())
+    resolved = db().resolve_report(g.server["id"], report_id, actor)
+    if resolved is None:
+        return {"error": "Unbekannte Meldung."}, 404
+    db().add_mod_log(g.server["id"], actor, "report_resolve", resolved[0], resolved[1][:200])
     return ("", 200)
 
 

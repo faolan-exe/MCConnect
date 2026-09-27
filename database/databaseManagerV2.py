@@ -220,6 +220,46 @@ MIGRATIONS = {
         # the last Sunday up to which the player of the week was chosen
         "ALTER TABLE servers ADD COLUMN weekly_awarded_until date",
     ],
+    14: [
+        # scoreboard sidebar in the game: off, standings of the running competition or the own play time
+        """ALTER TABLE player_server_info ADD COLUMN sidebar text NOT NULL DEFAULT 'off'
+             CHECK (sidebar IN ('off', 'competition', 'playtime'))""",
+        # 1 vs 1: who gains more of a metric in `days` days after the challenge was accepted
+        """CREATE TABLE duels(
+             id serial PRIMARY KEY,
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             challenger_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             opponent_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             metric text NOT NULL,
+             days smallint NOT NULL CHECK (days BETWEEN 1 AND 7),
+             status text NOT NULL DEFAULT 'pending'
+                 CHECK (status IN ('pending', 'running', 'finished', 'declined', 'expired')),
+             created_at timestamptz NOT NULL DEFAULT now(),
+             starts_at timestamptz,
+             ends_at timestamptz,
+             challenger_start bigint,
+             opponent_start bigint,
+             challenger_gain bigint,
+             opponent_gain bigint,
+             CHECK (challenger_id <> opponent_id))""",
+        "CREATE INDEX duels_server_idx ON duels (server_id, status)",
+        # reports of players (in the game with /report or on the website) for the moderators
+        """CREATE TABLE reports(
+             id serial PRIMARY KEY,
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             reporter_id uuid REFERENCES player_server_info (player_id) ON DELETE SET NULL,
+             target_name text,
+             reason text NOT NULL,
+             world text,
+             x integer,
+             y integer,
+             z integer,
+             source text NOT NULL DEFAULT 'ingame' CHECK (source IN ('ingame', 'web')),
+             created_at timestamptz NOT NULL DEFAULT now(),
+             handled_by text,
+             handled_at timestamptz)""",
+        "CREATE INDEX reports_server_idx ON reports (server_id, created_at DESC)",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -230,6 +270,10 @@ ACHIEVEMENT_ACTIVE_MINUTES = 10
 # A record that changes hands again within this time is not announced (two players passing
 # each other while playing together); taking it straight back undoes the change.
 RECORD_COOLDOWN_MINUTES = 60
+# A duel challenge that is not accepted within this time expires.
+DUEL_ACCEPT_HOURS = 24
+# At most this many reports per player and hour.
+MAX_REPORTS_PER_HOUR = 5
 # Health samples older than this are deleted.
 HEALTH_RETENTION_DAYS = 7
 # Snapshots older than this are deleted (the newest older one of each metric is kept as baseline).
@@ -2046,6 +2090,168 @@ class DatabaseManager:
             self._TROPHY_SELECT + """ WHERE t.server_id = %s AND t.kind = %s AND NOT psi.hide_stats
                                       ORDER BY t.awarded_at DESC, t.ref DESC, t.place LIMIT %s""",
             (server_id, kind, limit))]
+
+    ###----------------------------- In-game: sidebar, duels, reports ------------------------------------###
+
+    def get_sidebar(self, player_id):
+        return self._fetchvalue("SELECT sidebar FROM player_server_info WHERE player_id = %s", (player_id,))
+
+    def set_sidebar(self, player_id, mode):
+        self._execute("UPDATE player_server_info SET sidebar = %s WHERE player_id = %s", (mode, player_id))
+
+    def get_sidebar_players(self, server_ids):
+        """[(server_id, player_id, uuid, mode)] of the online players who switched the sidebar on."""
+        return [(sid, str(pid), str(uuid), mode) for sid, pid, uuid, mode in self._fetchall(
+            """SELECT server_id, player_id, mojang_uuid, sidebar FROM player_server_info
+               WHERE server_id = ANY(%s) AND online AND sidebar <> 'off'""", (list(server_ids),))]
+
+    def get_player_gain(self, player_id, metric, since_day):
+        """Gain of one metric since the end of the day before since_day (the first snapshot if none is older)."""
+        value = self.get_player_metrics(player_id)[metric]
+        base = self._fetchvalue("""SELECT value FROM stat_snapshots WHERE player_id = %s AND metric = %s
+                                   ORDER BY day < %s DESC, CASE WHEN day < %s THEN day END DESC NULLS LAST, day
+                                   LIMIT 1""", (player_id, metric, since_day, since_day))
+        return max(0, value - base) if base is not None else 0
+
+    _DUEL_COLUMNS = """d.id, d.server_id, d.challenger_id, cp.name, cpsi.mojang_uuid, d.opponent_id, op.name, opsi.mojang_uuid,
+                       d.metric, d.days, d.status, d.created_at, d.starts_at, d.ends_at, d.challenger_start,
+                       d.opponent_start, d.challenger_gain, d.opponent_gain"""
+    _DUEL_FROM = """FROM duels d
+                    JOIN player_server_info cpsi ON cpsi.player_id = d.challenger_id JOIN player cp ON cp.uuid = cpsi.mojang_uuid
+                    JOIN player_server_info opsi ON opsi.player_id = d.opponent_id JOIN player op ON op.uuid = opsi.mojang_uuid"""
+    _DUEL_KEYS = ("id", "server_id", "challenger_id", "challenger", "challenger_uuid", "opponent_id", "opponent",
+                  "opponent_uuid", "metric", "days", "status", "created_at", "starts_at", "ends_at", "challenger_start",
+                  "opponent_start", "challenger_gain", "opponent_gain")
+
+    def _duel(self, row):
+        duel = dict(zip(self._DUEL_KEYS, row))
+        for key in ("challenger_id", "opponent_id", "challenger_uuid", "opponent_uuid"):
+            duel[key] = str(duel[key])
+        return duel
+
+    def _duels(self, where, params):
+        return [self._duel(row) for row in self._fetchall(
+            f"SELECT {self._DUEL_COLUMNS} {self._DUEL_FROM} WHERE {where} ORDER BY d.created_at DESC, d.id DESC", params)]
+
+    def get_duel(self, duel_id):
+        duels = self._duels("d.id = %s", (duel_id,))
+        return duels[0] if duels else None
+
+    def list_duels(self, server_id, limit=50):
+        """Duels of a server, newest first (pending and running ones first)."""
+        duels = self._duels("d.server_id = %s AND d.created_at > now() - interval '60 days'", (server_id,))[:limit]
+        order = {"running": 0, "pending": 1}
+        return sorted(duels, key=lambda d: order.get(d["status"], 2))
+
+    def get_player_duels(self, player_id, statuses=("pending", "running")):
+        return self._duels("(d.challenger_id = %s OR d.opponent_id = %s) AND d.status = ANY(%s)",
+                           (player_id, player_id, list(statuses)))
+
+    def create_duel(self, server_id, challenger_id, opponent_id, metric, days):
+        """
+        Challenge a player. Returns (duel_id, None) or (None, error) with error "self", "hidden"
+        (one of them hides the stats) or "open" (the two already have an open duel).
+        """
+        if str(challenger_id) == str(opponent_id):
+            return None, "self"
+        with self._cursor() as cur:
+            cur.execute("""SELECT count(*) FROM player_server_info WHERE player_id IN (%s, %s)
+                           AND server_id = %s AND NOT hide_stats""", (challenger_id, opponent_id, server_id))
+            if cur.fetchone()[0] != 2:
+                return None, "hidden"
+            self._expire_duels(cur)
+            cur.execute("""SELECT 1 FROM duels WHERE status IN ('pending', 'running')
+                             AND ((challenger_id = %s AND opponent_id = %s) OR (challenger_id = %s AND opponent_id = %s))""",
+                        (challenger_id, opponent_id, opponent_id, challenger_id))
+            if cur.fetchone():
+                return None, "open"
+            cur.execute("""INSERT INTO duels (server_id, challenger_id, opponent_id, metric, days)
+                           VALUES (%s, %s, %s, %s, %s) RETURNING id""", (server_id, challenger_id, opponent_id, metric, days))
+            return cur.fetchone()[0], None
+
+    @staticmethod
+    def _expire_duels(cur):
+        cur.execute("""UPDATE duels SET status = 'expired' WHERE status = 'pending'
+                       AND created_at < now() - %s * interval '1 hour'""", (DUEL_ACCEPT_HOURS,))
+
+    def respond_duel(self, duel_id, player_id, accept):
+        """The challenged player accepts or declines. Returns the updated duel, or None if not possible."""
+        with self._cursor() as cur:
+            self._expire_duels(cur)
+            cur.execute("SELECT metric, challenger_id FROM duels WHERE id = %s AND opponent_id = %s AND status = 'pending' "
+                        "FOR UPDATE", (duel_id, player_id))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            if accept:
+                metric, challenger_id = row
+                start_c = self.get_player_metrics(challenger_id).get(metric, 0)
+                start_o = self.get_player_metrics(player_id).get(metric, 0)
+                cur.execute("""UPDATE duels SET status = 'running', starts_at = now(), ends_at = now() + days * interval '1 day',
+                               challenger_start = %s, opponent_start = %s WHERE id = %s""", (start_c, start_o, duel_id))
+            else:
+                cur.execute("UPDATE duels SET status = 'declined' WHERE id = %s", (duel_id,))
+        return self.get_duel(duel_id)
+
+    def duel_gains(self, duel):
+        """(challenger gain, opponent gain): final values of a finished duel, live values of a running one."""
+        if duel["status"] == "finished":
+            return duel["challenger_gain"], duel["opponent_gain"]
+        if duel["status"] != "running":
+            return 0, 0
+        return (max(0, self.get_player_metrics(duel["challenger_id"]).get(duel["metric"], 0) - duel["challenger_start"]),
+                max(0, self.get_player_metrics(duel["opponent_id"]).get(duel["metric"], 0) - duel["opponent_start"]))
+
+    def take_finished_duels(self, server_ids):
+        """Running duels of the given servers whose time is up, now finished with their final gains."""
+        finished = []
+        for duel in self._duels("d.server_id = ANY(%s) AND d.status = 'running' AND d.ends_at <= now()", (list(server_ids),)):
+            gain_c, gain_o = self.duel_gains(duel)
+            if self._execute("""UPDATE duels SET status = 'finished', challenger_gain = %s, opponent_gain = %s
+                                WHERE id = %s AND status = 'running'""", (gain_c, gain_o, duel["id"])):
+                finished.append(dict(duel, status="finished", challenger_gain=gain_c, opponent_gain=gain_o))
+        with self._cursor() as cur:
+            self._expire_duels(cur)
+        return finished
+
+    def create_report(self, server_id, reporter_id, target_name, reason, location=None, source="ingame"):
+        """Store a report. location: (world, x, y, z) or None. Returns the id, or None if the reporter sent too many."""
+        with self._cursor() as cur:
+            cur.execute("""SELECT count(*) FROM reports WHERE reporter_id = %s AND created_at > now() - interval '1 hour'""",
+                        (reporter_id,))
+            if cur.fetchone()[0] >= MAX_REPORTS_PER_HOUR:
+                return None
+            world, x, y, z = location or (None, None, None, None)
+            cur.execute("""INSERT INTO reports (server_id, reporter_id, target_name, reason, world, x, y, z, source)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                        (server_id, reporter_id, target_name, reason, world, x, y, z, source))
+            return cur.fetchone()[0]
+
+    def list_reports(self, server_id, include_handled=False, limit=100):
+        """[{"id", "reporter", "target_name", "reason", "world", "x", "y", "z", "source", "created_at",
+        "handled_by", "handled_at"}], open ones first, newest first."""
+        rows = self._fetchall("""
+            SELECT r.id, p.name, r.target_name, r.reason, r.world, r.x, r.y, r.z, r.source, r.created_at,
+                   r.handled_by, r.handled_at
+            FROM reports r LEFT JOIN player_server_info psi ON psi.player_id = r.reporter_id
+            LEFT JOIN player p ON p.uuid = psi.mojang_uuid
+            WHERE r.server_id = %s AND (%s OR r.handled_at IS NULL)
+            ORDER BY r.handled_at IS NOT NULL, r.created_at DESC LIMIT %s""", (server_id, include_handled, limit))
+        keys = ("id", "reporter", "target_name", "reason", "world", "x", "y", "z", "source", "created_at",
+                "handled_by", "handled_at")
+        return [dict(zip(keys, row)) for row in rows]
+
+    def resolve_report(self, server_id, report_id, handled_by):
+        """Mark a report as handled. Returns (target_name, reason) or None."""
+        return self._fetchone("""UPDATE reports SET handled_by = %s, handled_at = now()
+                                 WHERE id = %s AND server_id = %s AND handled_at IS NULL
+                                 RETURNING target_name, reason""", (handled_by, report_id, server_id))
+
+    def get_online_moderator_uuids(self, server_id):
+        return [str(row[0]) for row in self._fetchall("""
+            SELECT psi.mojang_uuid FROM player_server_info psi JOIN servers s ON s.id = psi.server_id
+            WHERE psi.server_id = %s AND psi.online
+              AND (psi.web_access_permissions <= %s OR (s.auto_mod_ops AND psi.is_op))""", (server_id, MODERATOR_LEVEL))]
 
     ###----------------------------- Hall of fame ------------------------------------###
 

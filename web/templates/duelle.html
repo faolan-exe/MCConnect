@@ -1,0 +1,108 @@
+{% extends "server_base.html" %}
+{% block title %}Duelle · {{ server_name }}{% endblock %}
+{% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block page_class %}srv-page-wide{% endblock %}
+
+{% macro duel_card(d) %}
+<article class="st-board du-card{% if d.status == 'running' %} cp-running{% endif %}">
+  <span class="cp-badge{% if d.status == 'pending' %} cp-badge-soon{% elif d.status in ('declined', 'expired') %} du-badge-off{% endif %}">
+    {{ status_labels[d.status] }}{% if d.status == "running" %} · bis {{ d.ends }}{% endif %}</span>
+  <p class="cp-meta">{{ d.metric_label }} · {{ d.days }} {{ "Tag" if d.days == 1 else "Tage" }}</p>
+  <div class="du-sides">
+    {% for side in ("challenger", "opponent") %}
+    <div class="du-side{% if d.leader == side %} du-lead{% endif %}">
+      <img src="https://mc-heads.net/avatar/{{ d[side ~ '_uuid'] }}/32" alt="" width="28" height="28" loading="lazy"/>
+      <a class="st-name" href="/spieler?player={{ d[side] | urlencode }}"><span>{{ d[side] }}</span></a>
+      {% if d.status in ("running", "finished") %}
+      <span class="du-value">{{ d[side ~ '_text'] }}</span>
+      <span class="st-bar"><span style="width: {{ '%.1f' | format(d[side ~ '_share'] * 100) }}%"></span></span>
+      {% endif %}
+    </div>
+    {% if loop.first %}<span class="du-vs">gegen</span>{% endif %}
+    {% endfor %}
+  </div>
+  {% if d.status == "finished" %}
+  <p class="du-result">{% if d.leader %}{{ d[d.leader] }} hat gewonnen.{% else %}Unentschieden.{% endif %}</p>
+  {% endif %}
+  {% if d.status == "pending" and viewer == d.opponent_id %}
+  <div class="du-actions">
+    <button class="mcc-btn mcc-btn-small" type="button" data-respond="{{ d.id }}" data-accept="1">Annehmen</button>
+    <button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-respond="{{ d.id }}" data-accept="0">Ablehnen</button>
+  </div>
+  {% endif %}
+</article>
+{% endmacro %}
+
+{% block content %}
+<h1>Duelle</h1>
+<p class="srv-lead">Fordere jemanden heraus: Wer schafft in 1 bis 7 Tagen mehr? Gezählt wird ab dem Annehmen.
+  Im Spiel geht das mit <code>/duell &lt;spieler&gt; &lt;kennzahl&gt; [tage]</code>.</p>
+
+{% if can_duel %}
+<section class="srv-card du-form-card">
+  <h2>Herausfordern</h2>
+  <form class="mcc-form" id="duel-form">
+    <div class="mcc-row">
+      <div>
+        <label for="du-name">Gegner</label>
+        <input class="mcc-input" id="du-name" name="name" list="du-players" required autocomplete="off"/>
+        <datalist id="du-players">{% for p in players %}<option value="{{ p.name }}"></option>{% endfor %}</datalist>
+      </div>
+      <div>
+        <label for="du-metric">Kennzahl</label>
+        <select class="mcc-select" id="du-metric" name="metric">
+          {% for key, label in metric_groups %}
+          <optgroup label="{{ label }}">{% for m in metrics if m.group == key %}<option value="{{ m.key }}">{{ m.label }}</option>{% endfor %}</optgroup>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="du-days">Tage</label>
+        <select class="mcc-select" id="du-days" name="days">{% for n in range(1, 8) %}<option{% if n == 3 %} selected{% endif %}>{{ n }}</option>{% endfor %}</select>
+      </div>
+    </div>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Herausfordern</button></div>
+    <div class="mcc-message" data-role="message"></div>
+  </form>
+</section>
+{% elif not viewer %}
+<p class="st-hint"><a href="/login?next=/duelle">Log dich ein</a>, um andere herauszufordern.</p>
+{% endif %}
+
+{% set open = duels | selectattr("status", "in", ["running", "pending"]) | list %}
+{% set done = duels | rejectattr("status", "in", ["running", "pending"]) | list %}
+<section class="st-group">
+  <h2>Aktuell</h2>
+  {% if open %}
+  <div class="st-boards">{% for d in open %}{{ duel_card(d) }}{% endfor %}</div>
+  {% else %}
+  <p class="st-empty">Gerade läuft kein Duell.</p>
+  {% endif %}
+</section>
+
+{% if done %}
+<section class="st-group">
+  <h2>Vorbei</h2>
+  <div class="st-boards">{% for d in done %}{{ duel_card(d) }}{% endfor %}</div>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const form = document.getElementById("duel-form");
+  if (form) {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const result = await postJson("/api/duels", Object.fromEntries(new FormData(form)));
+      if (result.ok) location.reload();
+      else showMessage(form.querySelector('[data-role="message"]'), result.data.error || "Das hat nicht geklappt.", "error");
+    });
+  }
+  document.querySelectorAll("[data-respond]").forEach((button) => button.addEventListener("click", async () => {
+    const result = await postJson("/api/duels/respond", { id: Number(button.dataset.respond), accept: button.dataset.accept === "1" });
+    if (result.ok) location.reload();
+    else alert(result.data.error || "Das hat nicht geklappt.");
+  }));
+</script>
+{% endblock %}

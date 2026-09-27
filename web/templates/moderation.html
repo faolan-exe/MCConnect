@@ -167,6 +167,34 @@
 </section>
 {% endif %}
 
+<section class="srv-card" id="reports">
+  <h2>Meldungen{% set open_reports = reports | selectattr("handled_at", "none") | list %}{% if open_reports %} · {{ open_reports | length }} offen{% endif %}</h2>
+  <p class="mcc-hint">Von Spielern mit <code>/report</code> im Spiel (mit Position) oder über <a href="/melden">/melden</a>.
+    Online-Moderatoren bekommen neue Meldungen im Chat.</p>
+  {% if reports %}
+  <div class="mcc-table-wrap">
+    <table class="mcc-table">
+      <thead><tr><th>Wann</th><th>Von</th><th>Über</th><th>Was</th><th>Wo</th><th></th></tr></thead>
+      <tbody>
+        {% for r in reports %}
+        <tr{% if r.handled_at %} class="rp-done"{% endif %}>
+          <td>{{ r.when }}</td>
+          <td>{{ r.reporter or "–" }}</td>
+          <td>{% if r.target_name %}<a href="/spieler?player={{ r.target_name | urlencode }}">{{ r.target_name }}</a>{% else %}–{% endif %}</td>
+          <td>{{ r.reason }}</td>
+          <td>{% if r.world %}<code>{{ r.world }} {{ r.x }} {{ r.y }} {{ r.z }}</code>{% else %}{{ "Website" if r.source == "web" else "–" }}{% endif %}</td>
+          <td>{% if r.handled_at %}<span class="mcc-hint">erledigt von {{ r.handled_by or "–" }}</span>
+            {% else %}<button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-resolve="{{ r.id }}">Erledigt</button>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="st-empty">Keine Meldungen.</p>
+  {% endif %}
+</section>
+
 <section class="srv-card" id="log">
   <h2>Protokoll</h2>
   <p class="mcc-hint">Die letzten 100 Aktionen: Bans (auch aus dem Spiel), Moderatoren, Wettbewerbe und Notizen.</p>
@@ -261,6 +289,13 @@
       else showMessage(message, result.data.error || "Löschen fehlgeschlagen.", "error");
     }));
   })();
+</script>
+<script>
+  document.querySelectorAll("[data-resolve]").forEach((button) => button.addEventListener("click", async () => {
+    const result = await postJson("/api/mod/reports/resolve", { id: Number(button.dataset.resolve) });
+    if (result.ok) location.reload();
+    else alert(result.data.error || "Das hat nicht geklappt.");
+  }));
 </script>
 <script>
   (() => {

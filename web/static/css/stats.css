@@ -1028,3 +1028,19 @@ a.pi-tile:hover { border-color: var(--srv-green); }
 .ff-value { font-family: var(--font-display); font-size: 24px; font-weight: 700; line-height: 1.2; }
 .ff-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--srv-muted); font-weight: 700; }
 .ff-text { font-size: 15px; }
+
+/* ---------------------------------------------------------------- duels (/duelle), reports */
+.du-form-card { margin-bottom: 8px; }
+.du-sides { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 10px; align-items: start; }
+.du-side { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.du-side img { border-radius: 5px; image-rendering: pixelated; }
+.du-side:last-child { align-items: flex-end; text-align: right; }
+.du-side:last-child .st-bar { width: 100%; direction: rtl; }
+.du-value { font-family: var(--font-display); font-size: 20px; font-weight: 700; }
+.du-lead .du-value { color: var(--srv-green-dark); }
+.du-vs { align-self: center; color: var(--srv-muted); font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; }
+.du-result { margin: 12px 0 0; font-weight: 700; }
+.du-actions { display: flex; gap: 8px; margin-top: 14px; }
+.du-badge-off { background: #eef1ee; color: var(--srv-muted); }
+.pf-sidebar { margin-top: 10px; }
+.rp-done td { color: var(--srv-muted); }

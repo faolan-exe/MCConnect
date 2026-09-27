@@ -13,6 +13,8 @@ Plugin -> server:
                                  [{"name", "reason", "source", "created", "expires"}] (epoch ms, 0 = never)
     !HEALTH~<json>               once a minute: {"tps", "mem_used_mb", "mem_max_mb", "players", "chunks",
                                  "entities", "uptime_s", "mc_version", "plugin_version"}
+    !CMD~<uuid>|<world>|<x>|<y>|<z>|<command>|<args>   in-game command (stats, top, wettbewerb, duell, report,
+                                 seitenleiste; see mc_socket/commands.py), answered with !tell
     !DISCONNECT                  close the connection
 
 Server -> plugin:
@@ -25,6 +27,9 @@ Server -> plugin:
     !broadcast~<color>|<text>    chat message to everyone (achievements, competitions, records, streaks,
                                  anniversaries, community goals, player of the week);
                                  color is a ChatColor name, e.g. gold
+    !tell~<uuid>|<text>          chat message to one player; "&" color codes (plugin 3.4)
+    !sidebar~<uuid>|<title>|<line>|...   scoreboard sidebar of a player ("&" color codes); empty title hides it
+    !metrics~<name>|<name>|...   metric names for the tab completion of /top and /duell (after auth)
     success|<code> / error|<code>
 
 Error codes:
@@ -57,6 +62,7 @@ if PROJECT_ROOT not in sys.path:
 
 from colorlogx import get_logger
 from database import achievements, config, metrics, motivation
+from mc_socket import commands
 from database.databaseManagerV2 import DatabaseManager
 
 logger = get_logger("socket")
@@ -285,6 +291,43 @@ class SocketServer:
             trophy = self.db.settle_player_of_week(server_id)
             if trophy:
                 self.broadcast(server_id, *motivation.player_of_week_announcement(trophy))
+        for duel in self.db.take_finished_duels(connected):
+            self.broadcast(duel["server_id"], *commands.duel_result(duel))
+        for server_id, player_id, uuid, mode in self.db.get_sidebar_players(connected):
+            self.send_sidebar(server_id, uuid, commands.sidebar(self.db, player_id, mode))
+
+    # ------------------------------------------------------------------ in-game commands
+    def tell(self, server_id, mojang_uuid, text):
+        return self._send_to_server(server_id, f"!tell~{mojang_uuid}|{text.replace('|', '/').replace(chr(10), ' ')}")
+
+    def send_sidebar(self, server_id, mojang_uuid, content):
+        if content is None:
+            return self._send_to_server(server_id, f"!sidebar~{mojang_uuid}|")
+        title, lines = content
+        return self._send_to_server(server_id, "!sidebar~" + "|".join(
+            [str(mojang_uuid), title] + [line.replace("|", "/") for line in lines]))
+
+    def update_sidebar(self, server_id, player_id):
+        uuid = self.db.get_mojang_uuid_from_player_id(player_id)
+        self.send_sidebar(server_id, uuid, commands.sidebar(self.db, player_id, self.db.get_sidebar(player_id)))
+
+    def run_command(self, server_id, value):
+        """!CMD from the plugin: answer the player with !tell lines."""
+        parts = value.split("|", 6)
+        if len(parts) < 6:
+            raise ValueError("command needs uuid, position and name")
+        uuid = parse_uuid(parts[0])
+        try:
+            location = (parts[1][:64], int(float(parts[2])), int(float(parts[3])), int(float(parts[4])))
+        except ValueError:
+            location = None
+        ctx = commands.CommandContext(
+            self.db, server_id, uuid, location if parts[1] else None,
+            tell=lambda to, text: self.tell(server_id, to, text),
+            broadcast=lambda color, text: self.broadcast(server_id, color, text),
+            update_sidebar=lambda player_id: self.update_sidebar(server_id, player_id))
+        for line in commands.handle(ctx, parts[5], parts[6] if len(parts) > 6 else ""):
+            self.tell(server_id, uuid, line)
 
     def announce_competitions(self, connected=None):
         """Announce started and ended competitions on the given (default: connected) servers."""
@@ -363,6 +406,11 @@ class SocketServer:
             self._send_to_server(server_id, f"!unban~{event['uuid']}|{self._clean(event['name'])}")
         elif kind == "broadcast":
             self.broadcast(server_id, event.get("color") or "gold", event.get("text"))
+        elif kind == "tell":
+            for mojang_uuid in event.get("uuids", []):
+                self.tell(server_id, mojang_uuid, str(event.get("text") or ""))
+        elif kind == "sidebar":
+            self.update_sidebar(server_id, event["player_id"])
         else:
             logger.warning(f"Unknown server event {kind}")
 
@@ -437,6 +485,7 @@ class SocketServer:
         client.send("!sendAllPlayerStats")
         for mojang_uuid, (text, color) in self.db.get_all_worn_prefixes(server_id).items():
             client.send(f"!prefix~{mojang_uuid}|{color}|{self._clean(text)}")
+        client.send("!metrics~" + "|".join(commands.METRIC_NAMES))
         return True
 
     def _unregister(self, client):
@@ -467,6 +516,8 @@ class SocketServer:
                 client.send("success|101")
                 client.send(self.prefix_message(client.server_id, player_uuid))
                 self.announce_milestones(client.server_id, player_id, self.db.check_milestones(player_id))
+                if self.db.get_sidebar(player_id) != "off":
+                    self.update_sidebar(client.server_id, player_id)
             elif command == "!QUIT":
                 ok = self.db.register_player_quit(client.server_id, parse_uuid(value))
                 client.send("success|101" if ok else "error|003")
@@ -479,6 +530,8 @@ class SocketServer:
                 self.db.update_player_stats(player_id, stats)
                 client.send("success|102")
                 self.after_stats(client.server_id, player_id)
+            elif command == "!CMD":
+                self.run_command(client.server_id, value)
             elif command == "!HEALTH":
                 self.db.add_health_sample(client.server_id, parse_health(value))
                 client.send("success|104")

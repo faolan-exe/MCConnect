@@ -1,0 +1,37 @@
+{% extends "server_base.html" %}
+{% block title %}Melden · {{ server_name }}{% endblock %}
+{% block content %}
+<h1>Etwas melden</h1>
+<p class="srv-lead">Griefing, Beleidigungen, ein Bug? Die Moderatoren sehen deine Meldung in der Verwaltung und im Spiel.
+  Im Spiel geht es schneller mit <code>/report &lt;spieler&gt; &lt;was ist passiert&gt;</code> – dann wird auch deine Position mitgeschickt.</p>
+
+<section class="srv-card">
+  <form class="mcc-form" id="report-form">
+    <label for="rp-name">Spieler (optional)</label>
+    <input class="mcc-input" id="rp-name" name="name" list="rp-players" autocomplete="off" placeholder="leer lassen, wenn es um keinen Spieler geht"/>
+    <datalist id="rp-players">{% for p in players %}<option value="{{ p.name }}"></option>{% endfor %}</datalist>
+    <label for="rp-reason">Was ist passiert?</label>
+    <textarea class="mcc-input" id="rp-reason" name="reason" rows="4" maxlength="{{ reason_max }}" required
+              placeholder="z. B. Haus bei X 120 Z -340 wurde angezündet, heute gegen 18 Uhr"></textarea>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Meldung abschicken</button></div>
+    <div class="mcc-message" data-role="message"></div>
+  </form>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const form = document.getElementById("report-form");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const message = form.querySelector('[data-role="message"]');
+    const result = await postJson("/api/reports", Object.fromEntries(new FormData(form)));
+    if (result.ok) {
+      form.reset();
+      showMessage(message, "Danke! Deine Meldung ist bei den Moderatoren angekommen.", "success");
+    } else {
+      showMessage(message, result.data.error || "Das hat nicht geklappt.", "error");
+    }
+  });
+</script>
+{% endblock %}

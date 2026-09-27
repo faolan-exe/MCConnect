@@ -24,6 +24,17 @@
 </section>
 
 <section class="srv-card">
+  <h2>Seitenleiste im Spiel</h2>
+  <p class="mcc-hint">Rechts im Bild während du spielst (ab Plugin-Version 3.4). Im Spiel umschalten mit <code>/seitenleiste</code>.</p>
+  <div class="st-periods pf-sidebar" role="group" aria-label="Seitenleiste">
+    {% for mode, label in (("off", "Aus"), ("competition", "Wettbewerb"), ("playtime", "Meine Spielzeit")) %}
+    <button type="button" data-sidebar="{{ mode }}" aria-pressed="{{ 'true' if sidebar == mode else 'false' }}">{{ label }}</button>
+    {% endfor %}
+  </div>
+  <div class="mcc-message" id="sidebar-message"></div>
+</section>
+
+<section class="srv-card">
   <h2>Meine Favoriten</h2>
   {% if favorites %}
   <ul class="pf-favs">
@@ -37,6 +48,13 @@
 </section>
 {% endblock %}
 {% block scripts %}
+<script>
+  document.querySelectorAll("[data-sidebar]").forEach((button) => button.addEventListener("click", async () => {
+    const result = await postJson("/api/sidebar", { mode: button.dataset.sidebar });
+    if (result.ok) document.querySelectorAll("[data-sidebar]").forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
+    else showMessage(document.getElementById("sidebar-message"), result.data.error || "Speichern fehlgeschlagen.", "error");
+  }));
+</script>
 <script>
   document.getElementById("profile-form").addEventListener("submit", async (event) => {
     event.preventDefault();

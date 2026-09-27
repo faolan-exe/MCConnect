@@ -45,7 +45,7 @@ docker compose -f docker/db/docker-compose.yml -p mcconnect up -d   # local post
 
 ## Status and next steps
 
-State of 2026-09-27 (schema version 13, plugin 3.3). Written as a handoff for the next development
+State of 2026-09-27 (schema version 14, plugin 3.4). Written as a handoff for the next development
 session; `docs/HANDOFF_spielervergleich.md` is the older handoff for the rankings feature (data model,
 stat units, screenshot workflow) and still useful as background.
 
@@ -66,7 +66,8 @@ stat units, screenshot workflow) and still useful as background.
 | Stat card | `/spieler/<name>/karte.png` | Pillow, fonts in `web/card_fonts/`, used as `og:image` |
 | Moderation | `/users` (moderators only) | server health (TPS, RAM, uptime, 24 h charts, availability), log of all moderation actions, inactive players, competitions, bans |
 | Motivation (phase 5) | `database/motivation.py` | streaks + badges 7/30/100, anniversaries (`player_milestones`), record history (`record_history`, cooldown against flip-flops), community goals (`community_goals`, `/wettbewerbe#ziele`, created on `/users`), trophies (`trophies`: competition places, player of the week), fun facts on `/server-statistik`, trophy cabinet on the player page, hall of fame `/ruhmeshalle`; news in feed and chat |
-| Plugin | `java plugin/MCDataLink` | 3.1 `!broadcast` (chat), 3.2 `!HEALTH` every minute, 3.3 live stats of online players every minute (`live-stats` in config.yml) |
+| In game (phase 6) | `mc_socket/commands.py` | `/stats`, `/top`, `/wettbewerb`, `/duell`, `/report`, `/seitenleiste` answered by the socket server (`!CMD` → `!tell`); scoreboard sidebar (`!sidebar`, setting also on `/profil`); duels (`duels`, `/duelle`), reports (`reports`, `/melden`, list on `/users`, online moderators get a chat message) |
+| Plugin | `java plugin/MCDataLink` | 3.1 `!broadcast` (chat), 3.2 `!HEALTH` every minute, 3.3 live stats of online players every minute (`live-stats` in config.yml), 3.4 in-game commands and sidebar (`InGameCommands`, `Sidebar`) |
 
 Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all of the above in
 `web/static/css/stats.css`.
@@ -86,7 +87,7 @@ Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all
    ("new record!" in feed and chat, who held which record when), anniversaries ("1 year on the server"
    in feed/chat, badge), fun facts on the server statistics page, trophy cabinet on the player page
    (competition wins, player of the week, records held) and a hall of fame page.
-2. **Phase 6 – In game** (plugin): `/stats [player]`, `/top <metric>`, `/wettbewerb` in the chat;
+2. ~~**Phase 6 – In game**~~ (done, see above): `/stats [player]`, `/top <metric>`, `/wettbewerb` in the chat;
    optional scoreboard sidebar (competition standings / own play time, switchable per player);
    duels (1 vs 1 challenge for a metric and a period, accept on the website or with `/duell`, winner in chat);
    report system (`/report` or website, with position and time, list for moderators).

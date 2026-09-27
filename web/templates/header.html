@@ -93,6 +93,19 @@
               </div>
             </div>
           </li>
+          <li>
+            <div class="dropdown">
+              <button
+                class="dropbtn {% if request.path in ('/duelle', '/melden') %} current{% endif %}"
+              >
+                ▼ Community
+              </button>
+              <div class="dropdown-content">
+                <a href="/duelle">Duelle</a>
+                <a href="/melden">Etwas melden</a>
+              </div>
+            </div>
+          </li>
           {% endif %}
           {% if config.FEATURE_PREFIXES %}
           <li>

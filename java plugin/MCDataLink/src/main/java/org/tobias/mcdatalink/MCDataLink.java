@@ -17,6 +17,7 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -61,6 +62,8 @@ public final class MCDataLink extends JavaPlugin {
     private PrefixDisplay prefixDisplay;
     private BanSync banSync;
     private HealthReporter healthReporter;
+    private InGameCommands commands;
+    private Sidebar sidebar;
 
     @Override
     public void onEnable() {
@@ -80,6 +83,15 @@ public final class MCDataLink extends JavaPlugin {
         healthReporter = new HealthReporter(this);
         healthReporter.start();
         if (getConfig().getBoolean("live-stats", true)) new LiveStats(this).start();
+        sidebar = new Sidebar(this);
+        commands = new InGameCommands(this);
+        for (String name : InGameCommands.COMMANDS) {
+            org.bukkit.command.PluginCommand command = getCommand(name);
+            if (command != null) {
+                command.setExecutor(commands);
+                command.setTabCompleter(commands);
+            }
+        }
 
         List<World> worlds = getServer().getWorlds();
         worldFolder = worlds.isEmpty() ? new File(getServer().getWorldContainer(), "world") : worlds.get(0).getWorldFolder();
@@ -223,6 +235,30 @@ public final class MCDataLink extends JavaPlugin {
             case "!unban":  // uuid|name
                 if (fields.length >= 2) runOnMainThread(() -> banSync.unban(fields[1]));
                 break;
+            case "!tell": {  // uuid|text with & color codes
+                UUID uuid = fields.length >= 2 ? parseUuid(fields[0]) : null;
+                if (uuid == null) break;
+                String text = ChatColor.translateAlternateColorCodes('&', value.substring(value.indexOf('|') + 1));
+                runOnMainThread(() -> {
+                    Player player = getServer().getPlayer(uuid);
+                    if (player != null) player.sendMessage(text);
+                });
+                break;
+            }
+            case "!sidebar": {  // uuid|title|line|... (empty title: hide)
+                UUID uuid = fields.length >= 2 ? parseUuid(fields[0]) : null;
+                if (uuid == null) break;
+                if (fields[1].isEmpty()) {
+                    runOnMainThread(() -> sidebar.hide(uuid));
+                } else {
+                    List<String> lines = new ArrayList<>(Arrays.asList(fields).subList(2, fields.length));
+                    runOnMainThread(() -> sidebar.show(uuid, fields[1], lines));
+                }
+                break;
+            }
+            case "!metrics":  // name|name|... for the tab completion
+                commands.setMetricNames(Arrays.asList(fields));
+                break;
             case "!broadcast": {  // color|text (achievements, competitions)
                 if (fields.length < 2) break;
                 String text = broadcastColor(fields[0]) + ChatColor.stripColor(value.substring(value.indexOf('|') + 1));
@@ -325,6 +361,17 @@ public final class MCDataLink extends JavaPlugin {
         return prefixDisplay;
     }
 
+    Sidebar sidebar() {
+        return sidebar;
+    }
+
+    /** Main thread: forward an in-game command (see InGameCommands). False if not connected. */
+    boolean sendCommand(String message) {
+        if (!authenticated) return false;
+        sendAsync(message);
+        return true;
+    }
+
     /** Main thread: report the server's own bans (not MCConnect's) to the website. */
     private void sendBanList() {
         if (!authenticated) return;
@@ -335,6 +382,7 @@ public final class MCDataLink extends JavaPlugin {
     void playerQuit(Player player) {
         UUID uuid = player.getUniqueId();
         prefixDisplay.clear(player);
+        sidebar.quit(player);
         sendAsync("!QUIT~" + uuid);
         getServer().getScheduler().runTaskLaterAsynchronously(this, () -> sendPlayerStats(uuid), QUIT_STATS_DELAY_TICKS);
     }

@@ -80,6 +80,7 @@ final class PrefixDisplay {
                 }
                 team.addEntry(player.getName());
             }
+            if (plugin.sidebar() != null) plugin.sidebar().syncTeams();
         }
     }
 

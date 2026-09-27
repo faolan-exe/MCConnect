@@ -24,6 +24,9 @@ class FakePlugin:
             msg = recv_msg(self.sock)
             if skip_heartbeats and msg == "!heartbeat":
                 continue
+            if msg.startswith("!metrics~"):
+                self.metrics = msg
+                continue
             if msg.startswith("!prefix~"):
                 self.prefixes.append(msg)
                 continue
@@ -33,7 +36,7 @@ class FakePlugin:
         """Next prefix message; fails if another message arrives first."""
         while not self.prefixes:
             msg = recv_msg(self.sock)
-            if msg == "!heartbeat":
+            if msg == "!heartbeat" or msg.startswith("!metrics~"):
                 continue
             if not msg.startswith("!prefix~"):
                 raise AssertionError(f"expected a prefix message, got {msg!r}")
