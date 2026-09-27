@@ -115,6 +115,17 @@ MIGRATIONS = {
              end_announced boolean NOT NULL DEFAULT false)""",
         "CREATE INDEX competitions_server_idx ON competitions (server_id, ends_on)",
     ],
+    10: [
+        # profile: a short text on the player page, and hiding the own stats from the public pages
+        "ALTER TABLE player_server_info ADD COLUMN bio text",
+        "ALTER TABLE player_server_info ADD COLUMN hide_stats boolean NOT NULL DEFAULT false",
+        """CREATE TABLE player_favorites(
+             player_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             favorite_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             created_at timestamptz NOT NULL DEFAULT now(),
+             PRIMARY KEY (player_id, favorite_id),
+             CHECK (player_id <> favorite_id))""",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -1102,24 +1113,25 @@ class DatabaseManager:
 
     ###----------------------------- Rankings / comparison ------------------------------------###
 
-    def get_server_metrics(self, server_id, days=None):
+    def get_server_metrics(self, server_id, days=None, include_hidden=False):
         """
         Every player of the server with all metrics (database/metrics.py):
-        [{"player_id", "name", "uuid", "online", "values": {metric key: value}}], sorted by name.
+        [{"player_id", "name", "uuid", "online", "hidden", "values": {metric key: value}}], sorted by name.
+        Players who hide their stats are left out unless include_hidden (e.g. for server totals).
         With days, values are the gain since the end of the day `days` days ago (from the
         snapshots; if there is none that old, since the first snapshot).
         """
         columns, params = metrics_mod.sql_columns()
         rows = self._fetchall(f"""
-            SELECT psi.player_id, p.name, psi.mojang_uuid, psi.online, {", ".join(columns)}
+            SELECT psi.player_id, p.name, psi.mojang_uuid, psi.online, psi.hide_stats, {", ".join(columns)}
             FROM player_server_info psi
             JOIN player p ON p.uuid = psi.mojang_uuid
             LEFT JOIN actions a ON a.player_id = psi.player_id AND a.category = ANY(%s)
-            WHERE psi.server_id = %s
-            GROUP BY psi.player_id, p.name, psi.mojang_uuid, psi.online
-            ORDER BY lower(p.name)""", (*params, metrics_mod.METRIC_CATEGORIES, server_id))
-        players = [{"player_id": str(row[0]), "name": row[1], "uuid": str(row[2]), "online": row[3],
-                    "values": {m.key: int(v) for m, v in zip(metrics_mod.METRICS, row[4:])}} for row in rows]
+            WHERE psi.server_id = %s AND (%s OR NOT psi.hide_stats)
+            GROUP BY psi.player_id, p.name, psi.mojang_uuid, psi.online, psi.hide_stats
+            ORDER BY lower(p.name)""", (*params, metrics_mod.METRIC_CATEGORIES, server_id, include_hidden))
+        players = [{"player_id": str(row[0]), "name": row[1], "uuid": str(row[2]), "online": row[3], "hidden": row[4],
+                    "values": {m.key: int(v) for m, v in zip(metrics_mod.METRICS, row[5:])}} for row in rows]
         if days is None:
             return players
 
@@ -1282,6 +1294,75 @@ class DatabaseManager:
                                    AND first_seen >= %s::date::timestamptz AND first_seen < (%s::date + 1)::timestamptz""",
                                 (server_id, start, end))
 
+    ###----------------------------- Profile, privacy, favourites ------------------------------------###
+
+    def get_profile(self, player_id):
+        """{"bio", "hide_stats"} of a player."""
+        row = self._fetchone("SELECT bio, hide_stats FROM player_server_info WHERE player_id = %s", (player_id,))
+        return {"bio": row[0], "hide_stats": row[1]} if row else None
+
+    def save_profile(self, player_id, bio, hide_stats):
+        self._execute("UPDATE player_server_info SET bio = %s, hide_stats = %s WHERE player_id = %s",
+                      (bio or None, bool(hide_stats), player_id))
+
+    def is_stats_hidden(self, player_id):
+        return bool(self._fetchvalue("SELECT hide_stats FROM player_server_info WHERE player_id = %s", (player_id,)))
+
+    def get_favorites(self, player_id):
+        """[{"name", "uuid"}] of the favourites of a player, sorted by name."""
+        return [{"name": name, "uuid": str(uuid)} for name, uuid in self._fetchall("""
+            SELECT p.name, psi.mojang_uuid FROM player_favorites f
+            JOIN player_server_info psi ON psi.player_id = f.favorite_id
+            JOIN player p ON p.uuid = psi.mojang_uuid
+            WHERE f.player_id = %s ORDER BY lower(p.name)""", (player_id,))]
+
+    def toggle_favorite(self, player_id, favorite_name):
+        """Add or remove a favourite (same server). Returns True/False (now a favourite) or None if unknown."""
+        server_id = self.get_server_id_from_player_id(player_id)
+        favorite_id = self.get_player_id_from_player_name_and_server_id(favorite_name, server_id)
+        if favorite_id is None or str(favorite_id) == str(player_id):
+            return None
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM player_favorites WHERE player_id = %s AND favorite_id = %s", (player_id, favorite_id))
+            if cur.rowcount:
+                return False
+            cur.execute("INSERT INTO player_favorites (player_id, favorite_id) VALUES (%s, %s)", (player_id, favorite_id))
+        return True
+
+    def get_feed(self, server_id, limit=15, days=7):
+        """
+        Latest events of a server, newest first: [{"at", "kind", "name", "uuid", "detail", "tier"}].
+        kind: join, new, achievement, competition_start, competition_end. Players who hide their
+        stats and bulk achievements (more than 2 at once, e.g. the first sync) are left out.
+        """
+        rows = self._fetchall("""
+            WITH visible AS (
+                SELECT psi.player_id, p.name, psi.mojang_uuid, psi.first_seen FROM player_server_info psi
+                JOIN player p ON p.uuid = psi.mojang_uuid
+                WHERE psi.server_id = %s AND NOT psi.hide_stats),
+            achievements AS (
+                SELECT pa.player_id, pa.achievement, pa.tier, pa.earned_at,
+                       count(*) OVER (PARTITION BY pa.player_id, pa.earned_at) AS at_once
+                FROM player_achievements pa JOIN visible v USING (player_id)
+                WHERE pa.earned_at > now() - %s * interval '1 day')
+            SELECT at, kind, name, uuid, detail, tier FROM (
+                SELECT ps.started_at AS at,
+                       CASE WHEN ps.started_at - v.first_seen < interval '1 minute' THEN 'new' ELSE 'join' END AS kind,
+                       v.name, v.mojang_uuid::text AS uuid, NULL AS detail, NULL::smallint AS tier
+                FROM player_sessions ps JOIN visible v USING (player_id)
+                WHERE ps.started_at > now() - %s * interval '1 day'
+                UNION ALL
+                SELECT a.earned_at, 'achievement', v.name, v.mojang_uuid::text, a.achievement, a.tier
+                FROM achievements a JOIN visible v USING (player_id) WHERE a.at_once <= 2
+                UNION ALL
+                SELECT c.starts_on::timestamptz, 'competition_start', NULL, NULL, c.title, NULL FROM competitions c
+                WHERE c.server_id = %s AND c.starts_on <= current_date AND c.starts_on > current_date - %s
+                UNION ALL
+                SELECT (c.ends_on + 1)::timestamptz, 'competition_end', NULL, NULL, c.title, NULL FROM competitions c
+                WHERE c.server_id = %s AND c.ends_on < current_date AND c.ends_on >= current_date - %s
+            ) events ORDER BY at DESC LIMIT %s""", (server_id, days, days, server_id, days, server_id, days, limit))
+        return [dict(zip(("at", "kind", "name", "uuid", "detail", "tier"), row)) for row in rows]
+
     ###----------------------------- Achievements ------------------------------------###
 
     def get_player_metrics(self, player_id):
@@ -1347,7 +1428,8 @@ class DatabaseManager:
                                          min(competition["ends_on"], today))
         names = {str(pid): (name, str(uuid)) for pid, name, uuid in self._fetchall(
             """SELECT psi.player_id, p.name, psi.mojang_uuid FROM player_server_info psi
-               JOIN player p ON p.uuid = psi.mojang_uuid WHERE psi.server_id = %s""", (competition["server_id"],))}
+               JOIN player p ON p.uuid = psi.mojang_uuid
+               WHERE psi.server_id = %s AND NOT psi.hide_stats""", (competition["server_id"],))}
         rows = [{"player_id": pid, "name": names[pid][0], "uuid": names[pid][1], "value": values.get(competition["metric"], 0)}
                 for pid, values in gains.items() if pid in names]
         return sorted((r for r in rows if r["value"] > 0), key=lambda r: (-r["value"], r["name"].lower()))

@@ -218,7 +218,7 @@ class SocketServer:
         return self._send_to_server(server_id, f"!broadcast~{color}|{self._clean(text)}")
 
     def announce_achievements(self, server_id, player_id, awards):
-        if not awards or len(awards) > MAX_ANNOUNCED_ACHIEVEMENTS:
+        if not awards or len(awards) > MAX_ANNOUNCED_ACHIEVEMENTS or self.db.is_stats_hidden(player_id):
             return
         name = self.db.get_player_name_from_player_id(player_id) or "Jemand"
         for achievement, tier in awards:

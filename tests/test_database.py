@@ -268,6 +268,8 @@ def test_email_verification_expires(db):
 def test_migration_from_version_1(db):
     with db._cursor() as cur:
         # back to schema version 1
+        cur.execute("DROP TABLE player_favorites")
+        cur.execute("ALTER TABLE player_server_info DROP COLUMN bio, DROP COLUMN hide_stats")
         cur.execute("DROP TABLE player_achievements, competitions")
         cur.execute("DROP TABLE player_sessions")
         cur.execute("DROP TABLE stat_snapshots")

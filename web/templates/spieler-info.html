@@ -214,6 +214,13 @@
     </style>
   <link href="{{ url_for('static', filename='css/fonts.css') }}" rel="stylesheet" />
     <link href="{{ url_for('static', filename='css/components.css') }}" rel="stylesheet" />
+    {% if not hidden %}
+    <meta property="og:title" content="{{ user_name }} auf {{ server_name }}" />
+    <meta property="og:image" content="{{ card_url }}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    {% endif %}
   </head>
 
   <body>
@@ -240,6 +247,24 @@
           >{{user_name}}</strong
         >
       </h1>
+      <div class="pi-extra pi-top">
+        {% if bio %}<p class="pi-bio">„{{ bio }}“</p>{% endif %}
+        {% if is_self and hidden %}
+        <p class="st-hint">Deine Statistiken sind verborgen: Nur du siehst diese Seite, in Ranglisten und Vergleichen tauchst du nicht auf.
+          Ändern kannst du das in deinem <a href="/profil">Profil</a>.</p>
+        {% endif %}
+        <div class="pi-actions">
+          {% if logged_in and not is_self %}
+          <button class="mcc-btn mcc-btn-secondary mcc-btn-small pi-fav" type="button" data-favorite="{{ user_name }}"
+                  aria-pressed="{{ 'true' if is_favorite else 'false' }}">{{ "★ Favorit" if is_favorite else "☆ Als Favorit merken" }}</button>
+          {% endif %}
+          {% if not hidden %}
+          <a class="mcc-btn mcc-btn-secondary mcc-btn-small" href="{{ card_url }}" target="_blank" rel="noopener">Statistik-Karte</a>
+          <button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" id="share-link">Link teilen</button>
+          {% endif %}
+          {% if is_self %}<a class="mcc-btn mcc-btn-secondary mcc-btn-small" href="/profil">Profil bearbeiten</a>{% endif %}
+        </div>
+      </div>
       <br />
       <div class="container-util">
         <div class="container">
@@ -476,6 +501,30 @@
       </nav>
     </footer>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+    <script>
+      (() => {
+        const fav = document.querySelector("[data-favorite]");
+        if (fav) fav.addEventListener("click", async () => {
+          const response = await fetch("/api/favorites/toggle", { method: "POST", headers: { "Content-Type": "application/json" },
+                                                                 body: JSON.stringify({ name: fav.dataset.favorite }) });
+          if (!response.ok) return;
+          const on = (await response.json()).favorite;
+          fav.setAttribute("aria-pressed", String(on));
+          fav.textContent = on ? "★ Favorit" : "☆ Als Favorit merken";
+        });
+        const share = document.getElementById("share-link");
+        if (share) share.addEventListener("click", async () => {
+          const url = location.origin + "/spieler?player=" + encodeURIComponent({{ user_name | tojson }});
+          if (navigator.share) {
+            try { await navigator.share({ title: {{ user_name | tojson }}, url }); } catch (e) {}
+            return;
+          }
+          await navigator.clipboard.writeText(url);
+          share.textContent = "Link kopiert";
+          setTimeout(() => (share.textContent = "Link teilen"), 2000);
+        });
+      })();
+    </script>
     {% if extras.activity %}
     <script id="activity-data" type="application/json">{{ extras.activity.days | tojson }}</script>
     <script src="{{ url_for('static', filename='bar-chart.js') }}"></script>

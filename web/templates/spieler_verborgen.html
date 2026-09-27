@@ -1,0 +1,16 @@
+{% extends "server_base.html" %}
+{% from "_components.html" import prefix_chip %}
+{% block title %}{{ player_name }} · {{ server_name }}{% endblock %}
+{% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block content %}
+<div class="srv-card pv-card">
+  <img src="https://mc-heads.net/avatar/{{ uuid }}/96" alt="" width="96" height="96"/>
+  <div>
+    {% if player_prefix %}{{ prefix_chip(player_prefix.text, player_prefix.color, prefix_colors) }}{% endif %}
+    <h1>{{ player_name }}</h1>
+    {% if bio %}<p class="pi-bio">„{{ bio }}“</p>{% endif %}
+    <p class="srv-lead">{{ player_name }} hat die eigenen Statistiken verborgen.</p>
+    <a class="mcc-btn mcc-btn-secondary" href="/spieler">Zur Spielerliste</a>
+  </div>
+</div>
+{% endblock %}

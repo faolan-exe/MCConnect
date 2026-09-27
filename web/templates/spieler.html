@@ -23,6 +23,7 @@
   </div>
   <div class="pl-filters" role="group" aria-label="Zuletzt online">
     <button type="button" data-filter="all">Alle <span></span></button>
+    {% if logged_in %}<button type="button" data-filter="favorites">★ Favoriten <span></span></button>{% endif %}
     <button type="button" data-filter="online">Jetzt online <span></span></button>
     <button type="button" data-filter="1">Letzte 24 Std. <span></span></button>
     <button type="button" data-filter="7">Letzte 7 Tage <span></span></button>
@@ -34,7 +35,8 @@
 <ul class="pl-list" id="player-list">
   {% for p in players %}
   <li class="pl-row" data-index="{{ p.index }}" data-name="{{ p.name | lower }}" data-online="{{ 1 if p.online else 0 }}"
-      data-last="{{ p.last_seen.isoformat() if p.last_seen else '' }}" data-play="{{ p.play_time }}">
+      data-last="{{ p.last_seen.isoformat() if p.last_seen else '' }}" data-play="{{ p.play_time }}"
+      data-fav="{{ 1 if p.favorite else 0 }}"{% if p.hidden %} data-hidden="1"{% endif %}>
     <img class="pl-avatar" src="https://mc-heads.net/avatar/{{ p.uuid }}/64" alt="" width="44" height="44" loading="lazy"/>
     <div class="pl-main">
       <div class="pl-title">
@@ -44,8 +46,9 @@
         {% if p.banned %}<span class="pl-badge pl-badge-ban">Gebannt</span>{% endif %}
       </div>
       <div class="pl-meta">
+        {% if p.hidden %}<span>Statistiken verborgen</span>{% else %}
         {% if p.first_seen %}<span>Dabei seit {{ p.first_seen.strftime("%d.%m.%Y") }}</span>{% endif %}
-        <span>Spielzeit {{ p.play_time_text }}</span>
+        <span>Spielzeit {{ p.play_time_text }}</span>{% endif %}
       </div>
       {% if p.top %}
       <div class="pl-tops">
@@ -54,6 +57,8 @@
       {% endif %}
     </div>
     <div class="pl-status" data-role="status"></div>
+    {% if logged_in %}<button class="pl-star" type="button" data-favorite="{{ p.name }}" aria-pressed="{{ 'true' if p.favorite else 'false' }}"
+      aria-label="{{ p.name }} als Favorit" title="Favorit">{{ "★" if p.favorite else "☆" }}</button>{% endif %}
     {% if config.FEATURE_RANKINGS %}<button class="cmp-add" type="button" data-compare="{{ p.name }}" aria-label="{{ p.name }} zum Vergleich hinzufügen">+</button>{% endif %}
   </li>
   {% endfor %}
@@ -102,6 +107,10 @@
         status.className = "pl-status pl-online";
         text.textContent = "Online";
         status.title = "Gerade auf dem Server";
+      } else if (row.dataset.hidden) {
+        status.className = "pl-status";
+        text.textContent = "–";
+        status.title = "Verborgen";
       } else if (row.dataset.last) {
         const date = new Date(row.dataset.last);
         status.className = "pl-status";
@@ -117,6 +126,7 @@
 
     function matches(row, filter) {
       if (filter === "all") return true;
+      if (filter === "favorites") return row.dataset.fav === "1";
       if (filter === "online") return row.dataset.online === "1";
       const age = Date.now() - lastSeen(row);
       if (filter === "inactive") return !lastSeen(row) || age > 30 * DAY;
@@ -153,6 +163,15 @@
     }
 
     search.addEventListener("input", () => { state.q = search.value; apply(); });
+    document.querySelectorAll("[data-favorite]").forEach((star) => star.addEventListener("click", async () => {
+      const result = await postJson("/api/favorites/toggle", { name: star.dataset.favorite });
+      if (!result.ok) return;
+      const on = result.data.favorite;
+      star.setAttribute("aria-pressed", String(on));
+      star.textContent = on ? "★" : "☆";
+      star.closest(".pl-row").dataset.fav = on ? "1" : "0";
+      apply();
+    }));
     sortButtons.forEach((b) => b.addEventListener("click", () => { state.sort = b.dataset.sort; apply(); }));
     filterButtons.forEach((b) => b.addEventListener("click", () => { state.filter = b.dataset.filter; apply(); }));
 

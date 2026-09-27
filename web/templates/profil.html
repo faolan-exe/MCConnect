@@ -1,0 +1,49 @@
+{% extends "server_base.html" %}
+{% from "_components.html" import prefix_chip %}
+{% block title %}Mein Profil · {{ server_name }}{% endblock %}
+{% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block content %}
+<h1>Mein Profil</h1>
+<p class="srv-lead">Das sehen andere auf deiner <a href="/spieler?player={{ name | urlencode }}">Spielerseite</a>.</p>
+
+<section class="srv-card">
+  <form class="mcc-form" id="profile-form">
+    <label for="bio">Über mich <span class="mcc-hint">(höchstens {{ bio_max }} Zeichen, erscheint unter deinem Namen)</span></label>
+    <input class="mcc-input" id="bio" name="bio" maxlength="{{ bio_max }}" value="{{ profile.bio or '' }}"
+           placeholder="z. B. Baue gerade an der großen Brücke im Norden"/>
+    <label class="pf-check">
+      <input type="checkbox" name="hide_stats"{% if profile.hide_stats %} checked{% endif %}/>
+      <span><b>Meine Statistiken verbergen</b><br/>
+        <span class="mcc-hint">Deine Spielerseite zeigt dann nur deinen Namen. In Ranglisten, Teams, Vergleichen,
+          Wettbewerben, Rekorden, Rückblick und Aktivitäten tauchst du nicht auf, und Erfolge werden nicht im Chat verkündet.
+          In den Summen der Server-Statistik zählst du anonym weiter mit.</span></span>
+    </label>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Speichern</button></div>
+    <div class="mcc-message" id="profile-message"></div>
+  </form>
+</section>
+
+<section class="srv-card">
+  <h2>Meine Favoriten</h2>
+  {% if favorites %}
+  <ul class="pf-favs">
+    {% for f in favorites %}
+    <li><a href="/spieler?player={{ f.name | urlencode }}"><img src="https://mc-heads.net/avatar/{{ f.uuid }}/32" alt="" width="24" height="24"/>{{ f.name }}</a></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="mcc-hint">Noch keine Favoriten. Markiere Spieler in der <a href="/spieler">Spielerliste</a> mit ☆.</p>
+  {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+  document.getElementById("profile-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    const result = await postJson("/api/profile", { bio: form.elements.bio.value, hide_stats: form.elements.hide_stats.checked });
+    showMessage(document.getElementById("profile-message"),
+                result.ok ? "Gespeichert." : (result.data.error || "Speichern fehlgeschlagen."), result.ok ? "success" : "error");
+  });
+</script>
+{% endblock %}

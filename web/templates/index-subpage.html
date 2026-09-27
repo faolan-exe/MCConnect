@@ -11,7 +11,7 @@
     <link href="{{ url_for('static', filename='css/header.css') }}" rel="stylesheet"/>
     <link href="{{ url_for('static', filename='css/fonts.css') }}" rel="stylesheet"/>
     <link href="{{ url_for('static', filename='css/server.css') }}" rel="stylesheet"/>
-    {% if records or recap or competitions %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endif %}
+    {% if config.FEATURE_RANKINGS %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endif %}
     <link href="{{ url_for('static', filename='images/favicon.ico') }}" rel="icon" type="image/vnd.microsoft.icon"/>
 </head>
 
@@ -102,6 +102,13 @@
             </section>
             {% endif %}
 
+            {% if config.FEATURE_RANKINGS %}
+            <section class="srv-section" id="feed" hidden>
+                <h2>Was gerade passiert</h2>
+                <ul class="fd-list" data-role="list"></ul>
+            </section>
+            {% endif %}
+
             {% if records %}
             <section class="srv-section">
                 <div class="st-section-head">
@@ -186,6 +193,73 @@
         eventSource.onmessage = (event) => {
             document.getElementById("player-count").textContent = JSON.parse(event.data);
         };
+
+        // activity feed, refreshed every 30 seconds
+        const feed = document.getElementById("feed");
+        const TIER_COLORS = { bronze: "#b0703c", silver: "#8d969b", gold: "#c9a227", diamond: "#2bb3b1" };
+        function ago(iso) {
+            const minutes = Math.floor((Date.now() - Date.parse(iso)) / 60000);
+            if (minutes < 1) return "gerade eben";
+            if (minutes < 60) return `vor ${minutes} Min.`;
+            const hours = Math.floor(minutes / 60);
+            if (hours < 24) return `vor ${hours} Std.`;
+            const days = Math.floor(hours / 24);
+            return days === 1 ? "gestern" : `vor ${days} Tagen`;
+        }
+        async function loadFeed() {
+            const response = await fetch("/api/feed");
+            if (!response.ok) return;
+            const events = (await response.json()).events;
+            const list = feed.querySelector('[data-role="list"]');
+            list.replaceChildren();
+            for (const e of events.slice(0, 8)) {
+                const item = document.createElement("li");
+                item.className = "fd-item";
+                const icon = document.createElement("span");
+                icon.className = "fd-icon";
+                if (e.uuid) {
+                    const img = document.createElement("img");
+                    img.src = `https://mc-heads.net/avatar/${e.uuid}/32`;
+                    img.alt = "";
+                    icon.append(img);
+                } else {
+                    icon.textContent = "★";
+                }
+                const text = document.createElement("span");
+                text.className = "fd-text";
+                if (e.name) {
+                    const link = document.createElement("a");
+                    link.href = "/spieler?player=" + encodeURIComponent(e.name);
+                    const b = document.createElement("b");
+                    b.textContent = e.name;
+                    link.append(b);
+                    text.append(link, " ");
+                } else if (e.kind.startsWith("competition")) {
+                    const link = document.createElement("a");
+                    link.href = "/wettbewerbe";
+                    link.textContent = e.text;
+                    text.append(link);
+                }
+                if (e.name) text.append(e.text);
+                if (e.tier) {
+                    const dot = document.createElement("span");
+                    dot.className = "fd-tier";
+                    dot.style.background = TIER_COLORS[e.tier];
+                    text.append(dot);
+                }
+                const time = document.createElement("span");
+                time.className = "fd-time";
+                time.textContent = ago(e.at);
+                time.title = new Date(e.at).toLocaleString("de-DE");
+                item.append(icon, text, time);
+                list.append(item);
+            }
+            feed.hidden = events.length === 0;
+        }
+        if (feed) {
+            loadFeed();
+            setInterval(loadFeed, 30000);
+        }
 
         const copyButton = document.getElementById("copy-address");
         if (copyButton) {

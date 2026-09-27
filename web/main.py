@@ -189,6 +189,11 @@ def player_overview_route():
     if player_id is None:
         abort(404)
     info = db().get_player_info_by_player_id(player_id)
+    viewer = logged_in_player_id()
+    is_self = viewer is not None and str(viewer) == str(player_id)
+    if info["hide_stats"] and not is_self:
+        return render_template("spieler_verborgen.html", player_name=info["name"], uuid=info["mojang_uuid"],
+                               bio=info["bio"], player_prefix=db().get_player_prefix(player_id))
 
     startdate, enddate = "", ""
     banned = db().get_ban_reason_from_player_id(player_id)
@@ -199,7 +204,9 @@ def player_overview_route():
 
     return render_template(
         "spieler-info.html", uuid=info["mojang_uuid"], user_name=info["name"], status=info["online"],
-        extras=player_extras(str(player_id)),
+        extras=player_extras(str(player_id)), bio=info["bio"], is_self=is_self, hidden=info["hide_stats"],
+        is_favorite=bool(viewer) and not is_self and info["name"] in {f["name"] for f in db().get_favorites(viewer)},
+        logged_in=bool(viewer), card_url=url_for("server.player_card", subdomain=g.subdomain, player_name=info["name"], _external=True),
         player_prefix=db().get_player_prefix(player_id),
         banned=bool(banned), startdate=startdate, enddate=enddate,
         armor_stats=json.dumps(db().get_all_armor_stats(player_id)),
@@ -303,7 +310,7 @@ def weekly_recap(server_id, players):
 @feature_rankings_required
 def server_stats_page():
     server_id = g.server["id"]
-    players = db().get_server_metrics(server_id)
+    players = db().get_server_metrics(server_id, include_hidden=True)  # sums count everyone
     today = db().get_today()
     totals = {m.key: sum(p["values"][m.key] for p in players) for m in metrics_mod.METRICS}
     groups = [(label, [(m, metrics_mod.format_value(m, totals[m.key])) for m in metrics_mod.METRICS if m.group == key])
@@ -458,7 +465,15 @@ def compare_page():
             "since": (db().get_snapshot_start(g.server["id"]) or date.today()).isoformat(),
         }
 
-    return render_template("vergleich.html", players=players, selected=selected, groups=groups, wins=wins,
+    viewer = logged_in_player_id()
+    mine = None
+    if viewer:
+        me = db().get_player_name_from_player_id(viewer)
+        visible = {p["name"] for p in players}
+        names = [n for n in [me] + [f["name"] for f in db().get_favorites(viewer)] if n in visible][:MAX_COMPARED_PLAYERS]
+        if len(names) >= 2:
+            mine = "/vergleich?spieler=" + ",".join(names)
+    return render_template("vergleich.html", players=players, selected=selected, groups=groups, wins=wins, mine=mine,
                            metric_count=len(metrics_mod.METRICS), details=details, history=history,
                            period=period, periods=PERIODS, max_players=MAX_COMPARED_PLAYERS,
                            hint=period_hint(g.server["id"], PERIODS[period]),
@@ -482,15 +497,22 @@ def top_placements(players):
 
 
 def player_list_page():
-    players = db().get_server_metrics(g.server["id"])
+    players = db().get_server_metrics(g.server["id"], include_hidden=True)
     details = db().get_player_list_details(g.server["id"])
     prefixes = db().get_all_worn_prefixes(g.server["id"])
-    places = top_placements(players) if current_app.config["FEATURE_RANKINGS"] else {}
+    places = top_placements([p for p in players if not p["hidden"]]) if current_app.config["FEATURE_RANKINGS"] else {}
     play_time = metrics_mod.METRICS_BY_KEY["play_time"]
+    viewer = logged_in_player_id()
+    favorites = {f["name"] for f in db().get_favorites(viewer)} if viewer else set()
     rows = []
     for index, p in enumerate(players):
         info = details[p["player_id"]]
+        if p["hidden"]:
+            # only name, prefix, badges and whether the player is online right now
+            info = dict(info, first_seen=None, last_seen=None)
+            p = dict(p, values=dict(p["values"], play_time=0))
         rows.append({
+            "hidden": p["hidden"], "favorite": p["name"] in favorites,
             "index": index, "name": p["name"], "uuid": p["uuid"], "online": p["online"],
             "prefix": prefixes.get(p["uuid"]),
             "first_seen": info["first_seen"], "last_seen": info["last_seen"],
@@ -499,7 +521,8 @@ def player_list_page():
             "play_time_text": metrics_mod.format_value(play_time, p["values"]["play_time"]),
             "top": [(rank, metric.label) for rank, metric, _ in places.get(p["player_id"], []) if rank <= 3][:2],
         })
-    return render_template("spieler.html", players=rows, online_count=sum(p["online"] for p in players))
+    return render_template("spieler.html", players=rows, online_count=sum(p["online"] for p in players),
+                           logged_in=bool(viewer))
 
 
 def player_extras(player_id):
@@ -555,6 +578,69 @@ def player_extras(player_id):
         extras["activity"] = {"days": days, "total": format_time(sum((d["value"] or 0) * 3600 for d in days)),
                               "active_days": sum(1 for d in days if d["value"])}
     return extras
+
+
+BIO_MAX_LENGTH = 160
+
+
+@server_bp.route("/profil")
+def profile_page():
+    player_id = logged_in_player_id()
+    if not player_id:
+        return redirect("/login?next=/profil")
+    return render_template("profil.html", profile=db().get_profile(player_id), bio_max=BIO_MAX_LENGTH,
+                           favorites=db().get_favorites(player_id))
+
+
+@server_bp.route("/spieler/<path:player_name>/karte.png")
+def player_card(player_name):
+    """Shareable image with the player's top values (also used as og:image)."""
+    player_id = db().get_player_id_from_player_name_and_server_id(player_name, g.server["id"])
+    if player_id is None or db().is_stats_hidden(player_id):
+        abort(404)
+    from web.card import render_card
+    info = db().get_player_info_by_player_id(player_id)
+    values = db().get_player_metrics(player_id)
+    players = db().get_server_metrics(g.server["id"])
+    places = top_placements(players).get(str(player_id), [])
+    tiles = [(m.label, metrics_mod.format_value(m, values[m.key]))
+             for m in (metrics_mod.METRICS_BY_KEY[k] for k in ("play_time", "blocks_mined", "mob_kills", "distance"))]
+    ranks = [f"#{rank} {metric.label}" for rank, metric, _ in places if rank <= 3][:3]
+    achieved = sum(1 for a in achievements_mod.ACHIEVEMENTS
+                   if achievements_mod.tier_of(a, values[a.metric]) >= 0)
+    png = render_card(name=info["name"], uuid=str(info["mojang_uuid"]), server_name=g.server["server_name"],
+                      prefix=db().get_player_prefix(player_id), prefix_colors=PREFIX_COLORS, tiles=tiles,
+                      ranks=ranks, achievements=f"{achieved} von {len(achievements_mod.ACHIEVEMENTS)} Erfolgen")
+    response = Response(png, mimetype="image/png")
+    response.headers["Cache-Control"] = "public, max-age=1800"
+    return response
+
+
+FEED_TEXTS = {
+    "join": "ist online gekommen",
+    "new": "ist neu auf dem Server – willkommen!",
+}
+
+
+@server_bp.route("/api/feed")
+@feature_rankings_required
+def feed_api():
+    events = []
+    for e in db().get_feed(g.server["id"]):
+        if e["kind"] in FEED_TEXTS:
+            text = FEED_TEXTS[e["kind"]]
+        elif e["kind"] == "achievement":
+            achievement = achievements_mod.ACHIEVEMENTS_BY_KEY.get(e["detail"])
+            if achievement is None:
+                continue
+            text = f"hat den Erfolg »{achievement.name}« ({achievements_mod.TIERS[e['tier']][1]}) erreicht"
+        elif e["kind"] == "competition_start":
+            text = f"Wettbewerb »{e['detail']}« hat begonnen"
+        else:
+            text = f"Wettbewerb »{e['detail']}« ist vorbei"
+        events.append({"at": e["at"].isoformat(), "kind": e["kind"], "name": e["name"], "uuid": e["uuid"],
+                       "text": text, "tier": achievements_mod.TIERS[e["tier"]][0] if e["tier"] is not None else None})
+    return {"events": events}
 
 
 def player_required(view):
@@ -618,7 +704,7 @@ def player_activity(server_id):
     details = db().get_player_list_details(server_id)
     play_time = metrics_mod.METRICS_BY_KEY["play_time"]
     rows = []
-    for p in db().get_server_metrics(server_id):
+    for p in db().get_server_metrics(server_id, include_hidden=True):
         info = details[p["player_id"]]
         last = None if p["online"] else info["last_seen"]
         rows.append({"name": p["name"], "uuid": p["uuid"], "online": p["online"], "banned": info["banned"],
@@ -627,6 +713,26 @@ def player_activity(server_id):
     far_past = datetime.min.replace(tzinfo=timezone.utc)
     rows.sort(key=lambda r: (r["online"], r["last_seen"] or far_past))
     return rows
+
+
+@server_bp.route("/api/profile", methods=["POST"])
+@player_required
+def profile_save_api():
+    data = request.get_json(silent=True) or {}
+    bio = " ".join(str(data.get("bio") or "").split())  # one line, no control characters
+    if len(bio) > BIO_MAX_LENGTH:
+        return {"error": f"Der Text darf höchstens {BIO_MAX_LENGTH} Zeichen lang sein."}, 400
+    db().save_profile(logged_in_player_id(), bio, bool(data.get("hide_stats")))
+    return ("", 200)
+
+
+@server_bp.route("/api/favorites/toggle", methods=["POST"])
+@player_required
+def favorite_toggle_api():
+    result = db().toggle_favorite(logged_in_player_id(), str((request.get_json(silent=True) or {}).get("name") or ""))
+    if result is None:
+        return {"error": "Unbekannter Spieler."}, 404
+    return {"favorite": result}
 
 
 @server_bp.route("/api/prefix/save", methods=["POST"])
@@ -880,7 +986,7 @@ def _custom_stat(database, player_id, *names):
 def stream_player_info(player_name):
     database = db()
     player_id = database.get_player_id_from_player_name_and_server_id(player_name, g.server["id"])
-    if player_id is None:
+    if player_id is None or (database.is_stats_hidden(player_id) and str(logged_in_player_id()) != str(player_id)):
         abort(404)
 
     def player_info():

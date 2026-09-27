@@ -21,6 +21,7 @@
     <input class="mcc-input cmp-search" id="player-search" type="search" placeholder="Name suchen …" autocomplete="off"/>
     <button class="mcc-btn" type="submit">Vergleichen</button>
   </div>
+  {% if mine %}<p class="cmp-mine"><a href="{{ mine }}">★ Mich mit meinen Favoriten vergleichen</a></p>{% endif %}
   <p class="cmp-picker-note" id="picker-note" aria-live="polite"></p>
   <ul class="cmp-options">
     {% for p in players %}
