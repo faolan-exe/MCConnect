@@ -163,6 +163,11 @@ cd /opt/mcconnect && git pull
 cd deploy && docker compose up -d --build
 ```
 
+Wenn sich das Plugin geändert hat (Version in `java plugin/MCDataLink/pom.xml`), danach auf der
+Verwaltungsseite **MCDataLink.jar** neu herunterladen, im `plugins`-Ordner des Minecraft-Servers
+ersetzen und den Server neu starten. Ältere Plugins laufen weiter, ihnen fehlen nur die neuen
+Funktionen (ab 3.1: Erfolge und Wettbewerbe im Chat, ab 3.2: Serverzustand).
+
 ## 9. Backups
 
 Der `backup`-Container schreibt jeden Tag einen Dump der Datenbank nach

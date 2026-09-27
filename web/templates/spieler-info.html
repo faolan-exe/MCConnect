@@ -389,6 +389,31 @@
           </div>
           {% endif %}
 
+          {% if notes is not none %}
+          <h2>Moderation · nur für Moderatoren sichtbar</h2>
+          <div class="nt-card" id="notes" data-player="{{ user_name }}">
+            {% for n in notes %}
+            <div class="nt-note">
+              <div class="nt-head"><b>{{ n.author or "Unbekannt" }}</b> <span>{{ n.when }}</span>
+                <button type="button" class="nt-delete" data-note="{{ n.id }}" aria-label="Notiz löschen">Löschen</button></div>
+              <p>{{ n.text }}</p>
+            </div>
+            {% else %}
+            <p class="st-empty">Noch keine Notizen zu {{ user_name }}.</p>
+            {% endfor %}
+            <form class="nt-form">
+              <label class="st-sr" for="note-text">Neue Notiz</label>
+              <textarea class="mcc-input" id="note-text" maxlength="1000" rows="2" placeholder="Notiz zu {{ user_name }} …" required></textarea>
+              <button class="mcc-btn mcc-btn-small" type="submit">Notiz speichern</button>
+            </form>
+            {% if player_log %}
+            <details class="nt-log"><summary>Protokoll zu {{ user_name }} ({{ player_log | length }})</summary>
+              <ul>{% for e in player_log %}<li><span>{{ e.when }}</span> {{ e.actor or "–" }}: {{ e.label }}{% if e.details %} – {{ e.details }}{% endif %}</li>{% endfor %}</ul>
+            </details>
+            {% endif %}
+          </div>
+          {% endif %}
+
           {% if extras.achievements %}
           <h2>Erfolge · {{ extras.achievement_count }} von {{ extras.achievement_total }} Stufen</h2>
           <div class="pi-tiles ac-tiles">
@@ -512,6 +537,18 @@
           fav.setAttribute("aria-pressed", String(on));
           fav.textContent = on ? "★ Favorit" : "☆ Als Favorit merken";
         });
+        const notes = document.getElementById("notes");
+        if (notes) {
+          const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+          notes.querySelector(".nt-form").addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const text = document.getElementById("note-text").value;
+            if ((await post("/api/mod/notes", { name: notes.dataset.player, text })).ok) location.reload();
+          });
+          notes.querySelectorAll("[data-note]").forEach((button) => button.addEventListener("click", async () => {
+            if (confirm("Notiz löschen?") && (await post("/api/mod/notes/delete", { id: Number(button.dataset.note) })).ok) location.reload();
+          }));
+        }
         const share = document.getElementById("share-link");
         if (share) share.addEventListener("click", async () => {
           const url = location.origin + "/spieler?player=" + encodeURIComponent({{ user_name | tojson }});

@@ -76,6 +76,7 @@ public final class MCDataLink extends JavaPlugin {
                 getConfig().getBoolean("prefix.tablist", true), getConfig().getBoolean("prefix.nametag", true));
         banSync = new BanSync(this);
         getServer().getScheduler().runTaskTimer(this, this::sendBanList, BAN_SYNC_INTERVAL_TICKS, BAN_SYNC_INTERVAL_TICKS);
+        new HealthReporter(this).start();
 
         List<World> worlds = getServer().getWorlds();
         worldFolder = worlds.isEmpty() ? new File(getServer().getWorldContainer(), "world") : worlds.get(0).getWorldFolder();
@@ -304,6 +305,11 @@ public final class MCDataLink extends JavaPlugin {
 
     void playerJoined(Player player) {
         sendAsync("!JOIN~" + player.getUniqueId() + "|" + player.getName() + "|" + (player.isOp() ? "1" : "0"));
+    }
+
+    /** Main thread: health sample as JSON (see HealthReporter). */
+    void sendHealth(String json) {
+        if (authenticated) sendAsync("!HEALTH~" + json);
     }
 
     PrefixDisplay prefixDisplay() {

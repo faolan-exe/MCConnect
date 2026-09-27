@@ -135,6 +135,40 @@ MIGRATIONS = {
                AND ps.started_at <= pa.earned_at
                AND COALESCE(ps.ended_at, now()) >= pa.earned_at - interval '10 minutes')""",
     ],
+    12: [
+        # who did what in the moderation (bans, moderators, competitions, notes)
+        """CREATE TABLE mod_log(
+             id bigserial PRIMARY KEY,
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             at timestamptz NOT NULL DEFAULT now(),
+             actor text,
+             action text NOT NULL,
+             target_name text,
+             details text)""",
+        "CREATE INDEX mod_log_server_idx ON mod_log (server_id, at DESC)",
+        # internal notes of the moderators about a player
+        """CREATE TABLE player_notes(
+             id serial PRIMARY KEY,
+             player_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             author text,
+             text text NOT NULL,
+             created_at timestamptz NOT NULL DEFAULT now())""",
+        "CREATE INDEX player_notes_player_idx ON player_notes (player_id, created_at)",
+        # health samples the plugin sends every minute
+        """CREATE TABLE server_health(
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             at timestamptz NOT NULL DEFAULT now(),
+             tps real,
+             mem_used_mb integer,
+             mem_max_mb integer,
+             players integer,
+             chunks integer,
+             entities integer,
+             uptime_s bigint,
+             mc_version text,
+             plugin_version text)""",
+        "CREATE INDEX server_health_server_idx ON server_health (server_id, at)",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -142,6 +176,8 @@ SESSION_MERGE_SECONDS = 120
 # An achievement counts as reached while playing if the player is online or left at most this
 # long ago (the plugin sends the stats shortly after a quit). Otherwise it is stored silently.
 ACHIEVEMENT_ACTIVE_MINUTES = 10
+# Health samples older than this are deleted.
+HEALTH_RETENTION_DAYS = 7
 # Snapshots older than this are deleted (the newest older one of each metric is kept as baseline).
 SNAPSHOT_RETENTION_DAYS = 90
 SCHEMA_VERSION = max(MIGRATIONS, default=1)
@@ -928,9 +964,12 @@ class DatabaseManager:
         """
         stored = 0
         with self._cursor() as cur:
-            cur.execute("""DELETE FROM banned_players bp USING player_server_info psi
-                           WHERE bp.banned_player_id = psi.player_id AND psi.server_id = %s AND bp.source = 'ingame'""",
-                        (server_id,))
+            cur.execute("""DELETE FROM banned_players bp USING player_server_info psi, player p
+                           WHERE bp.banned_player_id = psi.player_id AND p.uuid = psi.mojang_uuid
+                             AND psi.server_id = %s AND bp.source = 'ingame'
+                           RETURNING p.name""", (server_id,))
+            before = {row[0] for row in cur.fetchall()}
+            after = set()
             for entry in entries:
                 cur.execute("""SELECT psi.player_id FROM player_server_info psi JOIN player p ON p.uuid = psi.mojang_uuid
                                WHERE psi.server_id = %s AND lower(p.name) = lower(%s)""",
@@ -938,6 +977,13 @@ class DatabaseManager:
                 row = cur.fetchone()
                 if row is None:
                     continue
+                cur.execute("SELECT name FROM player WHERE uuid = (SELECT mojang_uuid FROM player_server_info WHERE player_id = %s)",
+                            (row[0],))
+                name = cur.fetchone()[0]
+                after.add(name)
+                if name not in before:
+                    self._log(cur, server_id, str(entry.get("source") or "")[:100] or None, "ingame_ban", name,
+                              str(entry.get("reason") or "")[:500] or None)
                 created = entry.get("created") or 0
                 expires = entry.get("expires") or 0
                 cur.execute("""INSERT INTO banned_players (banned_player_id, ban_start, ban_end, reason_text, banned_by, source)
@@ -946,6 +992,8 @@ class DatabaseManager:
                             (row[0], created or None, expires or None,
                              str(entry.get("reason") or "")[:500] or None, str(entry.get("source") or "")[:100] or None))
                 stored += 1
+            for name in before - after:
+                self._log(cur, server_id, None, "ingame_unban", name)
         return stored
 
     def get_ban_reason_from_player_id(self, player_id):
@@ -1374,6 +1422,80 @@ class DatabaseManager:
                 WHERE c.server_id = %s AND c.ends_on < current_date AND c.ends_on >= current_date - %s
             ) events ORDER BY at DESC LIMIT %s""", (server_id, days, days, server_id, days, server_id, days, limit))
         return [dict(zip(("at", "kind", "name", "uuid", "detail", "tier"), row)) for row in rows]
+
+    ###----------------------------- Moderation log and notes ------------------------------------###
+
+    @staticmethod
+    def _log(cur, server_id, actor, action, target_name=None, details=None):
+        cur.execute("""INSERT INTO mod_log (server_id, actor, action, target_name, details)
+                       VALUES (%s, %s, %s, %s, %s)""", (server_id, actor, action, target_name, details))
+
+    def add_mod_log(self, server_id, actor, action, target_name=None, details=None):
+        with self._cursor() as cur:
+            self._log(cur, server_id, actor, action, target_name, details)
+
+    def get_mod_log(self, server_id, limit=100, target_name=None):
+        """Newest entries first: [{"at", "actor", "action", "target_name", "details"}]."""
+        rows = self._fetchall("""SELECT at, actor, action, target_name, details FROM mod_log
+                                 WHERE server_id = %s AND (%s::text IS NULL OR lower(target_name) = lower(%s))
+                                 ORDER BY at DESC, id DESC LIMIT %s""", (server_id, target_name, target_name, limit))
+        return [dict(zip(("at", "actor", "action", "target_name", "details"), row)) for row in rows]
+
+    def add_player_note(self, player_id, author, text):
+        return self._fetchvalue("INSERT INTO player_notes (player_id, author, text) VALUES (%s, %s, %s) RETURNING id",
+                                (player_id, author, text))
+
+    def get_player_notes(self, player_id):
+        """[{"id", "author", "text", "created_at"}], oldest first."""
+        rows = self._fetchall("""SELECT id, author, text, created_at FROM player_notes
+                                 WHERE player_id = %s ORDER BY created_at, id""", (player_id,))
+        return [dict(zip(("id", "author", "text", "created_at"), row)) for row in rows]
+
+    def delete_player_note(self, server_id, note_id):
+        """Delete a note of a player on the server. Returns (player name, text) or None."""
+        return self._fetchone("""DELETE FROM player_notes n USING player_server_info psi, player p
+                                 WHERE n.id = %s AND n.player_id = psi.player_id AND psi.server_id = %s
+                                   AND p.uuid = psi.mojang_uuid
+                                 RETURNING p.name, n.text""", (note_id, server_id))
+
+    ###----------------------------- Server health ------------------------------------###
+
+    _HEALTH_FIELDS = ("tps", "mem_used_mb", "mem_max_mb", "players", "chunks", "entities", "uptime_s",
+                      "mc_version", "plugin_version")
+
+    def add_health_sample(self, server_id, sample):
+        """Store one sample of the plugin (dict with _HEALTH_FIELDS) and drop old ones."""
+        values = [sample.get(field) for field in self._HEALTH_FIELDS]
+        with self._cursor() as cur:
+            cur.execute(f"""INSERT INTO server_health (server_id, {", ".join(self._HEALTH_FIELDS)})
+                            VALUES (%s, {", ".join(["%s"] * len(values))})""", (server_id, *values))
+            cur.execute("DELETE FROM server_health WHERE server_id = %s AND at < now() - %s * interval '1 day'",
+                        (server_id, HEALTH_RETENTION_DAYS))
+
+    def get_latest_health(self, server_id):
+        row = self._fetchone(f"""SELECT at, {", ".join(self._HEALTH_FIELDS)} FROM server_health
+                                 WHERE server_id = %s ORDER BY at DESC LIMIT 1""", (server_id,))
+        return dict(zip(("at",) + self._HEALTH_FIELDS, row)) if row else None
+
+    def get_health_history(self, server_id, hours=24, bucket_minutes=10):
+        """[(bucket start, avg tps, avg used MB, max MB)] of the last `hours` hours (None without samples)."""
+        return self._fetchall("""
+            WITH buckets AS (SELECT generate_series(date_trunc('hour', now()) - %s * interval '1 hour', now(),
+                                                    %s * interval '1 minute') AS start)
+            SELECT b.start, avg(h.tps), avg(h.mem_used_mb), max(h.mem_max_mb)
+            FROM buckets b LEFT JOIN server_health h ON h.server_id = %s
+                 AND h.at >= b.start AND h.at < b.start + %s * interval '1 minute'
+            GROUP BY b.start ORDER BY b.start""", (hours, bucket_minutes, server_id, bucket_minutes))
+
+    def get_health_availability(self, server_id, days=7):
+        """Share (0..1) of the minutes of the last `days` days with a health sample, or None without any."""
+        row = self._fetchone("""SELECT count(DISTINCT date_trunc('minute', at)), min(at) FROM server_health
+                                WHERE server_id = %s AND at > now() - %s * interval '1 day'""", (server_id, days))
+        if not row or not row[0]:
+            return None
+        # measure from the first sample on (the plugin may have been installed recently)
+        minutes = self._fetchvalue("SELECT greatest(1, extract(epoch FROM now() - %s) / 60)", (row[1],))
+        return min(1.0, row[0] / float(minutes))
 
     ###----------------------------- Achievements ------------------------------------###
 

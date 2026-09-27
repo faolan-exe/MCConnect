@@ -205,6 +205,9 @@ def player_overview_route():
     return render_template(
         "spieler-info.html", uuid=info["mojang_uuid"], user_name=info["name"], status=info["online"],
         extras=player_extras(str(player_id)), bio=info["bio"], is_self=is_self, hidden=info["hide_stats"],
+        notes=[dict(n, when=n["created_at"].strftime("%d.%m.%Y, %H:%M")) for n in db().get_player_notes(player_id)]
+        if viewer and db().is_moderator(viewer) else None,
+        player_log=mod_log_view(g.server["id"], info["name"], 20) if viewer and db().is_moderator(viewer) else None,
         is_favorite=bool(viewer) and not is_self and info["name"] in {f["name"] for f in db().get_favorites(viewer)},
         logged_in=bool(viewer), card_url=url_for("server.player_card", subdomain=g.subdomain, player_name=info["name"], _external=True),
         player_prefix=db().get_player_prefix(player_id),
@@ -696,7 +699,61 @@ def moderation_page():
                            competitions=[v for v in (competition_view(c, today) for c in db().list_competitions(g.server["id"])) if v]
                            if current_app.config["FEATURE_RANKINGS"] else None,
                            metrics=metrics_mod.METRICS, metric_groups=metrics_mod.GROUPS,
-                           today=today, default_end=today + timedelta(days=6))
+                           today=today, default_end=today + timedelta(days=6),
+                           log=mod_log_view(g.server["id"]), health=health_view(g.server["id"]))
+
+
+MOD_LOG_ACTIONS = {
+    "ban": "hat gebannt", "unban": "hat entbannt", "ingame_ban": "im Spiel gebannt", "ingame_unban": "im Spiel entbannt",
+    "mod_add": "zum Moderator gemacht", "mod_remove": "Moderatorrechte entzogen",
+    "competition_create": "Wettbewerb angelegt", "competition_delete": "Wettbewerb gelöscht",
+    "note_add": "Notiz geschrieben", "note_delete": "Notiz gelöscht",
+}
+
+
+def mod_log_view(server_id, target_name=None, limit=100):
+    return [dict(entry, label=MOD_LOG_ACTIONS.get(entry["action"], entry["action"]),
+                 when=entry["at"].strftime("%d.%m.%Y, %H:%M"))
+            for entry in db().get_mod_log(server_id, limit=limit, target_name=target_name)]
+
+
+# TPS thresholds for the status (a healthy server has 20)
+TPS_GOOD, TPS_WARNING = 19.0, 15.0
+
+
+def format_duration(seconds):
+    days, rest = divmod(int(seconds), 86400)
+    hours, rest = divmod(rest, 3600)
+    if days:
+        return f"{days} {'Tag' if days == 1 else 'Tage'} {hours} Std."
+    return f"{hours} Std. {rest // 60} Min." if hours else f"{rest // 60} Min."
+
+
+def health_view(server_id):
+    """Current health, 24 h history and availability for the moderation page (None before the first sample)."""
+    latest = db().get_latest_health(server_id)
+    server = db().get_server_information_dict(g.subdomain)
+    online = db().is_plugin_online(server_id)
+    offline_since = None if online or not server.get("plugin_last_seen") else \
+        server["plugin_last_seen"].strftime("%d.%m.%Y, %H:%M Uhr")
+    if latest is None:
+        return {"online": online, "offline_since": offline_since, "latest": None}
+    tps = latest["tps"]
+    status = (None if tps is None else "good" if tps >= TPS_GOOD else "warning" if tps >= TPS_WARNING else "critical")
+    history = db().get_health_history(server_id, 24, 10)
+    fmt = lambda ts: ts.strftime("%d.%m. %H:%M")
+    availability = db().get_health_availability(server_id)
+    return {
+        "online": online, "offline_since": offline_since, "latest": latest, "status": status,
+        "tps": None if tps is None else f"{tps:.1f}".replace(".", ","),
+        "uptime": format_duration(latest["uptime_s"]) if latest["uptime_s"] is not None else "–",
+        "sampled": latest["at"].strftime("%H:%M Uhr"),
+        "availability": None if availability is None else f"{availability * 100:.1f} %".replace(".", ","),
+        "tps_chart": {"unit": "", "max": 20, "points": [{"t": fmt(t), "v": None if v is None else round(float(v), 2)}
+                                                        for t, v, _, _ in history]},
+        "mem_chart": {"unit": " MB", "max": latest["mem_max_mb"],
+                      "points": [{"t": fmt(t), "v": None if v is None else round(float(v))} for t, _, v, _ in history]},
+    }
 
 
 def player_activity(server_id):
@@ -808,7 +865,8 @@ def mod_ban_api():
 @server_bp.route("/api/mod/unban", methods=["POST"])
 @moderator_required
 def mod_unban_api():
-    return do_unban(g.server["id"], request.get_json(silent=True) or {})
+    return do_unban(g.server["id"], request.get_json(silent=True) or {},
+                    unbanned_by=db().get_player_name_from_player_id(logged_in_player_id()))
 
 
 COMPETITION_TITLE_RE = re.compile(r"^[A-Za-z0-9ÄÖÜäöüß _.,:!?+*#()'-]{3,60}$")
@@ -835,8 +893,11 @@ def mod_competition_create_api():
         return {"error": "Der Wettbewerb kann frühestens heute beginnen."}, 400
     if ends_on < starts_on or (ends_on - starts_on).days >= MAX_COMPETITION_DAYS:
         return {"error": f"Das Ende muss nach dem Start liegen, höchstens {MAX_COMPETITION_DAYS} Tage."}, 400
-    competition_id = db().create_competition(g.server["id"], title, metric, starts_on, ends_on,
-                                             created_by=db().get_player_name_from_player_id(logged_in_player_id()))
+    actor = db().get_player_name_from_player_id(logged_in_player_id())
+    competition_id = db().create_competition(g.server["id"], title, metric, starts_on, ends_on, created_by=actor)
+    db().add_mod_log(g.server["id"], actor, "competition_create", None,
+                     f"{title} · {metrics_mod.METRICS_BY_KEY[metric].label} · "
+                     f"{starts_on.strftime('%d.%m.')}–{ends_on.strftime('%d.%m.%Y')}")
     return {"id": competition_id}, 200
 
 
@@ -847,8 +908,45 @@ def mod_competition_delete_api():
         competition_id = int((request.get_json(silent=True) or {}).get("id"))
     except (TypeError, ValueError):
         return {"error": "Unbekannter Wettbewerb."}, 400
+    competition = db().get_competition(competition_id)
     if not db().delete_competition(g.server["id"], competition_id):
         return {"error": "Unbekannter Wettbewerb."}, 404
+    db().add_mod_log(g.server["id"], db().get_player_name_from_player_id(logged_in_player_id()),
+                     "competition_delete", None, competition["title"])
+    return ("", 200)
+
+
+NOTE_MAX_LENGTH = 1000
+
+
+@server_bp.route("/api/mod/notes", methods=["POST"])
+@moderator_required
+def mod_note_add_api():
+    data = request.get_json(silent=True) or {}
+    text = str(data.get("text") or "").strip()
+    if not text or len(text) > NOTE_MAX_LENGTH:
+        return {"error": f"Die Notiz muss 1-{NOTE_MAX_LENGTH} Zeichen lang sein."}, 400
+    player_id = db().get_player_id_from_player_name_and_server_id(str(data.get("name") or ""), g.server["id"])
+    if player_id is None:
+        return {"error": "Unbekannter Spieler."}, 404
+    author = db().get_player_name_from_player_id(logged_in_player_id())
+    db().add_player_note(player_id, author, text)
+    db().add_mod_log(g.server["id"], author, "note_add", db().get_player_name_from_player_id(player_id), text[:200])
+    return ("", 200)
+
+
+@server_bp.route("/api/mod/notes/delete", methods=["POST"])
+@moderator_required
+def mod_note_delete_api():
+    try:
+        note_id = int((request.get_json(silent=True) or {}).get("id"))
+    except (TypeError, ValueError):
+        return {"error": "Unbekannte Notiz."}, 400
+    deleted = db().delete_player_note(g.server["id"], note_id)
+    if deleted is None:
+        return {"error": "Unbekannte Notiz."}, 404
+    db().add_mod_log(g.server["id"], db().get_player_name_from_player_id(logged_in_player_id()), "note_delete",
+                     deleted[0], deleted[1][:200])
     return ("", 200)
 
 
@@ -878,10 +976,13 @@ def do_ban(server_id, data, banned_by):
         return {"error": "Diesen Spieler gibt es auf dem Server nicht."}, 404
     end_ms = int(ban["end"].timestamp() * 1000) if ban["end"] else 0
     db().notify_server_event(server_id, "ban", uuid=ban["uuid"], name=ban["name"], reason=ban["reason"], end_ms=end_ms)
+    until = ban["end"].strftime("bis %d.%m.%Y %H:%M") if ban["end"] else "dauerhaft"
+    db().add_mod_log(server_id, banned_by, "ban", ban["name"],
+                     " · ".join(part for part in (ban["reason"], until, comment) if part))
     return ("", 200)
 
 
-def do_unban(server_id, data):
+def do_unban(server_id, data, unbanned_by=None):
     try:
         player_id = str(uuid_mod.UUID(str(data.get("player_id"))))
     except ValueError:
@@ -890,6 +991,7 @@ def do_unban(server_id, data):
     if result is None:
         return {"error": "Unbekannter Spieler."}, 404
     db().notify_server_event(server_id, "unban", uuid=result["uuid"], name=result["name"])
+    db().add_mod_log(server_id, unbanned_by, "unban", result["name"])
     return ("", 200)
 
 
@@ -1376,6 +1478,8 @@ def admin_set_moderator_api(server_id):
     name = db().set_moderator(server_id, str(data.get("name") or "").strip(), bool(data.get("moderator")))
     if name is None:
         return {"error": "Diesen Spieler gibt es auf dem Server nicht."}, 404
+    db().add_mod_log(server_id, f"Admin {session['admin_username']}",
+                     "mod_add" if data.get("moderator") else "mod_remove", name)
     return {"name": name}
 
 
@@ -1390,7 +1494,7 @@ def admin_ban_api(server_id):
 @admin_required
 def admin_unban_api(server_id):
     owned_server_or_404(server_id)
-    return do_unban(server_id, request.get_json(silent=True) or {})
+    return do_unban(server_id, request.get_json(silent=True) or {}, unbanned_by=f"Admin {session['admin_username']}")
 
 
 def owned_server_or_404(server_id):

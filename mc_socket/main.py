@@ -11,6 +11,8 @@ Plugin -> server:
     !STATS~<uuid>|<stats json>   content of world/stats/<uuid>.json
     !BANS~<json list>            the server's ban list without MCConnect bans:
                                  [{"name", "reason", "source", "created", "expires"}] (epoch ms, 0 = never)
+    !HEALTH~<json>               once a minute: {"tps", "mem_used_mb", "mem_max_mb", "players", "chunks",
+                                 "entities", "uptime_s", "mc_version", "plugin_version"}
     !DISCONNECT                  close the connection
 
 Server -> plugin:
@@ -37,6 +39,7 @@ Success codes:
 101: updated player status successfully
 102: stats saved
 103: ban list synced
+104: health sample stored
 """
 import json
 import os
@@ -100,6 +103,27 @@ def recv_msg(conn):
     if length < 0 or length > MAX_MESSAGE_SIZE:
         raise ProtocolError(f"invalid message length {length}")
     return _recv_exactly(conn, length).decode("utf-8")
+
+
+def parse_health(value):
+    """Validated health sample from the plugin's JSON (unknown or broken fields become None)."""
+    data = json.loads(value)
+    if not isinstance(data, dict):
+        raise ValueError("health sample must be an object")
+
+    def number(key, kind, low, high):
+        try:
+            number = kind(data.get(key))
+        except (TypeError, ValueError):
+            return None
+        return number if low <= number <= high else None
+
+    text = lambda key: str(data.get(key) or "")[:100] or None
+    return {"tps": number("tps", float, 0, 100), "mem_used_mb": number("mem_used_mb", int, 0, 10 ** 7),
+            "mem_max_mb": number("mem_max_mb", int, 0, 10 ** 7), "players": number("players", int, 0, 10 ** 6),
+            "chunks": number("chunks", int, 0, 10 ** 8), "entities": number("entities", int, 0, 10 ** 8),
+            "uptime_s": number("uptime_s", int, 0, 10 ** 10), "mc_version": text("mc_version"),
+            "plugin_version": text("plugin_version")}
 
 
 def parse_uuid(value):
@@ -415,6 +439,9 @@ class SocketServer:
                 self.db.update_player_stats(player_id, stats)
                 client.send("success|102")
                 self.announce_achievements(client.server_id, player_id, self.db.award_achievements(player_id))
+            elif command == "!HEALTH":
+                self.db.add_health_sample(client.server_id, parse_health(value))
+                client.send("success|104")
             elif command == "!BANS":
                 entries = json.loads(value)
                 if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
