@@ -148,7 +148,7 @@ def subdomain_index_route():
     events = [event_view(e) for e in db().list_events(g.server["id"], limit=2)]
     polls = [poll_view(p) for p in db().list_polls(g.server["id"], open_only=True, limit=2)]
     if current_app.config["FEATURE_RANKINGS"]:
-        players = db().get_server_metrics(g.server["id"])
+        players = list(visible_players(g.server["id"]).values())
         recap = weekly_recap(g.server["id"], players)
         today = db().get_today()
         competitions = [v for v in (competition_view(c, today, limit=3) for c in db().list_competitions(g.server["id"])
@@ -494,8 +494,7 @@ def streak_rows(streaks, names, key, limit=10):
 def hall_of_fame_page():
     server_id = g.server["id"]
     today = db().get_today()
-    players = db().get_server_metrics(server_id)
-    names = {p["player_id"]: p for p in players}
+    names = visible_players(server_id)
     held = db().get_current_records(server_id)
     records = []
     for metric in motivation.RECORD_METRICS:
@@ -533,6 +532,14 @@ def hall_of_fame_page():
 GOAL_RECENT_DAYS = 7
 
 
+def visible_players(server_id):
+    """{player_id: player} of get_server_metrics (visible players, all time), cached for the request."""
+    cache = g.setdefault("visible_players", {})
+    if server_id not in cache:
+        cache[server_id] = {p["player_id"]: p for p in db().get_server_metrics(server_id)}
+    return cache[server_id]
+
+
 def goal_view(goal, today, contributors=3):
     """Display data of a community goal: progress, status and the players who contributed most."""
     metric = metrics_mod.METRICS_BY_KEY.get(goal["metric"])
@@ -549,7 +556,7 @@ def goal_view(goal, today, contributors=3):
         status = "failed"
     else:
         status = "running"
-    visible = {p["player_id"]: p for p in db().get_server_metrics(goal["server_id"])}
+    visible = visible_players(goal["server_id"])
     top = sorted(((pid, v) for pid, v in per_player.items() if v > 0 and pid in visible),
                  key=lambda item: (-item[1], visible[item[0]]["name"].lower()))[:contributors]
     return dict(goal, metric_label=metric.label, status=status, done=done,
@@ -724,7 +731,7 @@ def player_extras(player_id):
     if not current_app.config["FEATURE_RANKINGS"]:
         return extras
 
-    players = database.get_server_metrics(g.server["id"])
+    players = list(visible_players(g.server["id"]).values())
     places = top_placements(players).get(player_id, [])
     extras["places"] = [{"rank": rank, "of": len(players), "label": metric.label, "text": row["text"]}
                         for rank, metric, row in places[:6]]
@@ -824,7 +831,7 @@ def year_review(player_id, year):
     server_id = g.server["id"]
     gains, first_day = database.get_year_gains(server_id, year)
     mine = gains.get(player_id, {})
-    visible = {p["player_id"] for p in database.get_server_metrics(server_id)}
+    visible = set(visible_players(server_id))
     m = metrics_mod.METRICS_BY_KEY
     fmt = lambda key: metrics_mod.format_value(m[key], mine.get(key, 0))
     rank_text = lambda key: (lambda r: f"Platz {r[0]} von {r[1]} auf dem Server" if r[0] else None)(
@@ -1233,8 +1240,7 @@ def player_card(player_name):
     from web.card import render_card
     info = db().get_player_info_by_player_id(player_id)
     values = db().get_player_metrics(player_id)
-    players = db().get_server_metrics(g.server["id"])
-    places = top_placements(players).get(str(player_id), [])
+    places = top_placements(list(visible_players(g.server["id"]).values())).get(str(player_id), [])
     tiles = [(m.label, metrics_mod.format_value(m, values[m.key]))
              for m in (metrics_mod.METRICS_BY_KEY[k] for k in ("play_time", "blocks_mined", "mob_kills", "distance"))]
     ranks = [f"#{rank} {metric.label}" for rank, metric, _ in places if rank <= 3][:3]
