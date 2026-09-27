@@ -22,6 +22,8 @@ Preview:
 - Privacy friendly and easy login for every player to view and change personal data:
 ![Screenshot](%23readmeImages/Login.png)
 
+- Rankings, player comparison, teams (prefixes), competitions, achievements, server statistics,
+  weekly recap and an activity feed
 - And a lot more...
 
 ## Development
@@ -29,7 +31,7 @@ Preview:
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 docker compose -f docker/db/docker-compose.yml -p mcconnect up -d   # local postgres
-.venv/bin/python -m pytest                                          # ~160 tests, uses database mcconnect_test
+.venv/bin/python -m pytest -q -p no:logging                         # ~320 tests, uses database mcconnect_test
 .venv/bin/python -m database.manage seed                            # dev admin 'tobi' + server 'testdomain'
 .venv/bin/python mc_socket/main.py                                  # plugin socket on :9991
 .venv/bin/python web/main.py                                        # http://mc.t-auer.local:5000
@@ -40,6 +42,66 @@ docker compose -f docker/db/docker-compose.yml -p mcconnect up -d   # local post
 - `web/` – Flask app (main domain: admin area; `<subdomain>.`: server pages)
 - `java plugin/MCDataLink/` – Spigot/Paper plugin (`mvn package`)
 - `deploy/` – production docker compose (behind Nginx Proxy Manager, optional traefik); see [deploy/README.md](deploy/README.md)
+
+## Status and next steps
+
+State of 2026-09-27 (schema version 12, plugin 3.3). Written as a handoff for the next development
+session; `docs/HANDOFF_spielervergleich.md` is the older handoff for the rankings feature (data model,
+stat units, screenshot workflow) and still useful as background.
+
+### Done
+
+| Area | Where | Notes |
+|---|---|---|
+| Rankings | `/rangliste` | 19 metrics in 4 groups (`database/metrics.py`), all time / 30 / 7 days |
+| Comparison | `/vergleich` | 2–4 players, best values, history chart, detail tables; `+` buttons collect players (`web/static/compare.js`) |
+| Player list | `/spieler` | search, sort, "last online" filters, badges, top places, favourites |
+| Player page | `/spieler?player=` | first/last seen with time, activity chart, ranking places, highlights, achievements (live), bio, stat card, moderator notes |
+| Server statistics | `/server-statistik` | online history, peak-time heatmap, totals, new players; based on `player_sessions` |
+| Start page | `/` | records, weekly recap, running competition, activity feed (`/api/feed`) |
+| Achievements | `database/achievements.py` | 13 × 4 tiers, stored in `player_achievements`; tiers reached while not playing are `silent` (no feed, no chat) |
+| Teams | `/teams` | prefixes as teams |
+| Competitions | `/wettbewerbe`, created on `/users` | start/end announced in chat by the socket server |
+| Profile & privacy | `/profil` | bio, "hide my stats" (`hide_stats`: left out of every public view except server totals), favourites |
+| Stat card | `/spieler/<name>/karte.png` | Pillow, fonts in `web/card_fonts/`, used as `og:image` |
+| Moderation | `/users` (moderators only) | server health (TPS, RAM, uptime, 24 h charts, availability), log of all moderation actions, inactive players, competitions, bans |
+| Plugin | `java plugin/MCDataLink` | 3.1 `!broadcast` (chat), 3.2 `!HEALTH` every minute, 3.3 live stats of online players every minute (`live-stats` in config.yml) |
+
+Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all of the above in
+`web/static/css/stats.css`.
+
+### Open
+
+- **Server health on production not visible yet** (moderation page `/users`): the owner is OP but not a
+  moderator on the server yet (enable "OPs automatisch zu Moderatoren" or add the name in the admin area).
+  If it still shows nothing with plugin 3.3: check `docker compose logs socket` for `!HEALTH`.
+- Plugins 3.1–3.3 are only compiled, not tested on a real Minecraft server (broadcasts, health, live stats).
+- Offered, not decided: show the server health in the admin area on the main domain as well.
+- Privacy policy (`web/templates/legal_datenschutz.html`): the stat card makes the server fetch heads
+  from mc-heads.net (only the UUID is sent); not mentioned yet.
+- Older open points: `/pardon` in game does not lift a website ban; `database/manage.py seed` is dev only;
+  the plugin connection (port 9991) is not encrypted.
+- Ideas not picked (yet): Discord webhook, stats export (JSON/CSV), announcements from the website.
+
+### Continuing in a new session
+
+- UI texts in German with "du", code/comments/commits in English, **no AI attribution in commits**.
+  Minecraft names the way players say them (Ancient Debris, not "Antiker Schutt"). No "AI look":
+  fonts Chakra Petch / Atkinson Hyperlegible / JetBrains Mono (self-hosted), no external CDNs for new things.
+- The owner tests visually and gives short feedback: take screenshots before finishing (headless Chrome,
+  see `docs/HANDOFF_spielervergleich.md`; pages that need a login are rendered with `app.test_client()`
+  and `session_transaction`). Load the `dataviz` skill before writing chart code.
+- New migration: add `N: [...]` to `MIGRATIONS` in `database/databaseManagerV2.py` **and** drop the new
+  objects in `test_migration_from_version_1` (`tests/test_database.py`).
+- Every new public view must respect `hide_stats` (`get_server_metrics()` leaves hidden players out
+  unless `include_hidden=True`).
+- Plugin changes: bump the version in `pom.xml`, document new messages in the docstring of
+  `mc_socket/main.py`, check that it compiles (Maven is not installed locally):
+  `docker run --rm -v <copy of java plugin/MCDataLink>:/build -w /build maven:3.9-eclipse-temurin-17 mvn -q -B package`.
+  Production builds the plugin in the Dockerfile; server owners download it on the admin page.
+- Dev data: the dev database has fake players, sessions, snapshots and health samples on `testdomain`;
+  more can be created with `ensure_player_on_server`, `update_player_stats` and by moving
+  `stat_snapshots.day` / `player_sessions` into the past.
 
 Legal information: 
 
