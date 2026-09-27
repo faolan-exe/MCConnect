@@ -73,6 +73,23 @@ final class BanSync {
         return json.append(']').toString();
     }
 
+    /** Names of MCConnect's own bans still in the ban list (a missing one was lifted with /pardon). */
+    String webBanNamesJson() {
+        StringBuilder json = new StringBuilder("[");
+        try {
+            for (Object object : banList().getBanEntries()) {
+                BanEntry entry = (BanEntry) object;
+                if (!SOURCE.equals(entry.getSource())) continue;
+                if (json.length() > 1) json.append(',');
+                json.append(quote(entry.getTarget()));
+            }
+        } catch (Throwable t) {
+            plugin.getLogger().warning("Could not read the ban list: " + t);
+            return null;
+        }
+        return json.append(']').toString();
+    }
+
     private static String kickMessage(String reason, Date expires) {
         String until = expires == null ? "dauerhaft" : "bis " + new SimpleDateFormat("dd.MM.yyyy HH:mm").format(expires);
         return ChatColor.RED + "Du wurdest gebannt" + ChatColor.RESET + "\n\n" + reason + "\n" + ChatColor.GRAY + until;

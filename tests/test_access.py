@@ -194,3 +194,35 @@ def test_admin_page_shows_health_and_alert_setting(admin_client, db, server):
     assert admin_client.post(f"/api/servers/{server['id']}/update", json={"alerts_enabled": False},
                              **on(None)).status_code == 200
     assert db.get_server_settings(server["id"])["alerts_enabled"] is False
+
+
+# ------------------------------------------------------------------ website bans and /pardon in the game
+
+def test_bans_made_while_offline_are_sent_on_connect(db, server, plugin, two_players):
+    db.ban_player(server["id"], "Notch", "Admin tobi", days=3)
+    assert len(db.get_undelivered_web_bans(server["id"])) == 1
+    connection = plugin()
+    connection.send(f"!AUTH~{server['key']}")
+    assert until(connection, "!ban~")[-1].startswith(f"!ban~{OTHER_UUID}|Notch|")
+    assert db.get_undelivered_web_bans(server["id"]) == []
+
+
+def test_pardon_in_game_lifts_the_website_ban(db, server, plugin, two_players):
+    connection = plugin().auth(server["key"])
+    db.ban_player(server["id"], "Notch", "Admin tobi", days=3)
+    db.mark_ban_delivered(server["id"], OTHER_UUID)
+    notch = db.get_player_id_from_mojang_uuid_and_server_id(OTHER_UUID, server["id"])
+    assert connection.request('!WEBBANS~[]') == "success|105"
+    assert db.get_ban_reason_from_player_id(notch)  # just delivered: the plugin may not have applied it yet
+    with db._cursor() as cur:
+        cur.execute("UPDATE banned_players SET delivered_at = now() - interval '5 minutes'")
+    assert connection.request('!WEBBANS~["notch"]') == "success|105"
+    assert db.get_ban_reason_from_player_id(notch)  # still in the list
+    assert connection.request('!WEBBANS~[]') == "success|105"
+    assert db.get_ban_reason_from_player_id(notch) is None
+    assert db.get_mod_log(server["id"])[0]["action"] == "ingame_pardon"
+
+
+def test_undelivered_bans_are_not_pardoned(db, server, two_players):
+    db.ban_player(server["id"], "Notch", "Admin tobi", days=3)
+    assert db.sync_web_bans(server["id"], []) == []

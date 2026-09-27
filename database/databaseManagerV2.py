@@ -377,6 +377,12 @@ MIGRATIONS = {
         # public server directory on the main domain (owners can opt out)
         "ALTER TABLE servers ADD COLUMN listed boolean NOT NULL DEFAULT true",
     ],
+    18: [
+        # when a website ban reached the plugin (NULL: not yet, sent on the next connect); a delivered ban
+        # that is missing from the plugin's ban list was lifted in the game (/pardon)
+        "ALTER TABLE banned_players ADD COLUMN delivered_at timestamptz",
+        "UPDATE banned_players SET delivered_at = now() WHERE source = 'web'",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -1236,6 +1242,44 @@ class DatabaseManager:
             for name in before - after:
                 self._log(cur, server_id, None, "ingame_unban", name)
         return stored
+
+    # A delivered ban must be missing from the plugin's list for this long before it counts as lifted
+    # in the game (the plugin may not have applied a brand-new ban yet).
+    PARDON_GRACE_SECONDS = 120
+
+    def mark_ban_delivered(self, server_id, mojang_uuid):
+        self._execute(f"""UPDATE banned_players bp SET delivered_at = now() FROM player_server_info psi
+                          WHERE psi.player_id = bp.banned_player_id AND psi.server_id = %s AND psi.mojang_uuid = %s
+                            AND bp.source = 'web' AND bp.delivered_at IS NULL AND {self._ACTIVE_BAN}""",
+                      (server_id, mojang_uuid))
+
+    def get_undelivered_web_bans(self, server_id):
+        """[{"uuid", "name", "reason", "end"}] of active website bans the plugin has not received yet."""
+        rows = self._fetchall(f"""
+            SELECT psi.mojang_uuid, p.name, COALESCE(br.reason, bp.reason_text, 'Gebannt'), bp.ban_end
+            FROM banned_players bp JOIN player_server_info psi ON psi.player_id = bp.banned_player_id
+            JOIN player p ON p.uuid = psi.mojang_uuid LEFT JOIN ban_reasons br ON br.id = bp.ban_reason_id
+            WHERE psi.server_id = %s AND bp.source = 'web' AND bp.delivered_at IS NULL AND {self._ACTIVE_BAN}""",
+                              (server_id,))
+        return [{"uuid": str(u), "name": n, "reason": r, "end": e} for u, n, r, e in rows]
+
+    def sync_web_bans(self, server_id, names):
+        """
+        The plugin reported the names of MCConnect bans still in the server's ban list. Delivered active
+        website bans of other players were lifted in the game: they are removed here as well.
+        Returns the names of the players pardoned that way.
+        """
+        with self._cursor() as cur:
+            cur.execute(f"""DELETE FROM banned_players bp USING player_server_info psi, player p
+                            WHERE bp.banned_player_id = psi.player_id AND p.uuid = psi.mojang_uuid
+                              AND psi.server_id = %s AND bp.source = 'web' AND {self._ACTIVE_BAN}
+                              AND bp.delivered_at < now() - %s * interval '1 second'
+                              AND NOT (lower(p.name) = ANY(%s))
+                            RETURNING p.name""", (server_id, self.PARDON_GRACE_SECONDS, [n.lower() for n in names]))
+            pardoned = sorted({row[0] for row in cur.fetchall()})
+            for name in pardoned:
+                self._log(cur, server_id, None, "ingame_pardon", name)
+        return pardoned
 
     def get_ban_reason_from_player_id(self, player_id):
         """Reason of the currently active ban (or "Gebannt" without a reason), or None if not banned."""

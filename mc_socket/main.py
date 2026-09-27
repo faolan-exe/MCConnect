@@ -11,6 +11,8 @@ Plugin -> server:
     !STATS~<uuid>|<stats json>   content of world/stats/<uuid>.json
     !BANS~<json list>            the server's ban list without MCConnect bans:
                                  [{"name", "reason", "source", "created", "expires"}] (epoch ms, 0 = never)
+    !WEBBANS~<json list>         names of the MCConnect bans still in the server's ban list (plugin 3.7);
+                                 a delivered website ban that is missing was lifted with /pardon
     !HEALTH~<json>               once a minute: {"tps", "mem_used_mb", "mem_max_mb", "players", "chunks",
                                  "entities", "uptime_s", "mc_version", "plugin_version"}
     !CMD~<uuid>|<world>|<x>|<y>|<z>|<command>|<args>   in-game command (stats, top, wettbewerb, duell, report,
@@ -49,6 +51,7 @@ Success codes:
 102: stats saved
 103: ban list synced
 104: health sample stored
+105: website bans synced
 """
 import json
 import os
@@ -345,7 +348,9 @@ class SocketServer:
 
     def send_ban(self, server_id, ban):
         end_ms = int(ban["end"].timestamp() * 1000) if ban["end"] else 0
-        self._send_to_server(server_id, f"!ban~{ban['uuid']}|{self._clean(ban['name'])}|{end_ms}|{self._clean(ban['reason'])}")
+        if self._send_to_server(server_id, f"!ban~{ban['uuid']}|{self._clean(ban['name'])}|{end_ms}|"
+                                           f"{self._clean(ban['reason'])}"):
+            self.db.mark_ban_delivered(server_id, ban["uuid"])
 
     # ------------------------------------------------------------------ in-game commands
     def tell(self, server_id, mojang_uuid, text):
@@ -453,8 +458,9 @@ class SocketServer:
                 self._send_to_server(server_id, self.prefix_message(server_id, mojang_uuid))
         elif kind == "ban":
             end_ms = int(event.get("end_ms") or 0)
-            self._send_to_server(server_id, f"!ban~{event['uuid']}|{self._clean(event['name'])}|{end_ms}|"
-                                            f"{self._clean(event.get('reason'))}")
+            if self._send_to_server(server_id, f"!ban~{event['uuid']}|{self._clean(event['name'])}|{end_ms}|"
+                                               f"{self._clean(event.get('reason'))}"):
+                self.db.mark_ban_delivered(server_id, event["uuid"])
         elif kind == "unban":
             self._send_to_server(server_id, f"!unban~{event['uuid']}|{self._clean(event['name'])}")
         elif kind == "broadcast":
@@ -550,6 +556,8 @@ class SocketServer:
             client.send(f"!mute~{mojang_uuid}|{int(until.timestamp() * 1000)}|{self._clean(reason)}")
         self.send_joininfo(server_id, only_if_set=True)
         self.sync_whitelist(server_id)
+        for ban in self.db.get_undelivered_web_bans(server_id):  # banned on the website while offline
+            self.send_ban(server_id, ban)
         return True
 
     def send_joininfo(self, server_id, only_if_set=False):
@@ -608,6 +616,12 @@ class SocketServer:
             elif command == "!HEALTH":
                 self.db.add_health_sample(client.server_id, parse_health(value))
                 client.send("success|104")
+            elif command == "!WEBBANS":
+                names = json.loads(value)
+                if not isinstance(names, list):
+                    raise ValueError("web ban list must be a list of names")
+                self.db.sync_web_bans(client.server_id, [str(n) for n in names])
+                client.send("success|105")
             elif command == "!BANS":
                 entries = json.loads(value)
                 if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):

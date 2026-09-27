@@ -391,6 +391,8 @@ public final class MCDataLink extends JavaPlugin {
         if (!authenticated) return;
         String json = banSync.banListJson();
         if (json != null) sendAsync("!BANS~" + json);
+        String webBans = banSync.webBanNamesJson();
+        if (webBans != null) sendAsync("!WEBBANS~" + webBans);
     }
 
     void playerQuit(Player player) {

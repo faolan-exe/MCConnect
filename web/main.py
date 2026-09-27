@@ -1372,6 +1372,7 @@ def moderation_page():
 
 MOD_LOG_ACTIONS = {
     "ban": "hat gebannt", "unban": "hat entbannt", "ingame_ban": "im Spiel gebannt", "ingame_unban": "im Spiel entbannt",
+    "ingame_pardon": "Website-Bann im Spiel aufgehoben",
     "mod_add": "zum Moderator gemacht", "mod_remove": "Moderatorrechte entzogen",
     "competition_create": "Wettbewerb angelegt", "competition_delete": "Wettbewerb gelöscht",
     "note_add": "Notiz geschrieben", "note_delete": "Notiz gelöscht",
