@@ -1327,3 +1327,8 @@ details.md-create[open] > .mcc-form { margin-top: 12px; padding: 14px; border: 1
 .rw-unlocks { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 10px 0 0; padding: 8px 10px; border: 1px solid var(--srv-border); border-radius: 8px; }
 .rw-unlocks legend { padding: 0 4px; font-weight: 700; font-size: 14px; }
 .rw-option { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; font-weight: 400; }
+.rw-texts { list-style: none; margin: 4px 0 8px; padding: 0; display: grid; gap: 4px; font-size: 15px; }
+.rw-texts li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.rw-add { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.rw-add .mcc-input { flex: 1 1 280px; }
+.rw-add .mcc-select { width: auto; }

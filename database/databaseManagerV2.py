@@ -425,6 +425,24 @@ MIGRATIONS = {
            UPDATE stat_snapshots s SET value = 0 FROM new_players n
            WHERE s.player_id = n.player_id AND s.day = n.day AND s.value <> 0""",
     ],
+    22: [
+        # own join/leave texts of a server (moderators): {"join": {"c1": "text with {name}"}, "leave": {...}}
+        "ALTER TABLE servers ADD COLUMN reward_texts jsonb",
+    ],
+    23: [
+        # Like 21, but measured against the time since the first join instead of the sessions: while the plugin
+        # was disconnected (updates, restarts) new players kept playing without a session and were missed.
+        # The first snapshot is the baseline of the first sync (the day before it).
+        """WITH first AS (SELECT DISTINCT ON (player_id) player_id, day FROM stat_snapshots ORDER BY player_id, day),
+           new_players AS (
+             SELECT f.player_id, f.day FROM first f
+             JOIN stat_snapshots s ON s.player_id = f.player_id AND s.day = f.day AND s.metric = 'play_time'
+             JOIN player_server_info psi ON psi.player_id = f.player_id
+             WHERE psi.first_seen IS NOT NULL AND psi.first_seen < (f.day + 2)::timestamptz
+               AND s.value / 20.0 <= 300 + extract(epoch FROM (f.day + 2)::timestamptz - psi.first_seen))
+           UPDATE stat_snapshots s SET value = 0 FROM new_players n
+           WHERE s.player_id = n.player_id AND s.day = n.day AND s.value <> 0""",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -435,8 +453,8 @@ ACHIEVEMENT_ACTIVE_MINUTES = 10
 # A record that changes hands again within this time is not announced (two players passing
 # each other while playing together); taking it straight back undoes the change.
 RECORD_COOLDOWN_MINUTES = 60
-# A player's first stats count completely if their play time is at most this much longer than their time online
-# since MCConnect knows them (a new player); otherwise the stats are older and count from then on.
+# A player's first stats count completely if their play time is at most this much longer than the time since
+# their first join (a new player); otherwise the stats are older and count from then on.
 NEW_PLAYER_SLACK_SECONDS = 300
 # A duel challenge that is not accepted within this time expires.
 DUEL_ACCEPT_HOURS = 24
@@ -868,13 +886,14 @@ class DatabaseManager:
             cur.execute("SELECT NOT EXISTS (SELECT 1 FROM stat_snapshots WHERE player_id = %s)", (player_id,))
             if cur.fetchone()[0]:
                 # First sync: the baseline of the day before, so gains count (today, in competitions, goals).
-                # A new player (no more play time than time online since MCConnect knows them) gained all of
-                # it here: baseline 0. Otherwise the stats are older than MCConnect: count from now on.
-                cur.execute(f"SELECT COALESCE(sum(extract(epoch FROM COALESCE(ended_at, now()) - started_at)), 0) "
-                            f"FROM player_sessions WHERE player_id = %s", (player_id,))
-                online = float(cur.fetchone()[0])
+                # A new player (no more play time than time since their first join) gained all of it here:
+                # baseline 0. Otherwise the stats are older than MCConnect: count from now on. (Not the sessions:
+                # while the plugin is disconnected, e.g. during an update, nobody has a session.)
+                cur.execute("SELECT extract(epoch FROM now() - first_seen) FROM player_server_info WHERE player_id = %s",
+                            (player_id,))
+                since_first_join = cur.fetchone()[0]
                 play_time = next(value for _, key, value in snapshot if key == "play_time") / 20
-                new_player = play_time <= online + NEW_PLAYER_SLACK_SECONDS
+                new_player = since_first_join is not None and play_time <= float(since_first_join) + NEW_PLAYER_SLACK_SECONDS
                 cur.executemany("""INSERT INTO stat_snapshots (player_id, metric, day, value)
                                    VALUES (%s, %s, current_date - 1, %s) ON CONFLICT DO NOTHING""",
                                 [(pid, key, 0 if new_player else value) for pid, key, value in snapshot])
@@ -3000,12 +3019,16 @@ class DatabaseManager:
     ###----------------------------- Join messages and rewards ------------------------------------###
 
     def get_reward_settings(self, server_id):
-        """(enabled, levels or None for the default levels)."""
-        row = self._fetchone("SELECT rewards_enabled, reward_levels FROM servers WHERE id = %s", (server_id,))
-        return (row[0], row[1]) if row else (False, None)
+        """(enabled, levels or None for the default levels, own texts or None)."""
+        row = self._fetchone("SELECT rewards_enabled, reward_levels, reward_texts FROM servers WHERE id = %s", (server_id,))
+        return (row[0], row[1], row[2]) if row else (False, None, None)
 
-    def set_reward_settings(self, server_id, enabled=None, levels=False):
-        """enabled: True/False or None (unchanged); levels: a list, None (back to the default) or False (unchanged)."""
+    def set_reward_settings(self, server_id, enabled=None, levels=False, texts=False):
+        """enabled: True/False or None (unchanged); levels: a list, None (back to the default) or False (unchanged);
+        texts: the own texts or False (unchanged)."""
+        if texts is not False:
+            self._execute("UPDATE servers SET reward_texts = %s WHERE id = %s",
+                          (json.dumps(texts) if texts else None, server_id))
         if enabled is not None:
             self._execute("UPDATE servers SET rewards_enabled = %s WHERE id = %s", (bool(enabled), server_id))
         if levels is not False:

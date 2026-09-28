@@ -247,8 +247,9 @@ def new_player_stats(minutes, stone):
 def test_new_player_counts_from_the_first_join(db, server):
     """A new player's first stats often arrive late (world save, quit): everything since the first join counts."""
     player = db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
-    with db._cursor() as cur:  # joined 30 minutes ago, the stats come now
-        cur.execute("UPDATE player_sessions SET started_at = now() - interval '30 minutes'")
+    with db._cursor() as cur:  # first join 30 minutes ago; the plugin was disconnected for a while: no session
+        cur.execute("UPDATE player_server_info SET first_seen = now() - interval '30 minutes'")
+        cur.execute("DELETE FROM player_sessions")
     db.update_player_stats(player, new_player_stats(29, 400))
     today = db.get_today()
     assert db.get_metrics_between(server["id"], today, today)[str(player)]["blocks_mined"] == 400
@@ -267,19 +268,23 @@ def test_known_player_seen_for_the_first_time_counts_from_then_on(db, server):
     assert db.get_metrics_between(server["id"], today, today)[str(player)]["blocks_mined"] == 10
 
 
-def test_migration_gives_new_players_their_first_session_back(db, server):
-    """Migration 21: baselines of new players stored with the old rule (= their first stats) become 0."""
+@pytest.mark.parametrize("migration", [21, 23])
+def test_migration_gives_new_players_their_first_session_back(db, server, migration):
+    """Migrations 21 (sessions) and 23 (first join): baselines of new players stored with the old rule become 0."""
     from database.databaseManagerV2 import MIGRATIONS
     new = db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
     old = db.register_player_join(server["id"], OTHER_UUID, "Notch")
     with db._cursor() as cur:
         cur.execute("UPDATE player_sessions SET started_at = now() - interval '30 minutes'")
+        cur.execute("UPDATE player_server_info SET first_seen = now() - interval '30 minutes'")
     db.update_player_stats(new, new_player_stats(29, 400))
     db.update_player_stats(old, new_player_stats(600, 5000))
     with db._cursor() as cur:  # the old rule: the first stats were the baseline
         cur.execute("UPDATE stat_snapshots s SET value = t.value FROM stat_snapshots t WHERE s.player_id = t.player_id "
                     "AND s.metric = t.metric AND s.day = current_date - 1 AND t.day = current_date")
-        for statement in MIGRATIONS[21]:
+        if migration == 23:
+            cur.execute("DELETE FROM player_sessions")  # the plugin was disconnected: no sessions
+        for statement in MIGRATIONS[migration]:
             cur.execute(statement)
     today = db.get_today()
     gains = db.get_metrics_between(server["id"], today, today)

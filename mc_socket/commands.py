@@ -625,9 +625,10 @@ JOIN_FIELDS = {"text": "join_text", "leave": "leave_text", "farbe": "color", "sy
 
 def _options(state, field, kind, labels):
     """Buttons of one setting: unlocked options (the chosen one marked), those of the next level gray."""
-    style, first = state["style"], rewards.unlocked_at(state["levels"])
+    catalog = state["catalog"]
+    style, first = state["style"], rewards.unlocked_at(state["levels"], catalog)
     parts = []
-    for value in rewards.UNLOCK_KINDS[kind] + (rewards.MOD_COLORS if kind == "colors" and state["moderator"] else ()):
+    for value in catalog.kinds[kind] + (rewards.MOD_COLORS if kind == "colors" and state["moderator"] else ()):
         label = clean(labels(value))
         argument = str(rewards.SYMBOLS.index(value)) if field == "symbol" else value
         command = next(k for k, v in JOIN_FIELDS.items() if v == field)
@@ -649,17 +650,17 @@ def cmd_joinmessage(ctx, args):
         return ["&7Eigene Join-Nachrichten sind auf diesem Server ausgeschaltet."]
     if args:
         return set_join_style(ctx, state, args[0].lower(), args[1] if len(args) > 1 else "")
-    style, available = state["style"], state["available"]
+    style, available, catalog = state["style"], state["available"], state["catalog"]
     levels, level = state["levels"], state["level"]
     lines = [f"&6--- Deine Join-Nachricht · Stufe {clean(levels[level]['name'])} ({level + 1}/{len(levels)}) ---"]
     if state["custom"]:
-        lines += [f"&7Join: {rewards.render(ctx.name, style, available, 'join')}",
-                  f"&7Leave: {rewards.render(ctx.name, style, available, 'leave')}"]
+        lines += [f"&7Join: {rewards.render(ctx.name, style, available, 'join', catalog)}",
+                  f"&7Leave: {rewards.render(ctx.name, style, available, 'leave', catalog)}"]
     else:
         lines.append("&7Gerade zeigt das Spiel seine normale Nachricht. Wähl etwas aus, um deine eigene zu nutzen.")
     lines += [
-        "&7Text: " + _options(state, "join_text", "join_texts", lambda v: rewards.JOIN_TEXTS[v].replace("{name}", "…")),
-        "&7Leave: " + _options(state, "leave_text", "leave_texts", lambda v: rewards.LEAVE_TEXTS[v].replace("{name}", "…")),
+        "&7Text: " + _options(state, "join_text", "join_texts", lambda v: catalog.text("join_texts", v).replace("{name}", "…")),
+        "&7Leave: " + _options(state, "leave_text", "leave_texts", lambda v: catalog.text("leave_texts", v).replace("{name}", "…")),
         "&7Farbe: " + _options(state, "color", "colors", lambda v: rewards.COLOR_LABELS[v]),
         "&7Symbol: " + _options(state, "symbol", "symbols", lambda v: v or "keins"),
         "&7Stil: " + _options(state, "style", "styles", lambda v: rewards.STYLES[v].split(" (")[0]),
@@ -690,13 +691,13 @@ def set_join_style(ctx, state, what, value):
             return ["&cDieses Symbol gibt es nicht."]
     if field == "sound" and value == "aus":
         value = ""
-    error = rewards.check_choice(field, value, state["available"])
+    error = rewards.check_choice(field, value, state["available"], state["catalog"])
     if error:
         return [f"&c{error}"]
     style = dict(state["style"], **{field: value})
     db.set_join_style(ctx.player_id, style)
     ctx.send(rewards.join_style_message(db, ctx.player_id))
-    return [f"&aGespeichert: {rewards.render(ctx.name, style, state['available'], 'join')}"]
+    return [f"&aGespeichert: {rewards.render(ctx.name, style, state['available'], 'join', state['catalog'])}"]
 
 
 COMMANDS = {"stats": cmd_stats, "top": cmd_top, "wettbewerb": cmd_competition, "duell": cmd_duel,

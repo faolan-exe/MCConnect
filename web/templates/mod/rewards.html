@@ -12,6 +12,22 @@
   <div class="mcc-message" data-role="enabled-message"></div>
 </section>
 
+<section class="srv-card" id="texts">
+  <h2>Eigene Texte</h2>
+  <p class="mcc-hint">Zusätzlich zu den fertigen Texten. <code>{name}</code> steht für den Spielernamen und muss genau einmal vorkommen;
+    Farben, Symbole und Stile wählen die Spieler selbst. Ab welcher Stufe ein Text frei ist, lässt sich unten bei den Stufen ändern.</p>
+  {% for kind, title, example in (("join", "Beim Kommen", "{name} ist aus dem Nether zurück!"), ("leave", "Beim Gehen", "{name} geht schlafen.")) %}
+  <h3>{{ title }}</h3>
+  <ul class="rw-texts" data-texts="{{ kind }}"></ul>
+  <form class="rw-add" data-add-text="{{ kind }}">
+    <input class="mcc-input" name="text" maxlength="{{ custom_text_max }}" required placeholder="z. B. {{ example }}"/>
+    <select class="mcc-select" name="level" aria-label="Freigeschaltet ab Stufe"></select>
+    <button class="mcc-btn mcc-btn-small" type="submit">Hinzufügen</button>
+  </form>
+  {% endfor %}
+  <div class="mcc-message" data-role="texts-message"></div>
+</section>
+
 <section class="srv-card" id="levels">
   <h2>Stufen</h2>
   <p class="mcc-hint">Eine Stufe ist erreicht, sobald <b>eine</b> ihrer Bedingungen erfüllt ist. Was eine Stufe freischaltet, kommt zu den
@@ -83,6 +99,8 @@
     }
 
     function render() {
+      // keep the opened levels open (adding a condition or a level must not collapse them)
+      const opened = new Set([...root.querySelectorAll("details.rw-level")].flatMap((d, i) => (d.open ? [i] : [])));
       root.replaceChildren(...levels.map((level, index) => {
         const name = el("input", { className: "mcc-input rw-name", value: level.name, maxLength: 24 });
         name.addEventListener("input", () => (level.name = name.value));
@@ -90,7 +108,7 @@
         if (remove) remove.addEventListener("click", () => { levels.splice(index, 1); render(); });
         const add = el("button", { type: "button", className: "mcc-btn mcc-btn-secondary mcc-btn-small", textContent: "+ Bedingung" });
         add.addEventListener("click", () => { level.conditions.push({ type: "streak", value: 30 }); render(); });
-        return el("details", { className: "rw-level", open: index === levels.length - 1 && levels.length > data.levels.length },
+        return el("details", { className: "rw-level", open: opened.has(index) },
           el("summary", {}, el("b", { textContent: `Stufe ${index + 1}` }), " ", level.name),
           el("div", { className: "rw-head" }, el("label", { textContent: "Name" }), name, remove),
           index === 0 ? el("p", { className: "mcc-hint", textContent: "Die erste Stufe hat jeder von Anfang an." })
@@ -109,10 +127,56 @@
       render();
       showMessage(message, done, "success");
     }
+
+    // own texts: the server stores them (with the level) at once; unsaved changes of the levels stay
+    const textsMessage = document.querySelector('[data-role="texts-message"]');
+    function renderTexts() {
+      for (const kind of ["join", "leave"]) {
+        document.querySelector(`[data-texts="${kind}"]`).replaceChildren(...data.texts[kind].map((t) => {
+          const remove = el("button", { type: "button", className: "nt-delete", textContent: "Löschen" });
+          remove.addEventListener("click", async () => {
+            if (!confirm(`Text „${t.text}“ löschen? Wer ihn gewählt hat, bekommt einen anderen.`)) return;
+            const result = await postJson("/api/mod/rewards", { remove_text: { kind, key: t.key } });
+            if (!result.ok) return showMessage(textsMessage, result.data.error || "Löschen fehlgeschlagen.", "error");
+            levels.forEach((level) => {
+              const values = (level.unlocks[kind + "_texts"] || []);
+              if (values.includes(t.key)) values.splice(values.indexOf(t.key), 1);
+            });
+            applyServer(result.data);
+            showMessage(textsMessage, "Gelöscht.", "success");
+          });
+          const where = t.level === null ? "in keiner Stufe" : `ab Stufe ${t.level + 1}`;
+          return el("li", {}, el("span", { textContent: t.text }), el("span", { className: "mcc-hint", textContent: ` (${where})` }), remove);
+        }));
+        const select = document.querySelector(`[data-add-text="${kind}"] select`);
+        const chosen = select.value;
+        select.replaceChildren(...levels.map((level, i) => el("option", { value: i, textContent: `ab Stufe ${i + 1} (${level.name})` })));
+        if (chosen) select.value = chosen;
+      }
+    }
+    function applyServer(result) {
+      data.texts = result.texts;
+      data.options = result.options;
+      renderTexts();
+      render();
+    }
+    document.querySelectorAll("[data-add-text]").forEach((form) => form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const kind = form.dataset.addText;
+      const level = Number(form.elements.level.value);
+      const result = await postJson("/api/mod/rewards", { add_text: { kind, text: form.elements.text.value, level } });
+      if (!result.ok) return showMessage(textsMessage, result.data.error || "Speichern fehlgeschlagen.", "error");
+      const added = result.data.texts[kind].find((t) => !data.texts[kind].some((o) => o.key === t.key));
+      if (added && levels[level]) (levels[level].unlocks[kind + "_texts"] = levels[level].unlocks[kind + "_texts"] || []).push(added.key);
+      form.elements.text.value = "";
+      applyServer(result.data);
+      showMessage(textsMessage, "Hinzugefügt – Spieler ab dieser Stufe können ihn wählen.", "success");
+    }));
     document.querySelector('[data-role="add-level"]').addEventListener("click", () => {
       levels.push({ name: "Neue Stufe", conditions: [{ type: "streak", value: 400 }], unlocks: {} });
       render();
       root.lastElementChild.open = true;
+      renderTexts();
     });
     document.querySelector('[data-role="save"]').addEventListener("click", () => save({ levels }, "Gespeichert. Die Spieler sehen die Stufen sofort."));
     document.querySelector('[data-role="reset"]').addEventListener("click", () => {
@@ -126,6 +190,7 @@
       if (!result.ok) event.target.checked = !event.target.checked;
     });
     render();
+    renderTexts();
   })();
 </script>
 {% endblock %}

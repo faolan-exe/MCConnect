@@ -51,6 +51,39 @@ SOUNDS = {
 }
 UNLOCK_KINDS = {"colors": COLORS, "symbols": SYMBOLS, "styles": tuple(STYLES), "join_texts": tuple(JOIN_TEXTS),
                 "leave_texts": tuple(LEAVE_TEXTS), "sounds": tuple(SOUNDS)}
+# Own texts of a server (servers.reward_texts: {"join": {key: text}, "leave": {key: text}}), keys "c1", "c2", ...
+CUSTOM_TEXT_MAX = 80
+CUSTOM_TEXTS_PER_KIND = 30
+CUSTOM_TEXT_RE = re.compile(r"^[^&§|~\u27e6\u21d2\u27e7\x00-\x1f]{1,80}$")
+
+
+class Catalog:
+    """The options of a server: the fixed palettes plus its own join and leave texts."""
+
+    def __init__(self, custom=None):
+        custom = custom or {}
+        self.custom = {"join": dict(custom.get("join") or {}), "leave": dict(custom.get("leave") or {})}
+        self.texts = {"join_texts": dict(JOIN_TEXTS, **self.custom["join"]),
+                      "leave_texts": dict(LEAVE_TEXTS, **self.custom["leave"])}
+        self.kinds = dict(UNLOCK_KINDS, join_texts=tuple(self.texts["join_texts"]),
+                          leave_texts=tuple(self.texts["leave_texts"]))
+
+    def text(self, kind, key):
+        """The template of a join ("join_texts") or leave ("leave_texts") text, None if unknown."""
+        return self.texts[kind].get(key)
+
+
+DEFAULT_CATALOG = Catalog()
+
+
+def check_custom_text(text):
+    """(cleaned text, None) for an own join/leave text, or (None, error). It needs "{name}" exactly once."""
+    text = " ".join(str(text or "").split())
+    if text.count("{name}") != 1:
+        return None, "Der Text braucht genau einmal {name} – dort steht dann der Spielername."
+    if not 5 <= len(text) <= CUSTOM_TEXT_MAX or not CUSTOM_TEXT_RE.match(text):
+        return None, f"5-{CUSTOM_TEXT_MAX} Zeichen, ohne & § | ~ (Farben kommen aus der Auswahl der Spieler)."
+    return text, None
 
 # condition types: label, unit
 CONDITIONS = {
@@ -123,28 +156,28 @@ def reached_level(levels, facts):
     return reached
 
 
-def unlocked(levels, level, moderator=False):
-    """{kind: [values]} of everything unlocked up to (including) the level."""
-    result = {kind: [] for kind in UNLOCK_KINDS}
+def unlocked(levels, level, moderator=False, catalog=DEFAULT_CATALOG):
+    """{kind: [values]} of everything unlocked up to (including) the level (only options that still exist)."""
+    result = {kind: [] for kind in catalog.kinds}
     for entry in levels[:level + 1]:
-        for kind in UNLOCK_KINDS:
+        for kind in catalog.kinds:
             for value in entry["unlocks"].get(kind, []):
-                if value not in result[kind]:
+                if value not in result[kind] and value in catalog.kinds[kind]:
                     result[kind].append(value)
     if moderator:
         result["colors"] += [c for c in MOD_COLORS if c not in result["colors"]]
-    for kind, order in UNLOCK_KINDS.items():  # in the order of the palettes
+    for kind, order in catalog.kinds.items():  # in the order of the palettes
         result[kind].sort(key=lambda value, order=order: order.index(value) if value in order else len(order))
     if moderator:
         result["colors"] = [c for c in result["colors"] if c not in MOD_COLORS] + list(MOD_COLORS)
     return result
 
 
-def unlocked_at(levels):
+def unlocked_at(levels, catalog=DEFAULT_CATALOG):
     """{(kind, value): level index} of the first level that unlocks each option (for "locked" hints)."""
     first = {}
     for index, level in enumerate(levels):
-        for kind in UNLOCK_KINDS:
+        for kind in catalog.kinds:
             for value in level["unlocks"].get(kind, []):
                 first.setdefault((kind, value), index)
     return first
@@ -161,7 +194,7 @@ def normalized_style(style, available):
     return style
 
 
-def check_choice(field, value, available):
+def check_choice(field, value, available, catalog=DEFAULT_CATALOG):
     """None if the value may be chosen, otherwise the error text."""
     kind = {"join_text": "join_texts", "leave_text": "leave_texts", "color": "colors", "symbol": "symbols",
             "style": "styles", "sound": "sounds"}.get(field)
@@ -169,7 +202,7 @@ def check_choice(field, value, available):
         return "Unbekannte Einstellung."
     if field == "sound" and value == "":
         return None
-    if value not in UNLOCK_KINDS[kind] and not (kind == "colors" and value in MOD_COLORS):
+    if value not in catalog.kinds[kind] and not (kind == "colors" and value in MOD_COLORS):
         return "Unbekannte Auswahl."
     if value not in available[kind]:
         return "Das ist noch nicht freigeschaltet."
@@ -184,10 +217,10 @@ def render_name(name, style, available):
     return f"&{code}{'&l' if style['style'] == 'bold' else ''}{name}"
 
 
-def render(name, style, available, kind="join"):
+def render(name, style, available, kind="join", catalog=DEFAULT_CATALOG):
     """The chat line of a join ("join") or leave ("leave") message with "&" color codes."""
-    template = (JOIN_TEXTS.get(style["join_text"], JOIN_TEXTS["joined"]) if kind == "join"
-                else LEAVE_TEXTS.get(style["leave_text"], LEAVE_TEXTS["left"]))
+    template = (catalog.text("join_texts", style["join_text"]) or JOIN_TEXTS["joined"] if kind == "join"
+                else catalog.text("leave_texts", style["leave_text"]) or LEAVE_TEXTS["left"])
     rendered = render_name(name, style, available) + "&r&7"
     before, _, after = template.partition("{name}")
     symbol = style["symbol"]
@@ -204,7 +237,7 @@ def sound_of(style):
     return (entry[1], entry[2]) if entry else None
 
 
-def validate_levels(data):
+def validate_levels(data, catalog=DEFAULT_CATALOG):
     """(levels, None) for a valid level list from the editor, otherwise (None, error text)."""
     if not isinstance(data, list) or not 1 <= len(data) <= MAX_LEVELS:
         return None, f"1 bis {MAX_LEVELS} Stufen."
@@ -237,13 +270,13 @@ def validate_levels(data):
         if len(conditions) > 8:
             return None, f"Stufe {index + 1}: höchstens 8 Bedingungen."
         unlocks = {}
-        for kind, options in UNLOCK_KINDS.items():
+        for kind, options in catalog.kinds.items():
             values = (raw.get("unlocks") or {}).get(kind) or []
             if not isinstance(values, list) or any(v not in options for v in values):
                 return None, f"Stufe {index + 1}: unbekannte Freischaltung."
             unlocks[kind] = list(dict.fromkeys(values))
         levels.append({"name": name, "conditions": [] if index == 0 else conditions, "unlocks": unlocks})
-    first = unlocked(levels, 0)
+    first = unlocked(levels, 0, catalog=catalog)
     if not (first["colors"] and first["join_texts"] and first["leave_texts"] and first["styles"] and first["symbols"]):
         return None, "Die erste Stufe braucht mindestens eine Farbe, ein Symbol (oder keins), einen Stil und je einen Join- und Leave-Text."
     return levels, None
@@ -274,14 +307,16 @@ def player_state(db, player_id):
     "available", "style" (normalized choice), "custom" (own message chosen), "sounds_off", "moderator"}.
     A level reached for the first time is stored here."""
     server_id = db.get_server_id_from_player_id(player_id)
-    enabled, stored = db.get_reward_settings(server_id)
+    enabled, stored, texts = db.get_reward_settings(server_id)
+    catalog = Catalog(texts)
     levels = levels_of(stored)
     settings = db.get_join_settings(player_id)
     level = min(max(settings["level"], reached_level(levels, db.get_reward_facts(player_id))), len(levels) - 1)
     new_level = level if level > settings["level"] and db.raise_reward_level(player_id, level) else None
     moderator = db.is_moderator(player_id)
-    available = unlocked(levels, level, moderator)
+    available = unlocked(levels, level, moderator, catalog)
     return {"enabled": enabled, "levels": levels, "level": level, "new_level": new_level, "available": available,
+            "catalog": catalog,
             "style": normalized_style(settings["style"], available), "custom": settings["style"] is not None,
             "sounds_off": settings["sounds_off"], "moderator": moderator}
 
@@ -294,8 +329,8 @@ def join_style_message(db, player_id, state=None):
         return f"!joinstyle~{uuid}||||"
     name = db.get_player_name_from_player_id(player_id)
     sound = sound_of(state["style"])
-    return "!joinstyle~" + "|".join((str(uuid), clean(render(name, state["style"], state["available"], "join")),
-                                     clean(render(name, state["style"], state["available"], "leave")),
+    return "!joinstyle~" + "|".join((str(uuid), clean(render(name, state["style"], state["available"], "join", state["catalog"])),
+                                     clean(render(name, state["style"], state["available"], "leave", state["catalog"])),
                                      sound[0] if sound else "", str(sound[1]) if sound else ""))
 
 

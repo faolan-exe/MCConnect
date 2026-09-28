@@ -192,3 +192,32 @@ def test_new_level_is_told_in_the_game(db, server, game, two_players, socket_ser
     lines = until(game, f"!tell~{PLAYER_UUID}|&6★ Neue Stufe")
     assert "»Stammgast«" in lines[-1] and "/joinmessage" in lines[-1]
     assert db.get_join_settings(a)["level"] == 1
+
+
+def test_custom_text_check():
+    assert rewards.check_custom_text("  {name}   kommt  aus dem Nether ")[0] == "{name} kommt aus dem Nether"
+    assert "genau einmal" in rewards.check_custom_text("ohne Namen")[1]
+    assert "genau einmal" in rewards.check_custom_text("{name} und {name}")[1]
+    assert rewards.check_custom_text("&c{name} rot")[1] and rewards.check_custom_text("{name} ⟦x⇒/op⟧")[1]
+
+
+def test_moderators_add_and_remove_own_texts(me, db, server, two_players, game):
+    a, _ = two_players
+    db.set_moderator(server["id"], "_Tobias4444", True)
+    add = lambda kind, text, level=0: me.post("/api/mod/rewards", json={"add_text": {"kind": kind, "text": text, "level": level}},
+                                              **on("testdomain"))
+    assert add("join", "kein Name").status_code == 400
+    response = add("join", "{name} ist aus dem Nether zurück!")
+    assert response.status_code == 200 and response.json["texts"]["join"] == [
+        {"key": "c1", "text": "{name} ist aus dem Nether zurück!", "level": 0}]
+    assert add("leave", "{name} geht schlafen.", level=5).json["texts"]["leave"][0]["level"] == 5
+    # everyone can choose the new join text (level 1); the leave text is locked
+    assert me.post("/api/joinstyle", json={"field": "join_text", "value": "c1"}, **on("testdomain")).status_code == 200
+    assert me.post("/api/joinstyle", json={"field": "leave_text", "value": "c1"}, **on("testdomain")).status_code == 400
+    assert "_Tobias4444 ist aus dem Nether zurück!" in me.get("/profil", **on("testdomain")).get_data(as_text=True)
+    cmd(game, PLAYER_UUID, "joinmessage")
+    assert any("… ist aus dem Nether zurück!" in line for line in until(game, "!tell~" + PLAYER_UUID + "|&7Vorschau"))
+    # removed: the player falls back to a default text, the levels forget it
+    assert me.post("/api/mod/rewards", json={"remove_text": {"kind": "join", "key": "c1"}}, **on("testdomain")).json["texts"]["join"] == []
+    state = rewards.player_state(db, a)
+    assert state["style"]["join_text"] == "joined" and "c1" not in state["levels"][0]["unlocks"]["join_texts"]

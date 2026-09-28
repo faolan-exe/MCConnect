@@ -1293,16 +1293,16 @@ def join_view(player_id, state=None):
     """Everything the join message part of /profil shows."""
     state = state or rewards.player_state(db(), player_id)
     name = db().get_player_name_from_player_id(player_id)
-    style, available, levels = state["style"], state["available"], state["levels"]
-    first = rewards.unlocked_at(levels)
+    style, available, levels, catalog = state["style"], state["available"], state["levels"], state["catalog"]
+    first = rewards.unlocked_at(levels, catalog)
     options = {}
-    for field, kind, labels in (("join_text", "join_texts", lambda v: rewards.JOIN_TEXTS[v].replace("{name}", name)),
-                                ("leave_text", "leave_texts", lambda v: rewards.LEAVE_TEXTS[v].replace("{name}", name)),
+    for field, kind, labels in (("join_text", "join_texts", lambda v: catalog.text("join_texts", v).replace("{name}", name)),
+                                ("leave_text", "leave_texts", lambda v: catalog.text("leave_texts", v).replace("{name}", name)),
                                 ("color", "colors", lambda v: rewards.COLOR_LABELS[v]),
                                 ("symbol", "symbols", lambda v: v or "keins"),
                                 ("style", "styles", lambda v: rewards.STYLES[v]),
                                 ("sound", "sounds", lambda v: rewards.SOUNDS[v][0])):
-        values = rewards.UNLOCK_KINDS[kind] + (rewards.MOD_COLORS if kind == "colors" and state["moderator"] else ())
+        values = catalog.kinds[kind] + (rewards.MOD_COLORS if kind == "colors" and state["moderator"] else ())
         options[field] = [{"value": v, "label": labels(v), "chosen": style[field] == v and (field != "sound" or bool(v)),
                            "locked": v not in available[kind],
                            "hint": f"ab Stufe {first[(kind, v)] + 1} »{levels[first[(kind, v)]]['name']}«: "
@@ -1311,8 +1311,8 @@ def join_view(player_id, state=None):
                           for v in values if v in available[kind] or (kind, v) in first]
     return {"enabled": state["enabled"], "custom": state["custom"], "level": state["level"],
             "levels": [dict(level, hint=rewards.level_hint(level), reached=i <= state["level"]) for i, level in enumerate(levels)],
-            "preview_join": mc_html(rewards.render(name, style, available, "join")),
-            "preview_leave": mc_html(rewards.render(name, style, available, "leave")),
+            "preview_join": mc_html(rewards.render(name, style, available, "join", catalog)),
+            "preview_leave": mc_html(rewards.render(name, style, available, "leave", catalog)),
             "options": options, "sound_off": not style["sound"], "sounds_off": state["sounds_off"],
             "mutes": db().get_join_mutes(player_id)}
 
@@ -1330,7 +1330,7 @@ def join_style_api():
         db().set_join_style(player_id, None)
     else:
         field, value = str(data.get("field") or ""), str(data.get("value") if data.get("value") is not None else "")
-        error = rewards.check_choice(field, value, state["available"])
+        error = rewards.check_choice(field, value, state["available"], state["catalog"])
         if error:
             return {"error": error}, 400
         db().set_join_style(player_id, dict(state["style"], **{field: value}))
@@ -1550,30 +1550,75 @@ def moderation_access_page():
 @server_bp.route("/users/belohnungen")
 @moderator_required
 def moderation_rewards_page():
-    enabled, stored = db().get_reward_settings(g.server["id"])
-    editor = {
-        "levels": rewards.levels_of(stored), "custom": stored is not None,
+    enabled, stored, texts = db().get_reward_settings(g.server["id"])
+    return render_mod("belohnungen", "mod/rewards.html", rewards_enabled=enabled, editor=reward_editor(stored, texts),
+                      mod_colors=[rewards.COLOR_LABELS[c] for c in rewards.MOD_COLORS],
+                      custom_text_max=rewards.CUSTOM_TEXT_MAX)
+
+
+def reward_editor(stored, texts):
+    """The data of the level editor: levels, options (with the server's own texts), conditions, metrics."""
+    catalog = rewards.Catalog(texts)
+    levels = rewards.levels_of(stored)
+    first = rewards.unlocked_at(levels, catalog)
+    own = lambda kind: [{"key": k, "text": v, "level": first.get((kind + "_texts", k))} for k, v in catalog.custom[kind].items()]
+    return {
+        "levels": levels, "custom": stored is not None, "texts": {"join": own("join"), "leave": own("leave")},
         "conditions": {k: {"label": label, "unit": unit} for k, (label, unit) in rewards.CONDITIONS.items()},
         "metrics": [{"key": m.key, "label": m.label, "unit": motivation.goal_unit(m)} for m in metrics_mod.METRICS],
         "options": {
             "colors": [{"value": c, "label": rewards.COLOR_LABELS[c], "web": rewards.COLOR_CODES[c][1]} for c in rewards.COLORS],
             "symbols": [{"value": v, "label": v or "keins"} for v in rewards.SYMBOLS],
             "styles": [{"value": k, "label": v.split(" (")[0]} for k, v in rewards.STYLES.items()],
-            "join_texts": [{"value": k, "label": v.replace("{name}", "…")} for k, v in rewards.JOIN_TEXTS.items()],
-            "leave_texts": [{"value": k, "label": v.replace("{name}", "…")} for k, v in rewards.LEAVE_TEXTS.items()],
+            "join_texts": [{"value": k, "label": v.replace("{name}", "…")} for k, v in catalog.texts["join_texts"].items()],
+            "leave_texts": [{"value": k, "label": v.replace("{name}", "…")} for k, v in catalog.texts["leave_texts"].items()],
             "sounds": [{"value": k, "label": v[0]} for k, v in rewards.SOUNDS.items()],
         },
     }
-    return render_mod("belohnungen", "mod/rewards.html", rewards_enabled=enabled, editor=editor,
-                      mod_colors=[rewards.COLOR_LABELS[c] for c in rewards.MOD_COLORS])
 
 
 @server_bp.route("/api/mod/rewards", methods=["POST"])
 @moderator_required
 def mod_rewards_api():
-    """{"enabled": bool} switches the join messages, {"levels": [...]} stores own levels, {"levels": "default"} resets them."""
+    """{"enabled": bool} switches the join messages, {"levels": [...]} stores own levels, {"levels": "default"} resets
+    them, {"add_text": {"kind": "join"|"leave", "text", "level"}} adds an own text (unlocked from that level on),
+    {"remove_text": {"kind", "key"}} removes one (players who chose it fall back to another text)."""
     data = request.get_json(silent=True) or {}
     changed = []
+    enabled, stored, texts = db().get_reward_settings(g.server["id"])
+    texts = {"join": dict((texts or {}).get("join") or {}), "leave": dict((texts or {}).get("leave") or {})}
+    if "add_text" in data or "remove_text" in data:
+        entry = data.get("add_text") or data.get("remove_text")
+        kind = entry.get("kind") if isinstance(entry, dict) else None
+        if kind not in ("join", "leave"):
+            return {"error": "Unbekannte Art."}, 400
+        levels = rewards.levels_of(stored)
+        if "add_text" in data:
+            text, error = rewards.check_custom_text(entry.get("text"))
+            if error:
+                return {"error": error}, 400
+            if len(texts[kind]) >= rewards.CUSTOM_TEXTS_PER_KIND:
+                return {"error": f"Höchstens {rewards.CUSTOM_TEXTS_PER_KIND} eigene Texte."}, 400
+            try:
+                level = int(entry.get("level") or 0)
+            except (TypeError, ValueError):
+                level = -1
+            if not 0 <= level < len(levels):
+                return {"error": "Unbekannte Stufe."}, 400
+            key = "c" + str(max((int(k[1:]) for k in texts[kind] if k[1:].isdigit()), default=0) + 1)
+            texts[kind][key] = text
+            levels[level]["unlocks"].setdefault(kind + "_texts", []).append(key)
+            changed.append(f"Text »{text}« ab Stufe {level + 1}")
+        else:
+            key = str(entry.get("key") or "")
+            if key not in texts[kind]:
+                return {"error": "Unbekannter Text."}, 404
+            changed.append(f"Text »{texts[kind].pop(key)}« gelöscht")
+            for level in levels:
+                values = level["unlocks"].get(kind + "_texts", [])
+                if key in values:
+                    values.remove(key)
+        db().set_reward_settings(g.server["id"], levels=levels, texts=texts)
     if "enabled" in data:
         db().set_reward_settings(g.server["id"], enabled=bool(data["enabled"]))
         changed.append("an" if data["enabled"] else "aus")
@@ -1582,17 +1627,17 @@ def mod_rewards_api():
             db().set_reward_settings(g.server["id"], levels=None)
             changed.append("Stufen auf Standard")
         else:
-            levels, error = rewards.validate_levels(data["levels"])
+            levels, error = rewards.validate_levels(data["levels"], rewards.Catalog(texts))
             if error:
                 return {"error": error}, 400
             db().set_reward_settings(g.server["id"], levels=levels)
             changed.append(f"{len(levels)} Stufen")
     if not changed:
         return {"error": "Nichts zu speichern."}, 400
-    db().add_mod_log(g.server["id"], mod_name(), "rewards", None, ", ".join(changed))
+    db().add_mod_log(g.server["id"], mod_name(), "rewards", None, ", ".join(changed)[:300])
     db().notify_server_event(g.server["id"], "joinsync")  # the messages of everyone may look different now
-    enabled, stored = db().get_reward_settings(g.server["id"])
-    return {"enabled": enabled, "levels": rewards.levels_of(stored), "custom": stored is not None}
+    enabled, stored, texts = db().get_reward_settings(g.server["id"])
+    return dict(reward_editor(stored, texts), enabled=enabled)
 
 
 @server_bp.route("/users/protokoll")
