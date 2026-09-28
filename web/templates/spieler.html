@@ -68,6 +68,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='poll.js') }}"></script>
 {% if config.FEATURE_RANKINGS %}<script src="{{ url_for('static', filename='compare.js') }}"></script>{% endif %}
 <script>
   (() => {
@@ -182,8 +183,7 @@
 
     // live online status, in the same (name) order as the rows were rendered
     const byIndex = [...rows].sort((a, b) => a.dataset.index - b.dataset.index);
-    new EventSource("/api/status").onmessage = (event) => {
-      const statuses = JSON.parse(event.data);
+    pollJson("/api/status", 10000, (statuses) => {
       let changed = false;
       statuses.forEach((status, i) => {
         const row = byIndex[i];
@@ -196,7 +196,7 @@
       });
       document.getElementById("online-count").textContent = statuses.filter((s) => s === "online").length;
       if (changed) apply();
-    };
+    });
   })();
 </script>
 {% endblock %}

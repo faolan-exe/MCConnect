@@ -1,9 +1,8 @@
-import json
 import re
 
 import pytest
 
-from tests.conftest import OTHER_UUID, PLAYER_UUID
+from tests.conftest import OTHER_UUID, PLAYER_UUID, wait_for
 from web.main import create_app, safe_next_path
 
 BASE = "mc.test"
@@ -23,12 +22,10 @@ def on(subdomain):
     return {"base_url": f"http://{subdomain}.{BASE}" if subdomain else f"http://{BASE}"}
 
 
-def first_event(response):
-    chunk = next(response.response)
-    response.close()
-    chunk = chunk.decode() if isinstance(chunk, bytes) else chunk
-    assert chunk.startswith("data: ")
-    return json.loads(chunk[len("data: "):])
+def live(response):
+    """The JSON of a polled live endpoint (not cacheable by the browser)."""
+    assert response.status_code == 200 and response.headers["Cache-Control"] == "no-store"
+    return response.json
 
 
 @pytest.fixture
@@ -106,23 +103,23 @@ def test_banned_player_page(client, db, online_player):
     assert (datetime.now(timezone.utc) + timedelta(days=3)).strftime("%d.%m.%Y").encode() in response.data
 
 
-# ------------------------------------------------------------------ SSE
+# ------------------------------------------------------------------ live values (polled)
 
 def test_player_count_stream(client, online_player):
-    assert first_event(client.get("/api/player_count", buffered=False, **on("testdomain"))) == 1
+    assert live(client.get("/api/player_count", **on("testdomain"))) == 1
 
 
 def test_total_player_count_stream(client, online_player):
-    assert first_event(client.get("/api/player_count", buffered=False, **on(None))) == 1
+    assert live(client.get("/api/player_count", **on(None))) == 1
 
 
 def test_status_stream(client, db, server, online_player):
     db.ensure_player_on_server(server["id"], OTHER_UUID)
-    assert first_event(client.get("/api/status", buffered=False, **on("testdomain"))) == ["offline", "online"]
+    assert live(client.get("/api/status", **on("testdomain"))) == ["offline", "online"]
 
 
 def test_player_info_stream(client, online_player):
-    data = first_event(client.get("/api/player_info/_Tobias4444", buffered=False, **on("testdomain")))
+    data = live(client.get("/api/player_info/_Tobias4444", **on("testdomain")))
     assert data[0] == PLAYER_UUID
     assert data[1] == "online"
     assert data[2] == 2
@@ -132,6 +129,13 @@ def test_player_info_stream(client, online_player):
 
 def test_player_info_stream_unknown_player(client, server):
     assert client.get("/api/player_info/nobody", **on("testdomain")).status_code == 404
+
+
+def test_live_values_are_cached_briefly(client, db, server, online_player):
+    assert live(client.get("/api/player_count", **on("testdomain"))) == 1
+    db.register_player_quit(server["id"], PLAYER_UUID)
+    assert live(client.get("/api/player_count", **on("testdomain"))) == 1  # the same answer for 2 seconds
+    wait_for(lambda: live(client.get("/api/player_count", **on("testdomain"))) == 0)
 
 
 # ------------------------------------------------------------------ player login
@@ -530,7 +534,7 @@ def test_player_info_without_deaths_shows_dash(client, db, server):
     db.set_plugin_connected(server["id"], True)
     player_id = db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
     db.update_player_stats(player_id, {"stats": {"minecraft:custom": {"minecraft:time_since_death": 72000}}})
-    data = first_event(client.get("/api/player_info/_Tobias4444", buffered=False, **on("testdomain")))
+    data = live(client.get("/api/player_info/_Tobias4444", **on("testdomain")))
     assert data[2] == 0 and data[5] == "-"
 
 

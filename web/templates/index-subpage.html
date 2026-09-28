@@ -219,11 +219,11 @@
         </nav>
     </footer>
 
+    <script src="{{ url_for('static', filename='poll.js') }}"></script>
     <script>
-        const eventSource = new EventSource("/api/player_count");
-        eventSource.onmessage = (event) => {
-            document.getElementById("player-count").textContent = JSON.parse(event.data);
-        };
+        pollJson("/api/player_count", 10000, (count) => {
+            document.getElementById("player-count").textContent = count;
+        });
 
         // activity feed, refreshed every 30 seconds
         const feed = document.getElementById("feed");

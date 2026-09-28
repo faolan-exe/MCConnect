@@ -60,15 +60,15 @@
 </div>
 {% endblock %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='poll.js') }}"></script>
 <script>
   const search = document.getElementById("dir-search");
   if (search) search.addEventListener("input", () => {
     const query = search.value.trim().toLowerCase();
     document.querySelectorAll(".dir-card").forEach((card) => (card.hidden = query && !card.dataset.search.includes(query)));
   });
-  const eventSource = new EventSource("/api/player_count");
-  eventSource.onmessage = (event) => {
-    document.getElementById("player-count").innerText = JSON.parse(event.data);
-  };
+  pollJson("/api/player_count", 10000, (count) => {
+    document.getElementById("player-count").textContent = count;
+  });
 </script>
 {% endblock %}

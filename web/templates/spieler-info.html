@@ -737,12 +737,10 @@
       skinRender.render({ url: "https://mc-heads.net/skin/{{uuid}}" });
     </script>
 
+    <script src="{{ url_for('static', filename='poll.js') }}"></script>
     <script>
       // Loading player stats cards
-      const eventSource = new EventSource("/api/player_info/{{user_name}}");
-
-      eventSource.onmessage = (event) => {
-        const parsedArray = JSON.parse(event.data.replaceAll("'", '"'));
+      pollJson("/api/player_info/" + encodeURIComponent({{ user_name | tojson }}), 5000, (parsedArray) => {
         i = 0;
         for (var element of parsedArray) {
           if (i == 0) {
@@ -771,7 +769,7 @@
           document.getElementById("" + i).innerHTML = element;
           i += 1;
         }
-      };
+      });
       // utility functions
 
       function forceDownload(url, fileName) {

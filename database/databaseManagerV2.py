@@ -479,7 +479,7 @@ class DatabaseManager:
     """Thread-safe access to the MCConnect database.
 
     Every method borrows its own connection from a pool, so one instance can
-    be shared between Flask request threads, SSE streams and socket threads.
+    be shared between Flask request threads and socket threads.
     """
 
     def __init__(self, db_config=None, minecraft=None, auto_init=True, check_schema=True, timezone=None):

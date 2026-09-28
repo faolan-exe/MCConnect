@@ -64,7 +64,7 @@ def test_own_hidden_page_is_visible(me, db, two_players):
     db.save_profile(a, None, True)
     html = me.get("/spieler?player=_Tobias4444", **on("testdomain")).get_data(as_text=True)
     assert "Deine Statistiken sind verborgen" in html
-    assert me.get("/api/player_info/_Tobias4444", buffered=False, **on("testdomain")).status_code == 200
+    assert me.get("/api/player_info/_Tobias4444", **on("testdomain")).status_code == 200
 
 
 def test_hidden_player_left_out_of_public_views(client, db, server, notch_hidden):

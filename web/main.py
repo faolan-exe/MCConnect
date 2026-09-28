@@ -27,7 +27,7 @@ if PROJECT_ROOT not in sys.path:
 import psycopg2.errors
 from colorlogx import get_logger
 from flask import (Blueprint, Flask, Response, abort, current_app, g, redirect, render_template,
-                   request, send_file, send_from_directory, session, stream_with_context, url_for)
+                   request, send_file, send_from_directory, session, url_for)
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from database import achievements as achievements_mod
@@ -59,10 +59,9 @@ PREFIX_COLORS = {
 MODERATOR_PREFIX_COLORS = {"gold"}
 # No formatting characters (§ &), no protocol separators (~ |), no % (chat format).
 PREFIX_TEXT_RE = re.compile(r"^[A-Za-z0-9ÄÖÜäöüß _.!?+*#-]{1,16}$")
-SSE_INTERVAL_SECONDS = 2
-# SSE streams end after this time; the browser's EventSource reconnects on its own.
-# Keeps worker threads from being blocked forever by forgotten tabs.
-SSE_MAX_LIFETIME_SECONDS = 300
+# The live values (players online, status, player cards) are polled by the pages (web/static/poll.js);
+# one result is shared by all requests for this long, so many open tabs cost one query.
+LIVE_CACHE_SECONDS = 2
 # Time ranges of the rankings and the comparison (?zeitraum=...): days, None = all time.
 PERIODS = {"gesamt": None, "30": 30, "7": 7}
 MAX_COMPARED_PLAYERS = 4
@@ -78,16 +77,33 @@ def db():
     return current_app.extensions["mcconnect_db"]
 
 
-def sse_response(generate_data, interval=SSE_INTERVAL_SECONDS, lifetime=SSE_MAX_LIFETIME_SECONDS):
-    """Stream generate_data() as server sent events every `interval` seconds."""
-    def stream():
-        deadline = time.monotonic() + lifetime
-        while time.monotonic() < deadline:
-            yield f"data: {json.dumps(generate_data())}\n\n"
-            time.sleep(interval)
-    response = Response(stream_with_context(stream()), mimetype="text/event-stream")
-    response.headers["Cache-Control"] = "no-cache"
-    response.headers["X-Accel-Buffering"] = "no"  # disable nginx buffering
+class LiveCache:
+    """Results of the live endpoints, shared for LIVE_CACHE_SECONDS (per worker process)."""
+
+    def __init__(self, seconds=LIVE_CACHE_SECONDS):
+        self.seconds = seconds
+        self._values = {}
+        self._lock = threading.Lock()
+
+    def get(self, key, compute):
+        now = time.monotonic()
+        with self._lock:
+            hit = self._values.get(key)
+        if hit and now - hit[0] < self.seconds:
+            return hit[1]
+        value = compute()
+        with self._lock:
+            if len(self._values) > 5_000:
+                self._values = {k: v for k, v in self._values.items() if now - v[0] < self.seconds}
+            self._values[key] = (now, value)
+        return value
+
+
+def live_json(key, compute):
+    """A polled live value as JSON (cached briefly, never stored by the browser or a proxy)."""
+    response = current_app.response_class(json.dumps(current_app.extensions["mcconnect_live"].get(key, compute)),
+                                          mimetype="application/json")
+    response.headers["Cache-Control"] = "no-store"
     return response
 
 
@@ -2264,19 +2280,15 @@ def minecraft_login_api():
 
 
 @server_bp.route("/api/player_count")
-def stream_player_count():
-    subdomain = g.subdomain
-    database = db()
-    return sse_response(lambda: database.get_online_player_count_from_subdomain(subdomain))
+def live_player_count():
+    return live_json(("count", g.subdomain), lambda: db().get_online_player_count_from_subdomain(g.subdomain))
 
 
 @server_bp.route("/api/status")
-def stream_status():
+def live_status():
     """Online status of all players, in the same order as the player list."""
-    subdomain = g.subdomain
-    database = db()
-    return sse_response(lambda: ["online" if p["online"] else "offline"
-                                 for p in database.get_players_overview_from_subdomain(subdomain)])
+    return live_json(("status", g.subdomain), lambda: ["online" if p["online"] else "offline"
+                                                       for p in db().get_players_overview_from_subdomain(g.subdomain)])
 
 
 def _custom_stat(database, player_id, *names):
@@ -2289,7 +2301,7 @@ def _custom_stat(database, player_id, *names):
 
 
 @server_bp.route("/api/player_info/<path:player_name>")
-def stream_player_info(player_name):
+def live_player_info(player_name):
     database = db()
     player_id = database.get_player_id_from_player_name_and_server_id(player_name, g.server["id"])
     if player_id is None or (database.is_stats_hidden(player_id) and str(logged_in_player_id()) != str(player_id)):
@@ -2310,7 +2322,7 @@ def stream_player_info(player_name):
             since_death,
             format_time(_custom_stat(database, player_id, "minecraft:play_time", "minecraft:play_one_minute") / 20),
         ]
-    return sse_response(player_info)
+    return live_json(("player", str(player_id)), player_info)
 
 
 
@@ -2432,9 +2444,8 @@ def healthz():
 
 
 @main_bp.route("/api/player_count")
-def stream_total_player_count():
-    database = db()
-    return sse_response(database.get_online_player_count_total)
+def live_total_player_count():
+    return live_json(("count",), db().get_online_player_count_total)
 
 
 def admin_health(server):
@@ -2808,6 +2819,7 @@ def create_app(db_manager=None, config_overrides=None):
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
     app.extensions["mcconnect_db"] = db_manager or DatabaseManager()
+    app.extensions["mcconnect_live"] = LiveCache()
     app.extensions["mcconnect_limits"] = {
         "invite_code": RateLimiter(10, 600),       # per client address, against guessing codes
         "application": RateLimiter(5, 3600),       # per client address, the open applications are capped
