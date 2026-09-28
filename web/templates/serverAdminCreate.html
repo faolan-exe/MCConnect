@@ -43,7 +43,7 @@
 </form>
 {% endblock %}
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
   const FIELDS = ["subdomain", "server_name", "mc_server_domain", "server_description_short",
                   "server_description_long", "discord_url"];
   function isWhitelist() {

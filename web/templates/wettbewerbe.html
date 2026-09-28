@@ -102,5 +102,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='poll.js') }}"></script>
-<script>liveParts(10000);  // standings and goals follow the live stats while the page is open</script>
+<script nonce="{{ csp_nonce() }}">liveParts(10000);  // standings and goals follow the live stats while the page is open</script>
 {% endblock %}

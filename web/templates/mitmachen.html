@@ -37,7 +37,7 @@
 {% endif %}
 {% endblock %}
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
   document.querySelectorAll("[data-access]").forEach((form) => form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const message = form.querySelector('[data-role="message"]');

@@ -30,7 +30,7 @@
 {% endblock %}
 
 {% block mod_scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
   (() => {
     const filter = document.querySelector('#log [data-role="filter"]');
     if (!filter) return;

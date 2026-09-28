@@ -136,7 +136,7 @@
 
 {% block scripts %}
 {% if history %}<script id="history-data" type="application/json">{{ history | tojson }}</script>{% endif %}
-<script>
+<script nonce="{{ csp_nonce() }}">
   (() => {
     // ------------------------------------------------------------ player picker
     const KEY = "mcc-compare";

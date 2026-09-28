@@ -514,6 +514,21 @@ def test_security_headers(client):
     assert "frame-ancestors 'self'" in headers["Content-Security-Policy"] and "object-src 'none'" in headers["Content-Security-Policy"]
 
 
+
+def test_scripts_need_the_nonce_of_the_request(client, server):
+    first, second = client.get("/", **on("testdomain")), client.get("/", **on("testdomain"))
+    policy = first.headers["Content-Security-Policy"]
+    nonce = re.search(r"'nonce-([^']+)'", policy).group(1)
+    assert nonce not in second.headers["Content-Security-Policy"]  # new for every request
+    script_src = next(p for p in policy.split("; ") if p.startswith("script-src"))
+    assert "'unsafe-inline'" not in script_src and "'unsafe-eval'" not in script_src
+    html = first.get_data(as_text=True)
+    inline = re.findall(r"<script(?![^>]*\bsrc=)([^>]*)>", html)
+    assert inline and all(f'nonce="{nonce}"' in attrs or "application/json" in attrs for attrs in inline)
+    assert not re.search(r"\son(click|change|submit|input|load)=", html)  # blocked by the policy
+    assert "Content-Security-Policy" not in client.get("/api/player_count", **on("testdomain")).headers
+
+
 def test_admin_login_with_email(client, admin_id):
     response = client.post("/api/login", json={"username": " Tobi@example.com ", "password": "testPassword"}, **on(None))
     assert response.status_code == 200

@@ -48,14 +48,14 @@
 </section>
 {% endblock %}
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
   document.querySelectorAll("[data-sidebar]").forEach((button) => button.addEventListener("click", async () => {
     const result = await postJson("/api/sidebar", { mode: button.dataset.sidebar });
     if (result.ok) document.querySelectorAll("[data-sidebar]").forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
     else showMessage(document.getElementById("sidebar-message"), result.data.error || "Speichern fehlgeschlagen.", "error");
   }));
 </script>
-<script>
+<script nonce="{{ csp_nonce() }}">
   document.getElementById("profile-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.target;

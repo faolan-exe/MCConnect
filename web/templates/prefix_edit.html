@@ -56,7 +56,7 @@
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='poll.js') }}"></script>
-<script>
+<script nonce="{{ csp_nonce() }}">
   const COLORS = {{ prefix_colors | tojson }};
   const form = document.getElementById("prefix-form");
   const message = document.getElementById("prefix-message");

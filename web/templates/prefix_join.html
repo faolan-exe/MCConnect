@@ -46,7 +46,7 @@
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='poll.js') }}"></script>
-<script>
+<script nonce="{{ csp_nonce() }}">
   // delegated: the list is replaced after joining or leaving
   const message = document.getElementById("join-message");
   document.addEventListener("submit", async (event) => {

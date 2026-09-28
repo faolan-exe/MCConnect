@@ -25,7 +25,7 @@
             </ul>
         </nav>
     </footer>
-    <script>
+    <script nonce="{{ csp_nonce() }}">
       async function postJson(url, body) {
         const response = await fetch(url, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}),

@@ -1,3 +1,4 @@
+<script src="{{ url_for('static', filename='actions.js') }}"></script>
 {% include "_theme.html" %}
 <script
   src="https://cdn.jsdelivr.net/gh/Tobias-Auer/messageBoxLib/messageBoxes.js"
@@ -30,7 +31,7 @@
         <span style="display: flex; width: 8%; justify-content: end">
           <button
             class="menue-icon"
-            onclick='document.getElementById("nav-bar").classList.toggle("menueToggle")'
+            data-on-click="toggleNavMenu"
           >
             <div></div>
             <div></div>
@@ -51,7 +52,7 @@
             {% if name == "" %} {{ loginVar | safe }} {% else %}
             <a
               style="color: red; padding-top: 6px; padding-bottom: 6px"
-              onclick="logout()"
+              data-on-click="askLogout"
               >Logout</a
             >
             {% endif %}
@@ -60,7 +61,7 @@
             <div class="dropdown">
               <button
                 class="dropbtn {% if request.path=='/' %} current{% endif %}"
-                onclick="window.location.href=`/`"
+                data-on-click="go" data-args='["/"]'
               >
                 Startseite
               </button>
@@ -127,7 +128,7 @@
             <div class="dropdown">
               <button
                 class="dropbtn {% if request.path.startswith('/users') %} current{% endif %}"
-                onclick="window.location.href='/users'"
+                data-on-click="go" data-args='["/users"]'
               >
                 Verwaltung
               </button>
@@ -135,9 +136,9 @@
           </li>
           {% endif %}
           <li class="theme-item">
-            <button type="button" class="theme-switch" id="theme-switch" onclick="mccCycleTheme()"
+            <button type="button" class="theme-switch" id="theme-switch" data-on-click="mccCycleTheme"
                     title="Farbschema: Auto (wie das System), Dunkel oder Hell">Auto</button>
-            <script>window.mccApplyTheme();</script>
+            <script nonce="{{ csp_nonce() }}">window.mccApplyTheme();</script>
           </li>
         </ul>
 
@@ -168,7 +169,7 @@
             {% endif %}
             <a
               style="color: red; padding-top: 6px; padding-bottom: 6px"
-              onclick="logout()"
+              data-on-click="askLogout"
               >Logout</a
             >
           </div>
@@ -179,7 +180,13 @@
   </div>
 </header>
 
-<script>
+<script nonce="{{ csp_nonce() }}">
+  function toggleNavMenu() {
+    document.getElementById("nav-bar").classList.toggle("menueToggle");
+  }
+  function askLogout() {
+    logout();
+  }
   function logout(confirmed) {
     if (confirmed == null) {
       messagebox_info(
@@ -221,7 +228,7 @@
   .mcc-toast span { color: rgba(255, 255, 255, 0.75); }
   .mcc-toast i { font-style: normal; font-size: 22px; color: var(--toast, #2fbf62); }
 </style>
-<script>
+<script nonce="{{ csp_nonce() }}">
   // New achievement tiers of the logged in player show up as a notice on every page.
   (() => {
     const KEY = "mcc-achievements-seen";

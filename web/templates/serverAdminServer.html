@@ -46,7 +46,7 @@
   <h3 class="images-title">Benachrichtigungen</h3>
     <label style="font-weight: 400; display: flex; gap: 8px; align-items: center">
       <input type="checkbox" style="width: auto" {% if server.alerts_enabled %}checked{% endif %}
-             onchange="setAlerts({{ server.id }}, this)" />
+             data-on-change="setAlerts" data-args="[{{ server.id }}]" />
       E-Mail an mich, wenn der Server länger als 5 Minuten offline ist oder laggt (unter 15 TPS)
     </label>
     <div class="message" id="alerts-message-{{ server.id }}"></div>
@@ -72,7 +72,7 @@ port: {{ plugin_port }}</pre>
         <p class="hint">Die Verbindung ist immer verschlüsselt (TLS). Dafür braucht es MCDataLink ab Version 3.12 –
           ältere Plugins werden abgewiesen, einfach die neue Datei herunterladen.</p>
         <div class="btn-row" style="margin-top: 8px">
-          <button class="btn btn-secondary" type="button" onclick="copyConfig({{ server.id }}, this)">Kopieren</button>
+          <button class="btn btn-secondary" type="button" data-on-click="copyConfig" data-args="[{{ server.id }}]">Kopieren</button>
         </div>
       </li>
       <li>Server neu starten. Sobald das Plugin verbunden ist, erscheint hier „Plugin verbunden“.</li>
@@ -83,16 +83,16 @@ port: {{ plugin_port }}</pre>
 <section class="card" data-panel="page" role="tabpanel">
   <h2>Serverseite</h2>
 
-    <form onsubmit="updateServer(event, {{ server.id }})">
+    <form data-on-submit="updateServer" data-args="[{{ server.id }}]">
       <label>Name des Servers</label>
       <input name="server_name" required maxlength="64" value="{{ server.server_name }}" />
       <fieldset class="choice">
         <legend>Zugang</legend>
         <label><input type="radio" name="whitelist" value="false" {% if not server.whitelist %}checked{% endif %}
-                      onchange="updateAddressField(this.form)" /> Öffentlich
+                      data-on-change="updateAddressField" /> Öffentlich
           <span class="hint">– die Adresse wird auf der Serverseite angezeigt</span></label>
         <label><input type="radio" name="whitelist" value="true" {% if server.whitelist %}checked{% endif %}
-                      onchange="updateAddressField(this.form)" /> Nur Whitelist
+                      data-on-change="updateAddressField" /> Nur Whitelist
           <span class="hint">– die Adresse wird nicht veröffentlicht</span></label>
       </fieldset>
       <div class="address-field" {% if server.whitelist %}hidden{% endif %}>
@@ -126,7 +126,7 @@ port: {{ plugin_port }}</pre>
       <label class="btn btn-secondary upload-button">
         <span id="banner-label-{{ server.id }}">{{ "Titelbild ersetzen" if server.images.banner else "Titelbild hochladen" }}</span>
         <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden
-               onchange="uploadImages({{ server.id }}, 'banner', this)" />
+               data-on-change="uploadImages" data-args='[{{ server.id }}, "banner"]' />
       </label>
     </div>
 
@@ -135,7 +135,7 @@ port: {{ plugin_port }}</pre>
       {% for image in server.images.gallery %}
       <figure>
         <img src="{{ url_for('main.uploaded_image', filename=image.filename) }}" alt="Galeriebild" />
-        <button type="button" class="btn btn-secondary" onclick="deleteImage({{ server.id }}, {{ image.id }}, this)">Entfernen</button>
+        <button type="button" class="btn btn-secondary" data-on-click="deleteImage" data-args="[{{ server.id }}, {{ image.id }}]">Entfernen</button>
       </figure>
       {% endfor %}
     </div>
@@ -144,14 +144,14 @@ port: {{ plugin_port }}</pre>
       <label class="btn btn-secondary upload-button">
         Bilder hinzufügen
         <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden
-               onchange="uploadImages({{ server.id }}, 'gallery', this)" />
+               data-on-change="uploadImages" data-args='[{{ server.id }}, "gallery"]' />
       </label>
     </div>
     <div class="message" id="image-message-{{ server.id }}"></div>
     <h3 class="images-title">Serververzeichnis</h3>
     <label style="font-weight: 400; display: flex; gap: 8px; align-items: center">
       <input type="checkbox" style="width: auto" {% if server.listed %}checked{% endif %}
-             onchange="setListed({{ server.id }}, this)" />
+             data-on-change="setListed" data-args="[{{ server.id }}]" />
       Im öffentlichen Serververzeichnis auf der MCConnect-Startseite zeigen
     </label>
     <div class="message" id="listed-message-{{ server.id }}"></div>
@@ -165,13 +165,13 @@ port: {{ plugin_port }}</pre>
 
     <label style="font-weight: 400; display: flex; gap: 8px; align-items: center">
       <input type="checkbox" style="width: auto" {% if server.auto_mod_ops %}checked{% endif %}
-             onchange="setAutoModOps({{ server.id }}, this)" />
+             data-on-change="setAutoModOps" data-args="[{{ server.id }}]" />
       OPs vom Minecraft-Server automatisch zu Moderatoren machen
     </label>
 
     <h3 class="images-title">Moderatoren</h3>
     <ul class="moderator-list" id="moderators-{{ server.id }}"><li class="hint">Lade …</li></ul>
-    <form class="input-suffix" style="max-width: 420px" onsubmit="addModerator(event, {{ server.id }})">
+    <form class="input-suffix" style="max-width: 420px" data-on-submit="addModerator" data-args="[{{ server.id }}]">
       <input name="name" placeholder="Spielername" list="players-{{ server.id }}" required autocomplete="off" />
       <button class="btn" style="border-radius: 0 8px 8px 0" type="submit">Hinzufügen</button>
     </form>
@@ -190,20 +190,20 @@ port: {{ plugin_port }}</pre>
 
     <p>Ein neuer Key trennt das Plugin, bis du die neue <code>config.yml</code> einträgst.</p>
     <div class="btn-row" style="margin-top: 0">
-      <button class="btn btn-secondary" type="button" onclick="regenerateKey({{ server.id }})">Neuen Key erzeugen</button>
+      <button class="btn btn-secondary" type="button" data-on-click="regenerateKey" data-args="[{{ server.id }}]">Neuen Key erzeugen</button>
     </div>
     <p style="margin-top: 20px">Löschen entfernt den Server mit allen Spielerdaten und Statistiken endgültig.
       Gib zur Bestätigung <code>{{ server.subdomain }}</code> ein.</p>
     <div class="input-suffix">
       <input id="confirm-{{ server.id }}" placeholder="{{ server.subdomain }}" />
       <button class="btn btn-danger" style="border-radius: 0 8px 8px 0" type="button"
-              onclick="deleteServer({{ server.id }})">Löschen</button>
+              data-on-click="deleteServer" data-args="[{{ server.id }}]">Löschen</button>
     </div>
     <div class="message" id="danger-message-{{ server.id }}"></div>
   </section>
 {% endblock %}
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
   // tabs: switched without reload, the open tab is kept in the address (#plugin, ...)
   const tabs = [...document.querySelectorAll("[data-tab]")];
   function showTab(name) {
@@ -253,15 +253,15 @@ port: {{ plugin_port }}</pre>
     setTimeout(() => (button.textContent = "Kopieren"), 2000);
   }
 
-  function updateAddressField(form) {
+  function updateAddressField(radio) {
+    const form = radio.form;
     const whitelist = form.querySelector('input[name="whitelist"]:checked').value === "true";
     form.querySelector(".address-field").hidden = whitelist;
     form.querySelector('input[name="mc_server_domain"]').required = !whitelist;
   }
 
-  async function updateServer(event, id) {
+  async function updateServer(id, form, event) {
     event.preventDefault();
-    const form = event.target;
     const body = Object.fromEntries(new FormData(form).entries());
     body.whitelist = body.whitelist === "true";
     const result = await postJson(`/api/servers/${id}/update`, body);
@@ -287,7 +287,8 @@ port: {{ plugin_port }}</pre>
     button.type = "button";
     button.className = "btn btn-secondary";
     button.textContent = "Entfernen";
-    button.addEventListener("click", () => deleteImage(serverId, imageId, button));
+    button.dataset.onClick = "deleteImage";
+    button.dataset.args = JSON.stringify([serverId, imageId]);
     figure.append(img, button);
     document.getElementById("gallery-" + serverId).append(figure);
     updateGalleryCount(serverId);
@@ -374,7 +375,7 @@ port: {{ plugin_port }}</pre>
     }
   }
 
-  async function addModerator(event, serverId) {
+  async function addModerator(serverId, form, event) {
     event.preventDefault();
     const input = event.target.elements.name;
     const result = await postJson(`/api/servers/${serverId}/moderators`, { name: input.value, moderator: true });

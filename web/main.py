@@ -2856,7 +2856,30 @@ def uploaded_image(filename):
 
 ################################ APP FACTORY #################################
 
-CSP = "frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+def csp_nonce():
+    """The nonce of this request for inline <script nonce="..."> (one per request)."""
+    if "csp_nonce" not in g:
+        g.csp_nonce = secrets.token_urlsafe(18)
+    return g.csp_nonce
+
+
+# External scripts: jQuery and MineRender (3D skin) on the player page. Skins come from mc-heads.net.
+CSP_SCRIPT_HOSTS = "https://cdnjs.cloudflare.com https://ajax.googleapis.com https://cdn.jsdelivr.net"
+
+
+def content_security_policy():
+    static = f"{config.PUBLIC_SCHEME}://{current_app.config['SERVER_NAME']}"  # static files and uploads (main domain)
+    return "; ".join((
+        "default-src 'self'",
+        f"script-src 'self' {static} 'nonce-{csp_nonce()}' {CSP_SCRIPT_HOSTS}",
+        # style attributes are everywhere (and harmless without script); the dialog library loads its CSS itself
+        f"style-src 'self' {static} 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net",
+        f"font-src 'self' {static} https://fonts.gstatic.com data:",
+        f"img-src 'self' {static} https: data: blob:",
+        # MineRender also reports every page view to minerender.org: not allowed
+        "connect-src 'self' https://mc-heads.net https://textures.minecraft.net",
+        "frame-ancestors 'self'", "object-src 'none'", "base-uri 'self'", "form-action 'self'",
+    ))
 
 
 def create_app(db_manager=None, config_overrides=None):
@@ -2911,11 +2934,13 @@ def create_app(db_manager=None, config_overrides=None):
         response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        # Partial CSP that works with the inline scripts: no framing, no plugins, no <base> or form
-        # targets elsewhere. Scripts and styles follow with nonces during the menu rework.
-        response.headers.setdefault("Content-Security-Policy", CSP)
+        # Scripts only from here, the static files of the main domain, the two libraries of the player page and
+        # inline <script nonce>; no inline event handlers (web/static/actions.js replaces them).
+        if response.mimetype == "text/html":
+            response.headers.setdefault("Content-Security-Policy", content_security_policy())
         return response
 
+    app.jinja_env.globals["csp_nonce"] = csp_nonce
     app.register_blueprint(main_bp)
     app.register_blueprint(server_bp)
     logger.info(f"Application started for {app.config['SERVER_NAME']}")

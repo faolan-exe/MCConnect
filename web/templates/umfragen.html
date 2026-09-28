@@ -52,7 +52,7 @@
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='poll.js') }}"></script>
-<script>
+<script nonce="{{ csp_nonce() }}">
   document.addEventListener("click", async (event) => {  // delegated: the polls are replaced after a vote
     const button = event.target.closest("[data-poll] [data-option]");
     if (!button) return;

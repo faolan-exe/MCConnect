@@ -16,7 +16,7 @@
 <form class="tm-pick" method="get" action="/teams">
   <input type="hidden" name="zeitraum" value="{{ period }}"/>
   <label for="team-metric"><b>Kennzahl</b></label>
-  <select class="mcc-select" id="team-metric" name="kennzahl" onchange="this.form.submit()">
+  <select class="mcc-select" id="team-metric" name="kennzahl" data-on-change="submitForm">
     {% for key, label in groups %}
     <optgroup label="{{ label }}">
       {% for m in metrics if m.group == key %}<option value="{{ m.key }}"{% if m.key == metric.key %} selected{% endif %}>{{ m.label }}</option>{% endfor %}

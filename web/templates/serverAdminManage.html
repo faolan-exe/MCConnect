@@ -41,7 +41,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
   // live plugin status of the tiles while the page is visible
   async function pollStatus() {
     if (document.hidden) return;

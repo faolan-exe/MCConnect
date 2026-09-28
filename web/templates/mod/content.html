@@ -252,7 +252,7 @@
 {% endblock %}
 
 {% block mod_scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
   (() => {
     const form = document.querySelector('[data-role="goal-form"]');
     if (!form) return;

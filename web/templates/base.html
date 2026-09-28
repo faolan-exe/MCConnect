@@ -8,6 +8,7 @@
     <link href="{{ url_for('static', filename='css/admin.css') }}" rel="stylesheet" />
     <link href="{{ url_for('static', filename='css/components.css') }}" rel="stylesheet" />
     <link href="{{ url_for('static', filename='images/favicon.ico') }}" rel="icon" type="image/vnd.microsoft.icon" />
+    <script src="{{ url_for('static', filename='actions.js') }}"></script>
   </head>
   <body>
     <header class="site-header">
@@ -21,7 +22,7 @@
           {% if admin_username %}
           <a href="/manage">Meine Server</a>
           <a href="/create">Server hinzufügen</a>
-          <button type="button" onclick="adminLogout()">Logout ({{ admin_username }})</button>
+          <button type="button" data-on-click="adminLogout">Logout ({{ admin_username }})</button>
           {% else %}
           <a href="/login">Login / Registrieren</a>
           {% endif %}
@@ -39,7 +40,7 @@
       </div>
     </footer>
 
-    <script>
+    <script nonce="{{ csp_nonce() }}">
       async function postJson(url, body) {
         const response = await fetch(url, {
           method: "POST",

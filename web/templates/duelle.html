@@ -97,7 +97,7 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='poll.js') }}"></script>
-<script>
+<script nonce="{{ csp_nonce() }}">
   liveParts(10000);  // running duels count up while the page is open
   const form = document.getElementById("duel-form");
   if (form) {

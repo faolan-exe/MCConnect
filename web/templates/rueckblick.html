@@ -46,7 +46,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
   (() => {
     const slides = [...document.querySelectorAll("[data-slide]")];
     const dots = [...document.querySelectorAll(".yr-dots span")];

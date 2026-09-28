@@ -70,7 +70,7 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='poll.js') }}"></script>
 {% if config.FEATURE_RANKINGS %}<script src="{{ url_for('static', filename='compare.js') }}"></script>{% endif %}
-<script>
+<script nonce="{{ csp_nonce() }}">
   (() => {
     const DAY = 86400000;
     const list = document.getElementById("player-list");

@@ -83,7 +83,7 @@
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='poll.js') }}"></script>
-<script>
+<script nonce="{{ csp_nonce() }}">
   const form = document.getElementById("build-form");
   if (form) form.addEventListener("submit", async (event) => {
     event.preventDefault();

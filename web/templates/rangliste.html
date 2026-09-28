@@ -49,7 +49,7 @@
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='compare.js') }}"></script>
-<script>
+<script nonce="{{ csp_nonce() }}">
   document.querySelectorAll(".st-toggle").forEach((button) => {
     button.addEventListener("click", () => {
       const rows = button.previousElementSibling.querySelectorAll(".st-more");

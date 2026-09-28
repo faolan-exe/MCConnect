@@ -47,7 +47,7 @@
 {% endif %}
 {% endblock %}
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
   document.querySelectorAll("[data-signup]").forEach((button) => button.addEventListener("click", async () => {
     const result = await postJson("/api/events/signup", { id: Number(button.dataset.signup) });
     if (!result.ok) return alert(result.data.error || "Das hat nicht geklappt.");

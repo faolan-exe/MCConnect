@@ -100,7 +100,7 @@ Progress is ticked off here, so a new session knows where to continue.
       appearance (texts, images, directory), moderators & bans, notifications, danger zone
 - [x] B3 Header of the server pages regrouped (fewer dropdown entries): players, rankings & statistics,
       community, my area
-- [ ] B4 Full CSP (nonces, no inline handlers)
+- [x] B4 Full CSP (nonces, no inline handlers)
 
 **C. Join/leave messages & rewards**
 - Only join/leave messages; prefixes keep deciding chat, tab list and name tag.
@@ -128,9 +128,11 @@ Progress is ticked off here, so a new session knows where to continue.
   `FLASK_PROXY_FIX` must be on and port 8000 must not be reachable directly, otherwise the client address can
   be forged with `X-Forwarded-For` (the production setup is fine: private network, proxy in another container).
 - Stats from the plugin are only stored for valid resource locations (`stats.OBJECT_NAME_RE`) and bigint values.
-- Every response has `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, a referrer policy and a
-  partial CSP (`CSP` in `web/main.py`: framing, plugins, `<base>`, form targets); scripts are not restricted yet
-  (inline scripts, see B4).
+- Every response has `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff` and a referrer policy; HTML
+  pages a full CSP (`content_security_policy()` in `web/main.py`): scripts only from the own origins, cdnjs,
+  googleapis and jsdelivr, inline `<script nonce="{{ csp_nonce() }}">` only. **New inline scripts need the nonce;
+  inline handlers (`onclick=`) do not work** – use `data-on-click="function"` (`web/static/actions.js`) or
+  `addEventListener`. MineRender's page view counter (minerender.org) is blocked on purpose.
 - Live values are polled (`web/static/poll.js`, `LiveCache` in `web/main.py`, 2 s per server/player); no
   request keeps a worker thread busy any more.
 

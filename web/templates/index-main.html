@@ -61,7 +61,7 @@
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='poll.js') }}"></script>
-<script>
+<script nonce="{{ csp_nonce() }}">
   const search = document.getElementById("dir-search");
   if (search) search.addEventListener("input", () => {
     const query = search.value.trim().toLowerCase();

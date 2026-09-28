@@ -20,7 +20,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
   const form = document.getElementById("report-form");
   form.addEventListener("submit", async (event) => {
     event.preventDefault();

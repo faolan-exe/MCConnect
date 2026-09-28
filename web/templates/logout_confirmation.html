@@ -7,7 +7,7 @@
 <body>
 <button id="sendButton" style="color:red;">LOGOUT!</button>
 
-<script>
+<script nonce="{{ csp_nonce() }}">
     document.getElementById('sendButton').addEventListener('click', function() {
 
         const formData = new FormData();

@@ -118,7 +118,7 @@
 {% endblock %}
 
 {% block mod_scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
   (() => {
     const root = document.getElementById("activity");
     const rows = [...root.querySelectorAll("tbody tr")];

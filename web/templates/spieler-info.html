@@ -1,6 +1,6 @@
 {% from "_components.html" import prefix_chip %}
 <!DOCTYPE html>
-<html id="top" lang="en" onload="reset();">
+<html id="top" lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta content="IE=edge" http-equiv="X-UA-Compatible" />
@@ -299,7 +299,7 @@
             </div>
             <div class="downloadButton">
               <button
-                onclick='forceDownload("https://mc-heads.net/skin/{{uuid}}", "Skin-{{user_name}}.png");'
+                data-on-click="forceDownload" data-args='{{ ["https://mc-heads.net/skin/" ~ uuid, "Skin-" ~ user_name ~ ".png"] | tojson | forceescape }}'
                 style="width: 40px; height: 40px"
               >
                 <svg
@@ -487,7 +487,7 @@
             </form>
             <div class="mcc-message" data-role="message"></div>
           </div>
-          <script>
+          <script nonce="{{ csp_nonce() }}">
             (() => {
               const root = document.getElementById("discipline");
               const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
@@ -575,7 +575,7 @@
           {% endif %}
           </div>
         </section>
-        <script>
+        <script nonce="{{ csp_nonce() }}">
           (() => {
             const root = document.getElementById("guestbook");
             const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
@@ -613,37 +613,37 @@
             <figure class="tabBlock">
               <ul class="tabBlock-tabs">
                 <li
-                  onclick='doTabAction("blocks", "blocks_name", "sort-state-0", 1, true)'
+                  data-tab="blocks"
                   class="tabBlock-tab is-active"
                 >
                   Blöcke
                 </li>
                 <li
-                  onclick="doTabAction('items', 'items_name', 'sort-state-0', 1, true)"
+                  data-tab="items"
                   class="tabBlock-tab"
                 >
                   Items
                 </li>
                 <li
-                  onclick="doTabAction('tools', 'tools_name', 'sort-state-0', 1, true)"
+                  data-tab="tools"
                   class="tabBlock-tab"
                 >
                   Tools
                 </li>
                 <li
-                  onclick="doTabAction('armor', 'armor_name', 'sort-state-0', 1, true)"
+                  data-tab="armor"
                   class="tabBlock-tab"
                 >
                   Armor
                 </li>
                 <li
-                  onclick="doTabAction('mobs', 'mobs_name', 'sort-state-0', 1, true)"
+                  data-tab="mobs"
                   class="tabBlock-tab"
                 >
                   Mobs
                 </li>
                 <li
-                  onclick="doTabAction('other', 'other_name', 'sort-state-0', 1, true)"
+                  data-tab="other"
                   class="tabBlock-tab"
                 >
                   Mehr
@@ -678,7 +678,7 @@
       </nav>
     </footer>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
-    <script>
+    <script nonce="{{ csp_nonce() }}">
       (() => {
         const fav = document.querySelector("[data-favorite]");
         if (fav) fav.addEventListener("click", async () => {
@@ -735,7 +735,7 @@
     <script src="{{ url_for('static', filename='bar-chart.js') }}"></script>
     {% endif %}
 
-    <script>
+    <script nonce="{{ csp_nonce() }}">
       //Loading player model
       var skinRender = new SkinRender(
         {
@@ -751,7 +751,7 @@
     </script>
 
     <script src="{{ url_for('static', filename='poll.js') }}"></script>
-    <script>
+    <script nonce="{{ csp_nonce() }}">
       // Loading player stats cards
       pollJson("/api/player_info/" + encodeURIComponent({{ user_name | tojson }}), 5000, (parsedArray) => {
         i = 0;
@@ -875,6 +875,16 @@
         });
       }
 
+      // tabs and the sort buttons of the table (delegated: the table head is built again on every sort)
+      document.addEventListener("click", (event) => {
+        const tab = event.target.closest("[data-tab]");
+        const sort = event.target.closest("[data-sort]");
+        if (tab) doTabAction(tab.dataset.tab, tab.dataset.tab + "_name", "sort-state-0", 1, true);
+        if (sort) {
+          const [state, column, byName] = sort.dataset.sort.split("|");
+          doTabAction(sort.id.split("_")[0], sort.id, state, Number(column), byName === "true");
+        }
+      });
       function doTabAction(
         action,
         current_sort,
@@ -892,49 +902,49 @@
         `;
         if (action == "other") {
           htmlString += `
-          <th style='width: 50%'>Name<button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 1, true)" id="other_name" class="sortButton">&#9650;</button></th>
-          <th >Wert<button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 1, false)" id="other_value" class="sortButton">&#9650;</button></th>
+          <th style='width: 50%'>Name<button data-sort="${html_insert_sort_state}|1|true" id="other_name" class="sortButton">&#9650;</button></th>
+          <th >Wert<button data-sort="${html_insert_sort_state}|1|false" id="other_value" class="sortButton">&#9650;</button></th>
       `;
         } else if (action == "blocks") {
           htmlString += `
-          <th>Name <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 1, true)" id="blocks_name" class="sortButton">&#9650;</button></th>
-          <th>Mined <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 1, false)" id="blocks_mined" class="sortButton">&#9650;</button></th>
-          <th>Placed <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 2, false)" id="blocks_placed" class="sortButton">&#9650;</button></th>
-          <th>Dropped <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 3, false)" id="blocks_dropped" class="sortButton">&#9650;</button></th>
-          <th>Picked up <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 4, false)" id="blocks_pickedUp" class="sortButton">&#9650;</button></th>
-          <th>Crafted <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 5, false)" id="blocks_crafted" class="sortButton">&#9650;</button></th>
+          <th>Name <button data-sort="${html_insert_sort_state}|1|true" id="blocks_name" class="sortButton">&#9650;</button></th>
+          <th>Mined <button data-sort="${html_insert_sort_state}|1|false" id="blocks_mined" class="sortButton">&#9650;</button></th>
+          <th>Placed <button data-sort="${html_insert_sort_state}|2|false" id="blocks_placed" class="sortButton">&#9650;</button></th>
+          <th>Dropped <button data-sort="${html_insert_sort_state}|3|false" id="blocks_dropped" class="sortButton">&#9650;</button></th>
+          <th>Picked up <button data-sort="${html_insert_sort_state}|4|false" id="blocks_pickedUp" class="sortButton">&#9650;</button></th>
+          <th>Crafted <button data-sort="${html_insert_sort_state}|5|false" id="blocks_crafted" class="sortButton">&#9650;</button></th>
       `;
         } else if (action == "items") {
           htmlString += `
-          <th>Name <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 1, true)" id="items_name" class="sortButton">&#9650;</button></th>
-          <th>Used<button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 1, false)" id="items_mined" class="sortButton">&#9650;</button></th>
-          <th>Dropped<button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 2, false)" id="items_dropped" class="sortButton">&#9650;</button></th>
-          <th>Picked up <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 3, false)" id="items_pickedUp" class="sortButton">&#9650;</button></th>
-          <th>Crafted <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 4, false)" id="items_crafted" class="sortButton">&#9650;</button></th>
+          <th>Name <button data-sort="${html_insert_sort_state}|1|true" id="items_name" class="sortButton">&#9650;</button></th>
+          <th>Used<button data-sort="${html_insert_sort_state}|1|false" id="items_mined" class="sortButton">&#9650;</button></th>
+          <th>Dropped<button data-sort="${html_insert_sort_state}|2|false" id="items_dropped" class="sortButton">&#9650;</button></th>
+          <th>Picked up <button data-sort="${html_insert_sort_state}|3|false" id="items_pickedUp" class="sortButton">&#9650;</button></th>
+          <th>Crafted <button data-sort="${html_insert_sort_state}|4|false" id="items_crafted" class="sortButton">&#9650;</button></th>
       `;
         } else if (action == "armor") {
           htmlString += `
-          <th>Name <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 1, true)" id="armor_name" class="sortButton">&#9650;</button></th>
-          <th>Used <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 1, false)" id="armor_used" class="sortButton">&#9650;</button></th>
-          <th>Broken <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 2, false)" id="armor_broken" class="sortButton">&#9650;</button></th>
-          <th>Dropped <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 3, false)" id="armor_dropped" class="sortButton">&#9650;</button></th>
-          <th>Picked up <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 4, false)" id="armor_pickedUp" class="sortButton">&#9650;</button></th>                    
-          <th>Crafted <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 5, false)" id="armor_crafted" class="sortButton">&#9650;</button></th>
+          <th>Name <button data-sort="${html_insert_sort_state}|1|true" id="armor_name" class="sortButton">&#9650;</button></th>
+          <th>Used <button data-sort="${html_insert_sort_state}|1|false" id="armor_used" class="sortButton">&#9650;</button></th>
+          <th>Broken <button data-sort="${html_insert_sort_state}|2|false" id="armor_broken" class="sortButton">&#9650;</button></th>
+          <th>Dropped <button data-sort="${html_insert_sort_state}|3|false" id="armor_dropped" class="sortButton">&#9650;</button></th>
+          <th>Picked up <button data-sort="${html_insert_sort_state}|4|false" id="armor_pickedUp" class="sortButton">&#9650;</button></th>                    
+          <th>Crafted <button data-sort="${html_insert_sort_state}|5|false" id="armor_crafted" class="sortButton">&#9650;</button></th>
       `;
         } else if (action == "tools") {
           htmlString += `
-          <th>Name <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 1, true)" id="tools_name" class="sortButton">&#9650;</button></th>
-          <th>Used <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 1, false)" id="tools_used" class="sortButton">&#9650;</button></th>
-          <th>Broken <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 2, false)" id="tools_broken" class="sortButton">&#9650;</button></th>
-          <th>Dropped <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 3, false)" id="tools_dropped" class="sortButton">&#9650;</button></th>
-          <th>Picked up <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 4, false)" id="tools_pickedUp" class="sortButton">&#9650;</button></th>
-          <th>Crafted <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 5, false)" id="tools_crafted" class="sortButton">&#9650;</button></th>
+          <th>Name <button data-sort="${html_insert_sort_state}|1|true" id="tools_name" class="sortButton">&#9650;</button></th>
+          <th>Used <button data-sort="${html_insert_sort_state}|1|false" id="tools_used" class="sortButton">&#9650;</button></th>
+          <th>Broken <button data-sort="${html_insert_sort_state}|2|false" id="tools_broken" class="sortButton">&#9650;</button></th>
+          <th>Dropped <button data-sort="${html_insert_sort_state}|3|false" id="tools_dropped" class="sortButton">&#9650;</button></th>
+          <th>Picked up <button data-sort="${html_insert_sort_state}|4|false" id="tools_pickedUp" class="sortButton">&#9650;</button></th>
+          <th>Crafted <button data-sort="${html_insert_sort_state}|5|false" id="tools_crafted" class="sortButton">&#9650;</button></th>
       `;
         } else if (action == "mobs") {
           htmlString += `
-          <th>Name <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 1, true)" id="mobs_name" class="sortButton">&#9650;</button></th>
-          <th>Killed <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 1, false)" id="mobs_killed" class="sortButton">&#9650;</button></th>
-          <th>Killed By <button onclick="doTabAction(this.id.split('_')[0], this.id, '${html_insert_sort_state}', 2, false)" id="mobs_killedBy" class="sortButton">&#9650;</button></th>`;
+          <th>Name <button data-sort="${html_insert_sort_state}|1|true" id="mobs_name" class="sortButton">&#9650;</button></th>
+          <th>Killed <button data-sort="${html_insert_sort_state}|1|false" id="mobs_killed" class="sortButton">&#9650;</button></th>
+          <th>Killed By <button data-sort="${html_insert_sort_state}|2|false" id="mobs_killedBy" class="sortButton">&#9650;</button></th>`;
         }
         htmlString += `</tr>
       </thead>
@@ -1033,7 +1043,7 @@
         return titleCaseString;
       }
     </script>
-    <script>
+    <script nonce="{{ csp_nonce() }}">
       window.onload = function () {
         console.debug("BANNED: {{banned}}");
         if ("{{banned}}" == "True") {
@@ -1044,7 +1054,7 @@
       };
     </script>
 
-    <script>
+    <script nonce="{{ csp_nonce() }}">
       const div = document.querySelector(".tabBlock");
       var TabBlock = {
         init: function () {

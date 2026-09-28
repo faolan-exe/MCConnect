@@ -81,7 +81,7 @@
 
 {% block mod_scripts %}
 <script src="{{ url_for('static', filename='line-chart.js') }}"></script>
-<script>
+<script nonce="{{ csp_nonce() }}">
   // links to the old one-page moderation (chat messages, e-mails, bookmarks) go to the new pages
   (() => {
     const moved = { reports: "spieler", warnings: "spieler", xray: "spieler", activity: "spieler",

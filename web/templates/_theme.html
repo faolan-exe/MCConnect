@@ -1,5 +1,5 @@
 {# Dark mode: theme script (sets <html data-dark>) and dark.css; included by header.html and the pages without it. #}
-<script>
+<script nonce="{{ csp_nonce() }}">
   // theme: "light", "dark" or unset (follow the system); sets <html data-dark> for dark.css
   (() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
