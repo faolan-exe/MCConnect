@@ -155,35 +155,19 @@ docker compose exec web python -m database.manage create-admin tobi tobi@tobisit
 Test des Logins: Auf der Serverseite *Login* klicken und den Spielernamen eingeben, während du
 online bist. Die PIN erscheint im Minecraft-Chat.
 
-### Zertifikat für die Plugin-Verbindung (Pflicht)
+### Verschlüsselte Plugin-Verbindung
 
-Die Verbindung Plugin → MCConnect ist immer verschlüsselt (TLS, Port 9991, ab Plugin 3.12); unverschlüsselte
-Verbindungen weist der Socket-Server mit `error|006` ab. Dafür braucht er ein Zertifikat für `mc.tobisit.de`:
+Die Verbindung Plugin → MCConnect ist immer verschlüsselt (TLS, Port 9991, ab Plugin 3.12). **Dafür ist nichts zu
+tun:** Der Socket-Container erzeugt beim ersten Start ein eigenes Zertifikat (Volume `socket_tls`, 20 Jahre gültig).
+Die Verwaltungsseite zeigt es im `config.yml`-Block als Zeile `tls-fingerprint: "…"` an – die kommt einfach mit
+„Kopieren“ in die Plugin-Config. Das Plugin vertraut dann genau diesem Zertifikat.
 
-1. Zertifikat nach `/opt/mcconnect/deploy/tls/` legen: `fullchain.pem` und `privkey.pem`. Am einfachsten das
-   Wildcard-Zertifikat des NPM verwenden. Es liegt im NPM unter `/etc/letsencrypt/live/npm-<nr>/`
-   (Nummer: im NPM unter *SSL Certificates* per Maus über dem Zertifikat). Per Cronjob auf dem NPM-Host
-   täglich kopieren, z.&nbsp;B.:
-   ```bash
-   scp -L /pfad/zum/npm/letsencrypt/live/npm-3/{fullchain,privkey}.pem root@192.168.1.50:/opt/mcconnect/deploy/tls/
-   ```
-   Der Socket-Server lädt ein erneuertes Zertifikat bei der nächsten Verbindung selbst neu.
-   **Lesbar machen:** Der Socket-Container läuft als Benutzer mit UID 1000, der private Schlüssel von Let's
-   Encrypt gehört aber root (Rechte 600). Nach jedem Kopieren im LXC:
-   ```bash
-   chown 1000:1000 /opt/mcconnect/deploy/tls/*.pem && chmod 600 /opt/mcconnect/deploy/tls/privkey.pem
-   ```
-2. In `.env`:
-   ```
-   MCC_SOCKET_TLS_CERT=/tls/fullchain.pem
-   MCC_SOCKET_TLS_KEY=/tls/privkey.pem
-   ```
-   und `docker compose up -d` ausführen. Im Log des Socket-Containers steht dann
-   `Socket server listening with TLS on 0.0.0.0:9991`.
+Wichtig: Das Volume `socket_tls` nicht löschen. Ein neues Zertifikat hat einen neuen Fingerabdruck, dann müssen alle
+Minecraft-Server die Zeile in ihrer `config.yml` erneuern.
 
-Ohne Zertifikat startet der Socket-Server nur, wenn `openssl` ein selbstsigniertes Entwicklungszertifikat
-anlegen kann (lokal, `mc_socket/devcert.py`); Plugins brauchen dann dessen Fingerprint als `tls-fingerprint`
-in der `config.yml`. Für den echten Betrieb immer ein richtiges Zertifikat verwenden.
+Optional ein eigenes Zertifikat (z.&nbsp;B. Let's Encrypt für `mc.tobisit.de`): die Dateien in den Container mounten,
+`MCC_SOCKET_TLS_CERT`/`MCC_SOCKET_TLS_KEY` in `.env` setzen (für den Benutzer mit UID 1000 lesbar) und in den
+Plugin-Configs die Zeile `tls-fingerprint` weglassen; das Plugin prüft das Zertifikat dann wie ein Browser.
 
 ## 8. Updates
 

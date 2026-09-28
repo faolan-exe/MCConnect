@@ -68,9 +68,11 @@
       <li>Server einmal starten, danach <code>plugins/MCDataLink/config.yml</code> so befüllen:
         <pre id="config-{{ server.id }}">key: {{ server.server_key }}
 host: {{ plugin_host }}
-port: {{ plugin_port }}</pre>
+port: {{ plugin_port }}{% if plugin_fingerprint %}
+tls-fingerprint: "{{ plugin_fingerprint }}"{% endif %}</pre>
         <p class="hint">Die Verbindung ist immer verschlüsselt (TLS). Dafür braucht es MCDataLink ab Version 3.12 –
-          ältere Plugins werden abgewiesen, einfach die neue Datei herunterladen.</p>
+          ältere Plugins werden abgewiesen, einfach die neue Datei herunterladen.{% if plugin_fingerprint %} Die Zeile
+          <code>tls-fingerprint</code> sagt dem Plugin, welchem Zertifikat es vertrauen soll.{% endif %}</p>
         <div class="btn-row" style="margin-top: 8px">
           <button class="btn btn-secondary" type="button" data-on-click="copyConfig" data-args="[{{ server.id }}]">Kopieren</button>
         </div>

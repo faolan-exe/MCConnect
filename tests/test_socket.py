@@ -11,9 +11,10 @@ from tests.conftest import OTHER_UUID, PLAYER_UUID, wait_for
 
 
 def tls_connect(port, certificate):
-    """TLS connection that trusts exactly the test certificate (like the plugin's tls-fingerprint)."""
+    """TLS connection that trusts exactly the test certificate (like the plugin's tls-fingerprint, no host name)."""
     context = ssl.create_default_context(cafile=certificate[0])
-    return context.wrap_socket(socket.create_connection(("127.0.0.1", port), timeout=5), server_hostname="localhost")
+    context.check_hostname = False
+    return context.wrap_socket(socket.create_connection(("127.0.0.1", port), timeout=5))
 
 
 class FakePlugin:

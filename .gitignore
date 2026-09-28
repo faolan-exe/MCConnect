@@ -27,7 +27,7 @@ docs/
 
 # TLS certificate and private key of the socket server
 deploy/tls/
-# self-signed development certificate (mc_socket/devcert.py)
+# own certificate of the local socket server (mc_socket/tlscert.py)
 certs/
 # npm packages of the e2e bot (installed by the node container)
 tools/e2e/node_modules/

@@ -104,5 +104,5 @@ def free_port():
 @pytest.fixture(scope="session")
 def certificate(tmp_path_factory):
     """Self-signed TLS certificate of the socket server in the tests: (cert path, key path)."""
-    from mc_socket import devcert
-    return devcert.ensure_dev_certificate(str(tmp_path_factory.mktemp("certs")))
+    from mc_socket import tlscert
+    return tlscert.ensure_certificate(str(tmp_path_factory.mktemp("certs")))

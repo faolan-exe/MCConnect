@@ -76,7 +76,10 @@ services:
       MCC_LEGAL_ADDRESS: ${MCC_LEGAL_ADDRESS:-}
       MCC_LEGAL_EMAIL: ${MCC_LEGAL_EMAIL:-}
       MCC_LEGAL_PHONE: ${MCC_LEGAL_PHONE:-}
-      # certificate of the plugin connection (TLS only, port 9991; see README, "Zertifikat für die Plugin-Verbindung")
+      # plugin connection (TLS, port 9991): the socket server creates its own certificate in /tls on the
+      # first start, the admin page shows the fingerprint for the plugins; nothing to do. Only for an own
+      # certificate (see README) set these two:
+      MCC_SOCKET_TLS_DIR: /tls
       MCC_SOCKET_TLS_CERT: ${MCC_SOCKET_TLS_CERT:-}
       MCC_SOCKET_TLS_KEY: ${MCC_SOCKET_TLS_KEY:-}
       TZ: Europe/Berlin
@@ -88,6 +91,7 @@ services:
       - "${WEB_BIND:-0.0.0.0}:8000:8000"
     volumes:
       - uploads:/app/uploads  # server images
+      - socket_tls:/tls:ro    # the socket server's certificate (fingerprint for the admin page)
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/healthz', headers={'Host': '${MCC_DOMAIN}'}))"]
       interval: 30s
@@ -115,7 +119,7 @@ services:
     ports:
       - "9991:9991"  # plugin connection, TLS
     volumes:
-      - ./tls:/tls:ro  # fullchain.pem and privkey.pem of the plugin connection
+      - socket_tls:/tls  # own certificate of the plugin connection, created on the first start
     networks: [internal]
 
   backup:
@@ -144,6 +148,7 @@ services:
 volumes:
   db_data:
   uploads:
+  socket_tls:
   letsencrypt:
 
 networks:

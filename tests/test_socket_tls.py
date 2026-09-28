@@ -3,7 +3,7 @@ import os
 import socket
 import time
 
-from mc_socket import devcert
+from mc_socket import tlscert
 from mc_socket.main import encode_msg, recv_msg
 from tests.test_socket import plugin, socket_server, tls_connect  # noqa: F401 (fixtures)
 
@@ -47,6 +47,18 @@ def test_renewed_certificate_is_reloaded(socket_server, certificate):
 
 
 def test_dev_certificate_fingerprint(tmp_path):
-    cert, key = devcert.ensure_dev_certificate(str(tmp_path))
-    assert devcert.ensure_dev_certificate(str(tmp_path)) == (cert, key)  # created once
-    assert len(devcert.fingerprint(cert).split(":")) == 32
+    cert, key = tlscert.ensure_certificate(str(tmp_path))
+    assert tlscert.ensure_certificate(str(tmp_path)) == (cert, key)  # created once, then kept
+    assert len(tlscert.fingerprint(cert).split(":")) == 32 and tlscert.own_fingerprint(str(tmp_path)) == tlscert.fingerprint(cert)
+    assert oct(__import__("os").stat(key).st_mode & 0o777) == "0o600"
+    assert tlscert.own_fingerprint(str(tmp_path / "missing")) is None
+
+
+def test_socket_server_creates_its_certificate(db, tmp_path):
+    from mc_socket.main import SocketServer
+    srv = SocketServer(db, host="127.0.0.1", port=0, poll_interval=0.05, tls_cert=None, tls_key=None, tls_dir=str(tmp_path))
+    srv.start()
+    try:
+        assert srv.tls_cert == str(tmp_path / "cert.pem") and tlscert.own_fingerprint(str(tmp_path))
+    finally:
+        srv.stop()

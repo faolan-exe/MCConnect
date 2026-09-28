@@ -5,3 +5,4 @@ flask
 colorlogx
 gunicorn
 pillow
+cryptography

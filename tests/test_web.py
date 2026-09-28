@@ -892,3 +892,15 @@ def test_gold_prefix_only_for_moderators(player_client, db, server, online_playe
     assert 'value="gold"' in player_client.get("/add_pref", **on("testdomain")).data.decode()
     assert player_client.post("/api/prefix/save", json=body, **on("testdomain")).status_code == 200
     assert db.get_player_prefix(online_player)["color"] == "gold"
+
+
+def test_plugin_config_contains_the_certificate_fingerprint(admin_client, server, tmp_path, monkeypatch):
+    from database import config
+    from mc_socket import tlscert
+    monkeypatch.setattr(config, "SOCKET_TLS_CERT", None)
+    monkeypatch.setattr(config, "SOCKET_TLS_DIR", str(tmp_path))
+    page = admin_client.get(f"/manage/{server['id']}", **on(None)).data.decode()
+    assert "tls-fingerprint" not in page  # the socket server has not created it yet
+    cert, _ = tlscert.ensure_certificate(str(tmp_path))
+    page = admin_client.get(f"/manage/{server['id']}", **on(None)).data.decode()
+    assert f'tls-fingerprint: &#34;{tlscert.fingerprint(cert)}&#34;' in page or f'tls-fingerprint: "{tlscert.fingerprint(cert)}"' in page

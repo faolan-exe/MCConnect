@@ -29,8 +29,10 @@ PUBLIC_SCHEME = _env("MCC_PUBLIC_SCHEME", "http")
 
 SOCKET_HOST = _env("MCC_SOCKET_HOST", "0.0.0.0")
 SOCKET_PORT = int(_env("MCC_SOCKET_PORT", "9991"))
-# The plugin connection is TLS only. Certificate (PEM, e.g. Let's Encrypt fullchain.pem and privkey.pem);
-# without one the socket server creates a self-signed development certificate (mc_socket/devcert.py).
+# The plugin connection is TLS only. Normally the socket server creates its own certificate in SOCKET_TLS_DIR on
+# the first start and the plugins pin its fingerprint (mc_socket/tlscert.py; the web server reads the fingerprint
+# from the same directory for the admin page). Optional: an own certificate (PEM, e.g. Let's Encrypt).
+SOCKET_TLS_DIR = _env("MCC_SOCKET_TLS_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "certs"))
 SOCKET_TLS_CERT = _env("MCC_SOCKET_TLS_CERT")
 SOCKET_TLS_KEY = _env("MCC_SOCKET_TLS_KEY")
 

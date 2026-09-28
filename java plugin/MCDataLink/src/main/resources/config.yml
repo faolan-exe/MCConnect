@@ -5,8 +5,9 @@ key: <enter key here>
 # Address of the MCConnect socket server. Only change this if you host MCConnect yourself.
 host: mc.tobisit.de
 port: 9991
-# The connection is always encrypted (TLS). Only for a self-hosted MCConnect with a self-signed certificate:
-# its SHA-256 fingerprint (the socket server logs it), e.g. "AB:CD:...". Leave empty for mc.tobisit.de.
+# The connection is always encrypted (TLS). The plugin trusts exactly the certificate with this SHA-256
+# fingerprint; copy the config from the MCConnect admin page, it contains the line. Empty: the certificate
+# is checked like HTTPS (only for an MCConnect with a certificate from a certificate authority).
 tls-fingerprint: ""
 
 # Where prefixes from the website are shown. Switch a place off if another plugin

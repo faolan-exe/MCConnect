@@ -1,8 +1,8 @@
 """Socket server the MCDataLink minecraft plugin connects to.
 
 TLS only, on SOCKET_PORT (plugin 3.12; plain connections are answered with error|006 and closed).
-The certificate comes from MCC_SOCKET_TLS_CERT/KEY; without one a self-signed development certificate
-is created (mc_socket/devcert.py) and its fingerprint is logged for the plugin's "tls-fingerprint".
+The certificate is the server's own one (created on the first start in MCC_SOCKET_TLS_DIR, the plugins pin
+its fingerprint, see mc_socket/tlscert.py) or an own one from MCC_SOCKET_TLS_CERT/KEY.
 
 Protocol: every message is a 10 byte, space padded, ascii length header followed
 by the utf-8 payload.
@@ -87,7 +87,7 @@ if PROJECT_ROOT not in sys.path:
 
 from colorlogx import get_logger
 from database import achievements, config, metrics, motivation, rewards
-from mc_socket import commands, devcert
+from mc_socket import commands, tlscert
 from database.databaseManagerV2 import DatabaseManager
 
 logger = get_logger("socket")
@@ -198,9 +198,10 @@ class ClientConnection:
 class SocketServer:
     def __init__(self, db_manager, host=config.SOCKET_HOST, port=config.SOCKET_PORT,
                  heartbeat_interval=HEARTBEAT_SEND_INTERVAL, heartbeat_timeout=HEARTBEAT_TIMEOUT,
-                 poll_interval=1.0, mailer=None, tls_cert=config.SOCKET_TLS_CERT, tls_key=config.SOCKET_TLS_KEY):
+                 poll_interval=1.0, mailer=None, tls_cert=config.SOCKET_TLS_CERT, tls_key=config.SOCKET_TLS_KEY,
+                 tls_dir=config.SOCKET_TLS_DIR):
         self.db = db_manager
-        self.tls_cert, self.tls_key = tls_cert, tls_key
+        self.tls_cert, self.tls_key, self.tls_dir = tls_cert, tls_key, tls_dir
         self._tls_context = None
         self._tls_loaded = None  # modification times of the loaded certificate files
         self.mailer = mailer  # SMTPMailer for the alerts to the server owners, or None
@@ -223,9 +224,9 @@ class SocketServer:
     def start(self):
         """Bind and start accepting connections and login pin notifications in background threads."""
         if not (self.tls_cert and self.tls_key):
-            self.tls_cert, self.tls_key = devcert.ensure_dev_certificate()
-            logger.warning(f"No TLS certificate configured, using the self-signed development certificate "
-                           f"{self.tls_cert}; plugins need tls-fingerprint: {devcert.fingerprint(self.tls_cert)}")
+            self.tls_cert, self.tls_key = tlscert.ensure_certificate(self.tls_dir)
+            logger.info(f"Own TLS certificate {self.tls_cert}, plugins pin it with "
+                        f"tls-fingerprint: \"{tlscert.fingerprint(self.tls_cert)}\" (shown on the admin page)")
         self.tls_context()  # fail early on a broken certificate
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

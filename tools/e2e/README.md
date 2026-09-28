@@ -8,7 +8,7 @@ A real Paper server in Docker with the plugin, the local socket server against t
 KEY=$(.venv/bin/python -c "import sys; sys.path.insert(0, '.'); from database.databaseManagerV2 import DatabaseManager; \
   print(DatabaseManager()._fetchvalue(\"SELECT server_key FROM servers WHERE subdomain = 'testdomain'\"))" | tail -1)
 mkdir -p /tmp/mc/plugins/MCDataLink && cp "java plugin/MCDataLink/target/MCDataLink-*.jar" /tmp/mc/plugins/
-FP=$(.venv/bin/python -m mc_socket.devcert | tail -1 | cut -d' ' -f2)  # the local socket server uses this certificate
+FP=$(.venv/bin/python -m mc_socket.tlscert | tail -1 | cut -d'"' -f2)  # the local socket server's own certificate
 printf 'key: %s\nhost: host.docker.internal\nport: 9991\ntls-fingerprint: "%s"\n' "$KEY" "$FP" > /tmp/mc/plugins/MCDataLink/config.yml
 
 # 2. socket server and Paper (offline mode, so bots can join)

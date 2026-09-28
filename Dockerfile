@@ -22,7 +22,8 @@ COPY mc_socket ./mc_socket
 COPY web ./web
 COPY --from=plugin /build/MCDataLink.jar ./plugin/MCDataLink.jar
 
-RUN useradd --system --create-home --uid 1000 mcconnect && mkdir -p logs uploads && chown mcconnect logs uploads
+# /tls: the socket server's own certificate (a docker volume takes over the owner on the first start)
+RUN useradd --system --create-home --uid 1000 mcconnect && mkdir -p logs uploads /tls && chown mcconnect logs uploads /tls
 USER mcconnect
 
 EXPOSE 8000 9991

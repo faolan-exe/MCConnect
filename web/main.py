@@ -2631,8 +2631,17 @@ def manage_one_server(server_id):
     return render_template("serverAdminServer.html", server=server, max_gallery_images=MAX_GALLERY_IMAGES,
                            ban_reasons=db().get_ban_reasons(), base_domain=current_app.config["SERVER_NAME"],
                            plugin_host=config.PLUGIN_PUBLIC_HOST, plugin_port=config.PLUGIN_PUBLIC_PORT,
-                           plugin_available=plugin_jar_path() is not None,
+                           plugin_available=plugin_jar_path() is not None, plugin_fingerprint=plugin_fingerprint(),
                            server_count=len(db().get_servers_by_owner(session["admin_id"])))
+
+
+def plugin_fingerprint():
+    """The tls-fingerprint line the plugins need: of the socket server's own certificate (None with an own
+    certificate from a certificate authority, or before the socket server created it)."""
+    if config.SOCKET_TLS_CERT:
+        return None
+    from mc_socket.tlscert import own_fingerprint
+    return own_fingerprint(config.SOCKET_TLS_DIR)
 
 
 @main_bp.route("/healthz")
