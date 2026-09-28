@@ -1,0 +1,46 @@
+{% extends "mod/_layout.html" %}
+{% block mod_content %}
+<section class="srv-card" id="log">
+  <h2>Protokoll</h2>
+  <p class="mcc-hint">Die letzten 100 Aktionen: Bans (auch aus dem Spiel), Moderatoren, Wettbewerbe und Notizen.</p>
+  <input class="mcc-input lg-search" type="search" placeholder="Nach Spieler oder Moderator filtern …" data-role="filter"/>
+  <div data-live="log">
+  {% if log %}
+  <div class="mcc-table-wrap">
+    <table class="mcc-table lg-table">
+      <thead><tr><th>Wann</th><th>Wer</th><th>Was</th><th>Spieler</th><th>Details</th></tr></thead>
+      <tbody>
+        {% for e in log %}
+        <tr data-text="{{ ((e.actor or '') ~ ' ' ~ (e.target_name or '')) | lower }}">
+          <td class="lg-when">{{ e.when }}</td>
+          <td>{{ e.actor or "–" }}</td>
+          <td><span class="lg-action lg-{{ e.action }}">{{ e.label }}</span></td>
+          <td>{% if e.target_name %}<a href="/spieler?player={{ e.target_name | urlencode }}">{{ e.target_name }}</a>{% else %}–{% endif %}</td>
+          <td class="lg-details">{{ e.details or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="st-empty">Noch keine Einträge.</p>
+  {% endif %}
+  </div>
+</section>
+{% endblock %}
+
+{% block mod_scripts %}
+<script>
+  (() => {
+    const filter = document.querySelector('#log [data-role="filter"]');
+    if (!filter) return;
+    const apply = () => {
+      const query = filter.value.trim().toLowerCase();
+      document.querySelectorAll("#log tbody tr").forEach((row) => (row.hidden = query && !row.dataset.text.includes(query)));
+    };
+    filter.addEventListener("input", apply);
+    document.addEventListener("mod:refreshed", apply);  // new entries keep the filter
+  })();
+  modLive(30000);
+</script>
+{% endblock %}

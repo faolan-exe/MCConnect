@@ -1275,3 +1275,25 @@ td.md-actions .mcc-btn { margin: 2px 0; }
 .yr-dots span { width: 22px; height: 4px; border-radius: 2px; background: var(--srv-border); }
 .yr-dots span.yr-on { background: var(--srv-green); }
 @media (max-width: 600px) { .yr-stage { padding: 26px 22px; } .srv-page .yr h1, .srv-page .yr h2 { font-size: 30px; } }
+
+/* moderation: tabs of the sub pages, open tasks, newest log entries */
+nav.md-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 22px; padding: 4px; background: var(--srv-card);
+  border: 1px solid var(--srv-border); border-radius: 12px; }
+.md-tabs a { padding: 8px 14px; border-radius: 9px; color: var(--srv-muted); font-weight: 700; font-size: 15px; text-decoration: none; }
+.md-tabs a:hover { color: var(--srv-text); background: var(--srv-bg); }
+.md-tabs a[aria-current="page"] { background: var(--srv-night); color: #fff; }
+.md-tabs b { margin-left: 4px; padding: 0 7px; border-radius: 999px; background: #fdecec; color: #8f1f1f; font-size: 12px; }
+.md-tasks { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.md-tasks a { display: flex; align-items: baseline; gap: 8px; padding: 12px 14px; border: 1px solid var(--srv-border);
+  border-left: 3px solid #d04545; border-radius: 10px; color: var(--srv-text); text-decoration: none; }
+.md-tasks a:hover { border-color: var(--srv-green); border-left-color: #d04545; }
+.md-tasks b { font-size: 22px; }
+.md-recent { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; font-size: 15px; }
+.md-recent .lg-when { color: var(--srv-muted); margin-right: 4px; }
+@media (max-width: 600px) { .md-tabs a { flex: 1 1 auto; text-align: center; padding: 8px 10px; } }
+details.md-create { margin: 4px 0 12px; }
+details.md-create > summary { display: inline-block; cursor: pointer; padding: 7px 14px; border-radius: 9px;
+  background: var(--srv-green); color: #0b1a10; font-weight: 700; list-style: none; }
+details.md-create > summary::-webkit-details-marker { display: none; }
+details.md-create[open] > summary { background: var(--srv-night); color: #fff; }
+details.md-create[open] > .mcc-form { margin-top: 12px; padding: 14px; border: 1px solid var(--srv-border); border-radius: 10px; }

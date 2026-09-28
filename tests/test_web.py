@@ -768,11 +768,13 @@ def test_prefix_is_escaped_on_pages(player_client, db, server):
 # ------------------------------------------------------------------ moderation
 
 def test_moderation_page_only_for_moderators(player_client, db, server):
-    assert player_client.get("/users", **on("testdomain")).status_code == 403
+    for path in ("", "/spieler", "/inhalte", "/zugang", "/protokoll"):
+        assert player_client.get("/users" + path, **on("testdomain")).status_code == 403, path
     assert player_client.get("/api/mod/bans", **on("testdomain")).status_code == 403
     db.set_moderator(server["id"], "_Tobias4444", True)
-    page = player_client.get("/users", **on("testdomain"))
-    assert page.status_code == 200 and "Spieler bannen" in page.data.decode()
+    for path in ("", "/spieler", "/inhalte", "/zugang", "/protokoll"):
+        assert player_client.get("/users" + path, **on("testdomain")).status_code == 200, path
+    assert "Spieler bannen" in player_client.get("/users/spieler", **on("testdomain")).data.decode()
     assert "/users" in player_client.get("/", **on("testdomain")).data.decode()  # menu entry
 
 
@@ -846,7 +848,7 @@ def test_ban_dropdown_groups_online_and_offline(player_client, db, server):
     db.ensure_player_on_server(server["id"], OTHER_UUID)  # Notch, offline
     db.add_player("11111111-2222-3333-4444-555555555555", "alex")
     db.ensure_player_on_server(server["id"], "11111111-2222-3333-4444-555555555555")  # alex, offline
-    body = player_client.get("/users", **on("testdomain")).data.decode()
+    body = player_client.get("/users/spieler", **on("testdomain")).data.decode()
     online, offline = body.index('label="Online (1)"'), body.index('label="Offline (2)"')
     assert online < body.index('value="_Tobias4444"') < offline < body.index('value="alex"') < body.index('value="Notch"')
 

@@ -1380,36 +1380,89 @@ def prefix_join_page():
                            current_prefix=db().get_player_prefix(player_id))
 
 
+# Moderation pages: (path below /users, tab label). Every page shows the tabs with the open tasks.
+MOD_PAGES = (("", "Übersicht"), ("spieler", "Spieler"), ("inhalte", "Inhalte"), ("zugang", "Zugang & Regeln"),
+             ("protokoll", "Protokoll"))
+
+
+def mod_tasks(server_id):
+    """Open moderation tasks: {key: (count, label, link)} for the tabs and the overview."""
+    reports = sum(1 for r in db().list_reports(server_id) if r["handled_at"] is None)
+    applications = sum(1 for r in db().list_access_requests(server_id) if r["status"] == "pending")
+    return {
+        "reports": (reports, "Meldungen", "/users/spieler#reports"),
+        "builds": (len(db().list_builds(server_id, "pending")), "Bilder warten auf Freigabe", "/users/inhalte#builds"),
+        "guestbook": (len(db().get_reported_guestbook_entries(server_id)), "gemeldete Gästebucheinträge",
+                      "/users/inhalte#guestbook"),
+        "applications": (applications, "Bewerbungen", "/users/zugang#access"),
+        "xray": (len(xray_hints(server_id)), "X-Ray-Hinweise", "/users/spieler#xray"),
+    }
+
+
+# which tasks count on which tab
+MOD_PAGE_TASKS = {"spieler": ("reports", "xray"), "inhalte": ("builds", "guestbook"), "zugang": ("applications",)}
+
+
+def render_mod(page, template, **context):
+    tasks = mod_tasks(g.server["id"])
+    return render_template(template, mod_page=page, mod_pages=MOD_PAGES, tasks=tasks,
+                           tab_counts={key: sum(tasks[t][0] for t in MOD_PAGE_TASKS.get(key, ())) for key, _ in MOD_PAGES},
+                           **context)
+
+
 @server_bp.route("/users")
 @moderator_required
 def moderation_page():
+    return render_mod("", "mod/overview.html", health=health_view(g.server["id"]), log=mod_log_view(g.server["id"], limit=8))
+
+
+@server_bp.route("/users/spieler")
+@moderator_required
+def moderation_players_page():
+    return render_mod("spieler", "mod/players.html", ban_reasons=db().get_ban_reasons(), bans_api="/api/mod",
+                      players=db().get_players_overview_from_subdomain(g.subdomain),
+                      activity=player_activity(g.server["id"]), settings=db().get_server_settings(g.server["id"]),
+                      xray=xray_hints(g.server["id"]),
+                      reports=[dict(r, when=r["created_at"].strftime("%d.%m.%Y, %H:%M"),
+                                    handled=r["handled_at"].strftime("%d.%m.%Y, %H:%M") if r["handled_at"] else None)
+                               for r in db().list_reports(g.server["id"], include_handled=True, limit=50)])
+
+
+@server_bp.route("/users/inhalte")
+@moderator_required
+def moderation_content_page():
     today = db().get_today()
-    return render_template("moderation.html", ban_reasons=db().get_ban_reasons(), bans_api="/api/mod",
-                           players=db().get_players_overview_from_subdomain(g.subdomain),
-                           activity=player_activity(g.server["id"]),
-                           competitions=[v for v in (competition_view(c, today) for c in db().list_competitions(g.server["id"])) if v]
-                           if current_app.config["FEATURE_RANKINGS"] else None,
-                           metrics=metrics_mod.METRICS, metric_groups=metrics_mod.GROUPS,
-                           goals=[v for v in (goal_view(goal, today) for goal in db().list_goals(g.server["id"])) if v]
-                           if current_app.config["FEATURE_RANKINGS"] else None,
-                           goal_units={m.key: motivation.goal_unit(m) for m in metrics_mod.METRICS},
-                           today=today, default_end=today + timedelta(days=6),
-                           log=mod_log_view(g.server["id"]), health=health_view(g.server["id"]),
-                           settings=db().get_server_settings(g.server["id"]),
-                           access_requests=[dict(r, when=r["created_at"].strftime("%d.%m.%Y, %H:%M"))
-                                            for r in db().list_access_requests(g.server["id"], 60)],
-                           invite_codes=[dict(c, until=c["expires_at"].strftime("%d.%m.%Y") if c["expires_at"] else None)
-                                         for c in db().list_invite_codes(g.server["id"])],
-                           xray=xray_hints(g.server["id"]),
-                           events=[event_view(e) for e in db().list_events(g.server["id"])],
-                           polls=[poll_view(p) for p in db().list_polls(g.server["id"], limit=10)],
-                           pending_builds=[build_view(b) for b in db().list_builds(g.server["id"], "pending")],
-                           reported_entries=[dict(e, when=e["created_at"].strftime("%d.%m.%Y, %H:%M"))
-                                             for e in db().get_reported_guestbook_entries(g.server["id"])],
-                           now_local=datetime.now(ZoneInfo(config.TIMEZONE)).strftime("%Y-%m-%dT%H:%M"),
-                           reports=[dict(r, when=r["created_at"].strftime("%d.%m.%Y, %H:%M"),
-                                         handled=r["handled_at"].strftime("%d.%m.%Y, %H:%M") if r["handled_at"] else None)
-                                    for r in db().list_reports(g.server["id"], include_handled=True, limit=50)])
+    rankings = current_app.config["FEATURE_RANKINGS"]
+    return render_mod(
+        "inhalte", "mod/content.html",
+        competitions=[v for v in (competition_view(c, today) for c in db().list_competitions(g.server["id"])) if v]
+        if rankings else None,
+        goals=[v for v in (goal_view(goal, today) for goal in db().list_goals(g.server["id"])) if v] if rankings else None,
+        metrics=metrics_mod.METRICS, metric_groups=metrics_mod.GROUPS,
+        goal_units={m.key: motivation.goal_unit(m) for m in metrics_mod.METRICS},
+        today=today, default_end=today + timedelta(days=6),
+        events=[event_view(e) for e in db().list_events(g.server["id"])],
+        polls=[poll_view(p) for p in db().list_polls(g.server["id"], limit=10)],
+        pending_builds=[build_view(b) for b in db().list_builds(g.server["id"], "pending")],
+        reported_entries=[dict(e, when=e["created_at"].strftime("%d.%m.%Y, %H:%M"))
+                          for e in db().get_reported_guestbook_entries(g.server["id"])],
+        now_local=datetime.now(ZoneInfo(config.TIMEZONE)).strftime("%Y-%m-%dT%H:%M"))
+
+
+@server_bp.route("/users/zugang")
+@moderator_required
+def moderation_access_page():
+    return render_mod("zugang", "mod/access.html", settings=db().get_server_settings(g.server["id"]),
+                      access_requests=[dict(r, when=r["created_at"].strftime("%d.%m.%Y, %H:%M"))
+                                       for r in db().list_access_requests(g.server["id"], 60)],
+                      invite_codes=[dict(c, until=c["expires_at"].strftime("%d.%m.%Y") if c["expires_at"] else None)
+                                    for c in db().list_invite_codes(g.server["id"])])
+
+
+@server_bp.route("/users/protokoll")
+@moderator_required
+def moderation_log_page():
+    return render_mod("protokoll", "mod/log.html", log=mod_log_view(g.server["id"]))
 
 
 MOD_LOG_ACTIONS = {

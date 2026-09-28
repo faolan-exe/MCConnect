@@ -1,0 +1,268 @@
+{% extends "mod/_layout.html" %}
+{% block mod_content %}
+<nav class="md-nav" aria-label="Bereiche" data-live="content-nav">
+  <a href="#builds">Galerie{% if tasks.builds[0] %} <b>{{ tasks.builds[0] }}</b>{% endif %}</a>
+  <a href="#guestbook">Gästebuch{% if tasks.guestbook[0] %} <b>{{ tasks.guestbook[0] }}</b>{% endif %}</a>
+  <a href="#events">Events</a><a href="#polls">Umfragen</a>
+  {% if competitions is not none %}<a href="#competitions">Wettbewerbe</a><a href="#goals">Ziele</a>{% endif %}
+</nav>
+
+<section class="srv-card" id="builds">
+  <h2>Galerie freigeben</h2>
+  <div data-live="builds">
+  {% if pending_builds %}
+  <ul class="md-builds">
+    {% for b in pending_builds %}
+    <li>
+      <a href="{{ b.url }}" target="_blank" rel="noopener"><img src="{{ b.url }}" alt="{{ b.title }}" loading="lazy"/></a>
+      <div><b>{{ b.title }}</b><span class="mcc-hint">von {{ b.name }} · {{ b.date }}{% if b.coordinates %} · {{ b.coordinates }}{% endif %}</span>
+        {% if b.description %}<span>{{ b.description }}</span>{% endif %}
+        <span class="md-actions">
+          <button class="mcc-btn mcc-btn-small" type="button" data-mod-post="/api/mod/builds/approve" data-id="{{ b.id }}">Freigeben</button>
+          <button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-mod-post="/api/mod/builds/delete" data-id="{{ b.id }}"
+                  data-confirm="Bild »{{ b.title }}« löschen?">Löschen</button>
+        </span></div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="st-empty">Keine Bilder warten auf Freigabe. Freigegebene Bilder kannst du direkt in der <a href="/galerie">Galerie</a> löschen.</p>
+  {% endif %}
+  </div>
+</section>
+
+<section class="srv-card" id="guestbook">
+  <h2>Gemeldete Gästebucheinträge</h2>
+  <div data-live="guestbook">
+  {% if reported_entries %}
+  <div class="mcc-table-wrap">
+    <table class="mcc-table">
+      <thead><tr><th>Wann</th><th>Von</th><th>Auf der Seite von</th><th>Text</th><th></th></tr></thead>
+      <tbody>
+        {% for e in reported_entries %}
+        <tr>
+          <td>{{ e.when }}</td><td>{{ e.author }}</td>
+          <td><a href="/spieler?player={{ e.owner | urlencode }}#guestbook">{{ e.owner }}</a></td>
+          <td>{{ e.text }}</td>
+          <td class="md-actions">
+            <button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-mod-post="/api/mod/guestbook/keep" data-id="{{ e.id }}">Behalten</button>
+            <button class="mcc-btn mcc-btn-small" type="button" data-mod-post="/api/guestbook/delete" data-id="{{ e.id }}"
+                    data-confirm="Eintrag löschen?">Löschen</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="st-empty">Nichts gemeldet.</p>
+  {% endif %}
+  </div>
+</section>
+
+<section class="srv-card" id="events">
+  <h2>Events</h2>
+  <p class="mcc-hint">Stehen auf <a href="/events">/events</a> und der Startseite. 30 Minuten vorher und zum Start kommt eine Nachricht im Chat.</p>
+  <details class="md-create">
+  <summary>+ Neues Event</summary>
+  <form class="mcc-form" data-mod-form="/api/mod/events">
+    <div class="mcc-row">
+      <div><label for="ev-title">Titel</label><input class="mcc-input" id="ev-title" name="title" maxlength="60" required placeholder="z. B. Bauwettbewerb am Spawn"/></div>
+      <div><label for="ev-start">Beginn</label><input class="mcc-input" id="ev-start" name="starts_at" type="datetime-local" min="{{ now_local }}" required/></div>
+    </div>
+    <label for="ev-place">Treffpunkt (optional)</label>
+    <input class="mcc-input" id="ev-place" name="place" maxlength="80" placeholder="z. B. Spawn oder X 0 Z 0"/>
+    <label for="ev-text">Beschreibung (optional)</label>
+    <textarea class="mcc-input" id="ev-text" name="description" maxlength="500" rows="2"></textarea>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Event anlegen</button></div>
+    <div class="mcc-message" data-role="message"></div>
+  </form>
+  </details>
+  <div data-live="events">
+  {% if events %}
+  <div class="mcc-table-wrap" style="margin-top: 20px">
+    <table class="mcc-table">
+      <thead><tr><th>Titel</th><th>Beginn</th><th>Anmeldungen</th><th></th></tr></thead>
+      <tbody>
+        {% for e in events %}
+        <tr><td>{{ e.title }}</td><td>{{ e.day }}, {{ e.time }} Uhr</td><td>{{ e.signups }}</td>
+          <td><button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-mod-post="/api/mod/events/delete"
+                      data-id="{{ e.id }}" data-confirm="Event »{{ e.title }}« löschen?">Löschen</button></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  </div>
+</section>
+
+<section class="srv-card" id="polls">
+  <h2>Umfragen</h2>
+  <p class="mcc-hint">Abgestimmt wird auf <a href="/umfragen">/umfragen</a> oder im Spiel mit <code>/vote</code>. Das Ergebnis kommt am Ende in den Chat.</p>
+  <details class="md-create">
+  <summary>+ Neue Umfrage</summary>
+  <form class="mcc-form" data-mod-form="/api/mod/polls" data-options>
+    <label for="po-question">Frage</label>
+    <input class="mcc-input" id="po-question" name="question" maxlength="120" required placeholder="z. B. Welches Projekt bauen wir als Nächstes?"/>
+    <label>Antworten <span class="mcc-hint">(2 bis 8, eine pro Zeile)</span></label>
+    <textarea class="mcc-input" name="options" rows="4" required placeholder="Hafen&#10;Burg&#10;Bahnhof"></textarea>
+    <label for="po-days">Dauer</label>
+    <select class="mcc-select" id="po-days" name="days">{% for n in (1, 2, 3, 5, 7, 14, 30) %}<option value="{{ n }}"{% if n == 3 %} selected{% endif %}>{{ n }} {{ "Tag" if n == 1 else "Tage" }}</option>{% endfor %}</select>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Umfrage starten</button></div>
+    <div class="mcc-message" data-role="message"></div>
+  </form>
+  </details>
+  <div data-live="polls">
+  {% if polls %}
+  <div class="mcc-table-wrap" style="margin-top: 20px">
+    <table class="mcc-table">
+      <thead><tr><th>Frage</th><th>Stimmen</th><th>Ende</th><th></th></tr></thead>
+      <tbody>
+        {% for p in polls %}
+        <tr><td>{{ p.question }}</td><td>{{ p.total }}</td><td>{{ p.ends }}{% if not p.open %} (vorbei){% endif %}</td>
+          <td><button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-mod-post="/api/mod/polls/delete"
+                      data-id="{{ p.id }}" data-confirm="Umfrage löschen?">Löschen</button></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  </div>
+</section>
+
+{% if competitions is not none %}
+<section class="srv-card" id="competitions">
+  <h2>Wettbewerbe</h2>
+  <p class="mcc-hint">Gezählt wird, was die Spieler zwischen Start- und Endtag (jeweils ganzer Tag) dazugewinnen.
+    Start und Ende werden im Spiel im Chat angekündigt (ab Plugin-Version 3.1).</p>
+  <details class="md-create">
+  <summary>+ Neuer Wettbewerb</summary>
+  <form class="mcc-form" data-mod-form="/api/mod/competitions">
+    <label for="cp-title">Titel</label>
+    <input class="mcc-input" id="cp-title" name="title" maxlength="60" placeholder="z. B. Mining-Woche" required/>
+    <div class="mcc-row">
+      <div>
+        <label for="cp-metric">Kennzahl</label>
+        <select class="mcc-select" id="cp-metric" name="metric">
+          {% for key, label in metric_groups %}
+          <optgroup label="{{ label }}">
+            {% for m in metrics if m.group == key %}<option value="{{ m.key }}">{{ m.label }}</option>{% endfor %}
+          </optgroup>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="cp-start">Erster Tag</label>
+        <input class="mcc-input" id="cp-start" name="starts_on" type="date" min="{{ today.isoformat() }}" value="{{ today.isoformat() }}" required/>
+      </div>
+      <div>
+        <label for="cp-end">Letzter Tag</label>
+        <input class="mcc-input" id="cp-end" name="ends_on" type="date" min="{{ today.isoformat() }}" value="{{ default_end.isoformat() }}" required/>
+      </div>
+    </div>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Wettbewerb anlegen</button></div>
+    <div class="mcc-message" data-role="message"></div>
+  </form>
+  </details>
+  <div data-live="competitions">
+  {% if competitions %}
+  <div class="mcc-table-wrap" style="margin-top: 20px">
+    <table class="mcc-table">
+      <thead><tr><th>Titel</th><th>Kennzahl</th><th>Zeitraum</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for c in competitions %}
+        <tr>
+          <td>{{ c.title }}</td>
+          <td>{{ c.metric_label }}</td>
+          <td>{{ c.starts }} – {{ c.ends }}</td>
+          <td>{{ {"running": "läuft", "upcoming": "geplant", "finished": "beendet"}[c.status] }}</td>
+          <td><button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-mod-post="/api/mod/competitions/delete" data-id="{{ c.id }}" data-confirm="Wettbewerb »{{ c.title }}« wirklich löschen?">Löschen</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{% if goals is not none %}
+<section class="srv-card" id="goals">
+  <h2>Gemeinschaftsziele</h2>
+  <p class="mcc-hint">Alle Spieler zusammen sammeln ab dem Starttag für ein Ziel. Der Fortschritt steht auf der Startseite,
+    das Erreichen wird im Chat angekündigt. Ohne letzten Tag läuft das Ziel, bis es geschafft ist.</p>
+  <details class="md-create">
+  <summary>+ Neues Gemeinschaftsziel</summary>
+  <form class="mcc-form" data-mod-form="/api/mod/goals" data-role="goal-form">
+    <label for="gl-title">Titel</label>
+    <input class="mcc-input" id="gl-title" name="title" maxlength="60" placeholder="z. B. Eine Million Blöcke" required/>
+    <div class="mcc-row">
+      <div>
+        <label for="gl-metric">Kennzahl</label>
+        <select class="mcc-select" id="gl-metric" name="metric">
+          {% for key, label in metric_groups %}
+          <optgroup label="{{ label }}">
+            {% for m in metrics if m.group == key and not m.lower_is_better %}<option value="{{ m.key }}" data-unit="{{ goal_units[m.key] }}">{{ m.label }}</option>{% endfor %}
+          </optgroup>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="gl-amount">Ziel <span data-role="unit"></span></label>
+        <input class="mcc-input" id="gl-amount" name="amount" type="number" min="1" step="any" required/>
+      </div>
+    </div>
+    <div class="mcc-row">
+      <div>
+        <label for="gl-start">Erster Tag</label>
+        <input class="mcc-input" id="gl-start" name="starts_on" type="date" min="{{ today.isoformat() }}" value="{{ today.isoformat() }}" required/>
+      </div>
+      <div>
+        <label for="gl-end">Letzter Tag (optional)</label>
+        <input class="mcc-input" id="gl-end" name="ends_on" type="date" min="{{ today.isoformat() }}"/>
+      </div>
+    </div>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Ziel anlegen</button></div>
+    <div class="mcc-message" data-role="message"></div>
+  </form>
+  </details>
+  <div data-live="goals">
+  {% if goals %}
+  <div class="mcc-table-wrap" style="margin-top: 20px">
+    <table class="mcc-table">
+      <thead><tr><th>Titel</th><th>Ziel</th><th>Stand</th><th>Zeitraum</th><th></th></tr></thead>
+      <tbody>
+        {% for goal in goals %}
+        <tr>
+          <td>{{ goal.title }}</td>
+          <td>{{ goal.target_text }} {{ goal.metric_label }}</td>
+          <td>{{ goal.percent }} %{% if goal.done %} · geschafft{% elif goal.status == "failed" %} · verfehlt{% endif %}</td>
+          <td>{{ goal.starts }}{% if goal.ends %} – {{ goal.ends }}{% else %} – offen{% endif %}</td>
+          <td><button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-mod-post="/api/mod/goals/delete" data-id="{{ goal.id }}" data-confirm="Ziel »{{ goal.title }}« wirklich löschen?">Löschen</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block mod_scripts %}
+<script>
+  (() => {
+    const form = document.querySelector('[data-role="goal-form"]');
+    if (!form) return;
+    const metric = form.querySelector('[name="metric"]');
+    const showUnit = () => {
+      const unit = metric.selectedOptions[0].dataset.unit;
+      form.querySelector('[data-role="unit"]').textContent = unit ? `(in ${unit})` : "";
+    };
+    metric.addEventListener("change", showUnit);
+    showUnit();
+  })();
+</script>
+{% endblock %}

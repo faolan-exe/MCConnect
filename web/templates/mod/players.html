@@ -1,0 +1,150 @@
+{% extends "mod/_layout.html" %}
+{% from "_components.html" import bans_panel %}
+{% block mod_content %}
+<section class="srv-card" id="reports">
+  <h2>Meldungen</h2>
+  <p class="mcc-hint">Von Spielern mit <code>/report</code> im Spiel (mit Position) oder über <a href="/melden">/melden</a>.
+    Online-Moderatoren bekommen neue Meldungen im Chat.</p>
+  <div data-live="reports">
+  {% if reports %}
+  <div class="mcc-table-wrap">
+    <table class="mcc-table">
+      <thead><tr><th>Wann</th><th>Von</th><th>Über</th><th>Was</th><th>Wo</th><th></th></tr></thead>
+      <tbody>
+        {% for r in reports %}
+        <tr{% if r.handled_at %} class="rp-done"{% endif %}>
+          <td>{{ r.when }}</td>
+          <td>{{ r.reporter or "–" }}</td>
+          <td>{% if r.target_name %}<a href="/spieler?player={{ r.target_name | urlencode }}">{{ r.target_name }}</a>{% else %}–{% endif %}</td>
+          <td>{{ r.reason }}</td>
+          <td>{% if r.world %}<code>{{ r.world }} {{ r.x }} {{ r.y }} {{ r.z }}</code>{% else %}{{ "Website" if r.source == "web" else "–" }}{% endif %}</td>
+          <td>{% if r.handled_at %}<span class="mcc-hint">erledigt von {{ r.handled_by or "–" }}</span>
+            {% else %}<button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-mod-post="/api/mod/reports/resolve" data-id="{{ r.id }}">Erledigt</button>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="st-empty">Keine Meldungen.</p>
+  {% endif %}
+  </div>
+</section>
+
+<section class="srv-card" id="bans">
+  <h2>Spieler bannen</h2>
+  <p class="mcc-hint">Bans von hier werden sofort im Spiel ausgeführt: Der Spieler wird gekickt und kann bis zum Ende
+    des Bans nicht mehr joinen. Bans aus dem Spiel (<code>/ban</code>) erscheinen hier ebenfalls.</p>
+  {{ bans_panel("mod-bans", bans_api ~ "/bans", bans_api ~ "/ban", bans_api ~ "/unban", ban_reasons, players) }}
+</section>
+
+<section class="srv-card" id="warnings">
+  <h2>Verwarnungen &amp; Stummschalten</h2>
+  <p class="mcc-hint">Verwarnen und stummschalten geht auf der Spielerseite (Bereich Moderation) oder im Spiel mit
+    <code>/verwarnen &lt;spieler&gt; &lt;grund&gt;</code>, <code>/stumm &lt;spieler&gt; &lt;minuten&gt; [grund]</code> und
+    <code>/entstummen &lt;spieler&gt;</code>. Der Spieler sieht den Grund im Chat.</p>
+  <form class="mcc-form" data-settings-form>
+    <div class="mcc-row">
+      <div><label for="wn-threshold">Automatischer Bann nach … Verwarnungen <span class="mcc-hint">(0 = nie)</span></label>
+        <input class="mcc-input" id="wn-threshold" name="warn_threshold" type="number" min="0" max="20" value="{{ settings.warn_threshold }}"/></div>
+      <div><label for="wn-days">Dauer des Banns (Tage, 0 = dauerhaft)</label>
+        <input class="mcc-input" id="wn-days" name="warn_ban_days" type="number" min="0" max="3650" value="{{ settings.warn_ban_days }}"/></div>
+    </div>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Speichern</button></div>
+    <div class="mcc-message" data-role="message"></div>
+  </form>
+</section>
+
+<section class="srv-card" id="xray">
+  <h2>X-Ray-Hinweise</h2>
+  <p class="mcc-hint">Nur ein Hinweis, kein Beweis: Wer viel in Höhlen abbaut, findet mehr Erz pro Stein. Gezählt werden Diamanterz pro
+    1.000 abgebauten Stein/Deepslate/Tuff (normal etwa 1–3) und Ancient Debris pro 1.000 Netherrack.</p>
+  {% if xray %}
+  <div class="mcc-table-wrap">
+    <table class="mcc-table">
+      <thead><tr><th>Spieler</th><th>Diamanterz / 1.000 Stein</th><th>Debris / 1.000 Netherrack</th><th>Diamanterz pro Stunde</th></tr></thead>
+      <tbody>
+        {% for h in xray %}
+        <tr>
+          <td><a href="/spieler?player={{ h.name | urlencode }}">{{ h.name }}</a></td>
+          <td class="num{% if 'diamonds' in h.flags %} xr-flag{% endif %}">{{ h.diamond_rate }} <span class="mcc-hint">({{ h.diamonds }} / {{ h.stone }})</span></td>
+          <td class="num{% if 'debris' in h.flags %} xr-flag{% endif %}">{{ h.debris_rate }} <span class="mcc-hint">({{ h.debris }} / {{ h.netherrack }})</span></td>
+          <td class="num">{{ h.diamonds_per_hour }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="st-empty">Niemand fällt auf.</p>
+  {% endif %}
+</section>
+
+<section class="srv-card" id="activity">
+  <h2>Aktivität der Spieler</h2>
+  <p class="mcc-hint">Wer war lange nicht mehr da, wer ist neu? Hilft zum Beispiel beim Aufräumen der Whitelist.</p>
+  <div class="in-tools">
+    <nav class="st-periods" aria-label="Filter">
+      <button type="button" data-view="14" aria-pressed="false">Seit 14 Tagen weg</button>
+      <button type="button" data-view="30" aria-pressed="true">Seit 30 Tagen weg</button>
+      <button type="button" data-view="90" aria-pressed="false">Seit 90 Tagen weg</button>
+      <button type="button" data-view="new" aria-pressed="false">Neu (7 Tage)</button>
+    </nav>
+    <span class="in-count" data-role="count"></span>
+  </div>
+  <div class="mcc-table-wrap">
+    <table class="mcc-table in-table">
+      <thead><tr><th>Spieler</th><th>Zuletzt online</th><th>Dabei seit</th><th>Spielzeit</th></tr></thead>
+      <tbody>
+        {% for p in activity %}
+        <tr data-name="{{ p.name }}" data-last="{{ p.last_seen.isoformat() if p.last_seen else '' }}"
+            data-online="{{ 1 if p.online else 0 }}" data-first="{{ p.first_seen.isoformat() if p.first_seen else '' }}">
+          <td><img src="https://mc-heads.net/avatar/{{ p.uuid }}/32" alt="" width="22" height="22" loading="lazy"/><a href="/spieler?player={{ p.name | urlencode }}">{{ p.name }}</a>
+            {% if p.banned %}<span class="pl-badge pl-badge-ban">Gebannt</span>{% endif %}</td>
+          <td>{{ "online" if p.online else (p.last_seen.strftime("%d.%m.%Y, %H:%M") if p.last_seen else "nie") }}</td>
+          <td>{{ p.first_seen.strftime("%d.%m.%Y") if p.first_seen else "–" }}</td>
+          <td>{{ p.play_time }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="in-commands" data-role="commands">
+    <label for="whitelist-commands"><b>Befehle zum Entfernen von der Whitelist</b> <span class="mcc-hint">(für die angezeigten Spieler, in die Server-Konsole einfügen)</span></label>
+    <textarea id="whitelist-commands" readonly></textarea>
+    <div class="mcc-actions"><button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-role="copy">Kopieren</button></div>
+  </div>
+</section>
+{% endblock %}
+
+{% block mod_scripts %}
+<script>
+  (() => {
+    const root = document.getElementById("activity");
+    const rows = [...root.querySelectorAll("tbody tr")];
+    const buttons = [...root.querySelectorAll("[data-view]")];
+    const commands = root.querySelector("#whitelist-commands");
+    const DAY = 86400000;
+
+    function apply(view) {
+      buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === view)));
+      const shown = rows.filter((row) => {
+        if (view === "new") return row.dataset.first && Date.now() - Date.parse(row.dataset.first) <= 7 * DAY;
+        if (row.dataset.online === "1") return false;
+        return !row.dataset.last || Date.now() - Date.parse(row.dataset.last) > Number(view) * DAY;
+      });
+      rows.forEach((row) => (row.hidden = !shown.includes(row)));
+      root.querySelector('[data-role="count"]').textContent = `${shown.length} Spieler`;
+      root.querySelector('[data-role="commands"]').hidden = view === "new" || !shown.length;
+      commands.value = shown.map((row) => `whitelist remove ${row.dataset.name}`).join("\n");
+    }
+    buttons.forEach((b) => b.addEventListener("click", () => apply(b.dataset.view)));
+    root.querySelector('[data-role="copy"]').addEventListener("click", async (event) => {
+      await navigator.clipboard.writeText(commands.value);
+      event.target.textContent = "Kopiert";
+      setTimeout(() => (event.target.textContent = "Kopieren"), 2000);
+    });
+    apply("30");
+  })();
+</script>
+{% endblock %}

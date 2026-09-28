@@ -207,8 +207,8 @@ def test_reports_on_the_website(player_client, db, server):
     report = db.list_reports(server["id"])[0]
     assert (report["target_name"], report["source"], report["world"]) == ("Notch", "web", None)
     db.set_moderator(server["id"], "_Tobias4444", True)
-    html = player_client.get("/users", **on("testdomain")).get_data(as_text=True)
-    assert "Meldungen · 1 offen" in html and "Lava am Spawn" in html
+    assert "<b>1</b> Meldungen" in player_client.get("/users", **on("testdomain")).get_data(as_text=True)
+    assert "Lava am Spawn" in player_client.get("/users/spieler", **on("testdomain")).get_data(as_text=True)
     assert player_client.post("/api/mod/reports/resolve", json={"id": report["id"]}, **on("testdomain")).status_code == 200
     assert db.list_reports(server["id"]) == []
     assert db.get_mod_log(server["id"])[0]["action"] == "report_resolve"

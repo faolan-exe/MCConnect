@@ -367,7 +367,7 @@ def cmd_report(ctx, args):
 def notify_moderators(db, server_id, tell, reporter, target, location):
     where = f" bei {location[0]} {location[1]} {location[2]} {location[3]}" if location else ""
     text = f"&c[Meldung] &f{reporter}{' meldet ' + target if target else ' hat etwas gemeldet'}{clean(where)} &7– " \
-           f"&b{page_url(db, server_id, '/users#reports')}"
+           f"&b{page_url(db, server_id, '/users/spieler#reports')}"
     for uuid in db.get_online_moderator_uuids(server_id):
         tell(uuid, text)
 

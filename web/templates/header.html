@@ -132,7 +132,7 @@
           <li>
             <div class="dropdown">
               <button
-                class="dropbtn {% if request.path=='/users' %} current{% endif %}"
+                class="dropbtn {% if request.path.startswith('/users') %} current{% endif %}"
                 onclick="window.location.href='/users'"
               >
                 Verwaltung

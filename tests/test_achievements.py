@@ -161,7 +161,7 @@ def test_create_and_delete_competition(mod_client, db, server):
     assert response.status_code == 200
     competition = db.get_competition(response.json["id"])
     assert competition["title"] == "Angel-Cup" and competition["created_by"] == "_Tobias4444"
-    assert "Angel-Cup" in mod_client.get("/users", **on("testdomain")).get_data(as_text=True)
+    assert "Angel-Cup" in mod_client.get("/users/inhalte", **on("testdomain")).get_data(as_text=True)
     assert mod_client.post("/api/mod/competitions/delete", json={"id": competition["id"]},
                            **on("testdomain")).status_code == 200
     assert db.list_competitions(server["id"]) == []

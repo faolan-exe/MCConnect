@@ -218,7 +218,7 @@ def test_create_and_delete_goal(mod_client, db, server):
     html = mod_client.get("/", **on("testdomain")).get_data(as_text=True)
     assert "Gemeinschaftsziele" in html and "Tausend Stunden" in html
     assert "Tausend Stunden" in mod_client.get("/wettbewerbe", **on("testdomain")).get_data(as_text=True)
-    assert "Gemeinschaftsziele" in mod_client.get("/users", **on("testdomain")).get_data(as_text=True)
+    assert "Gemeinschaftsziele" in mod_client.get("/users/inhalte", **on("testdomain")).get_data(as_text=True)
     assert mod_client.post("/api/mod/goals/delete", json={"id": response.json["id"]}, **on("testdomain")).status_code == 200
     assert db.list_goals(server["id"]) == []
 

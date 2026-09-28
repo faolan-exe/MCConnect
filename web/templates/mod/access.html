@@ -1,0 +1,85 @@
+{% extends "mod/_layout.html" %}
+{% block mod_content %}
+<section class="srv-card" id="access">
+  <h2>Zugang zur Whitelist</h2>
+  <p class="mcc-hint">Auf <a href="/mitmachen">/mitmachen</a> können sich Spieler bewerben oder einen Einladungscode einlösen.
+    Freigeschaltete Namen setzt das Plugin sofort auf die Whitelist (<code>whitelist add</code>), auch wenn der Server
+    gerade offline war. Wer nicht auf der Whitelist steht, bekommt beim Joinen den Link angezeigt (ab Plugin 3.6).</p>
+  <div class="st-periods" role="group" aria-label="Zugang">
+    {% for mode, label in (("off", "Aus"), ("application", "Bewerbung"), ("code", "Einladungscode"), ("both", "Beides")) %}
+    <button type="button" data-setting="access_mode" data-value="{{ mode }}" aria-pressed="{{ 'true' if settings.access_mode == mode else 'false' }}">{{ label }}</button>
+    {% endfor %}
+  </div>
+  <div data-live="applications">
+  {% if access_requests %}
+  <div class="mcc-table-wrap">
+    <table class="mcc-table">
+      <thead><tr><th>Wann</th><th>Name</th><th>Nachricht</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for r in access_requests %}
+        <tr{% if r.status != "pending" %} class="rp-done"{% endif %}>
+          <td>{{ r.when }}</td><td><b>{{ r.name }}</b></td><td>{{ r.message or "–" }}</td>
+          <td>{{ {"pending": "offen", "accepted": "freigeschaltet", "rejected": "abgelehnt"}[r.status] }}{% if r.handled_by %} · {{ r.handled_by }}{% endif %}
+            {% if r.status == "accepted" and not r.synced %}<span class="mcc-hint">(wartet aufs Plugin)</span>{% endif %}</td>
+          <td class="md-actions">{% if r.status == "pending" %}
+            <button class="mcc-btn mcc-btn-small" type="button" data-mod-post="/api/mod/applications" data-id="{{ r.id }}" data-body='{"accept": true}'>Annehmen</button>
+            <button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-mod-post="/api/mod/applications" data-id="{{ r.id }}" data-body='{"accept": false}'>Ablehnen</button>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="st-empty">Noch keine Bewerbungen.</p>
+  {% endif %}
+  </div>
+  <h3>Einladungscodes</h3>
+  <details class="md-create">
+  <summary>+ Neuer Einladungscode</summary>
+  <form class="mcc-form" data-mod-form="/api/mod/codes">
+    <div class="mcc-row">
+      <div><label for="ic-code">Code <span class="mcc-hint">(leer = zufällig)</span></label><input class="mcc-input" id="ic-code" name="code" maxlength="24"/></div>
+      <div><label for="ic-uses">Nutzungen <span class="mcc-hint">(leer = unbegrenzt)</span></label><input class="mcc-input" id="ic-uses" name="max_uses" type="number" min="1" max="1000"/></div>
+      <div><label for="ic-days">Gültig (Tage)</label><input class="mcc-input" id="ic-days" name="days" type="number" min="1" max="365" value="30"/></div>
+    </div>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Code anlegen</button></div>
+    <div class="mcc-message" data-role="message"></div>
+  </form>
+  </details>
+  <div data-live="codes">
+  {% if invite_codes %}
+  <div class="mcc-table-wrap" style="margin-top: 16px">
+    <table class="mcc-table">
+      <thead><tr><th>Code</th><th>Genutzt</th><th>Gültig bis</th><th></th></tr></thead>
+      <tbody>
+        {% for c in invite_codes %}
+        <tr{% if not c.valid %} class="rp-done"{% endif %}>
+          <td><code>{{ c.code }}</code></td><td>{{ c.uses }}{% if c.max_uses %} von {{ c.max_uses }}{% endif %}</td>
+          <td>{{ c.until or "unbegrenzt" }}{% if not c.valid %} (abgelaufen){% endif %}</td>
+          <td><button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-mod-post="/api/mod/codes/delete"
+                      data-id="{{ c.id }}" data-confirm="Code {{ c.code }} löschen?">Löschen</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  </div>
+</section>
+
+<section class="srv-card" id="rules">
+  <h2>Regeln &amp; FAQ</h2>
+  <p class="mcc-hint">Optional. Eingeschaltet erscheint <a href="/regeln">/regeln</a> im Menü, und neue Spieler bekommen beim ersten Join den Link im Chat.
+    Absätze mit einer Leerzeile trennen. FAQ: Frage in die erste Zeile, Antwort darunter, zwischen zwei Fragen eine Leerzeile.</p>
+  <form class="mcc-form" data-settings-form>
+    <label class="pf-check"><input type="checkbox" name="rules_enabled"{% if settings.rules_enabled %} checked{% endif %}/>
+      <span><b>Regeln-Seite anzeigen</b></span></label>
+    <label for="rl-rules">Regeln</label>
+    <textarea class="mcc-input" id="rl-rules" name="rules" rows="8" maxlength="10000">{{ settings.rules or "" }}</textarea>
+    <label for="rl-faq">FAQ</label>
+    <textarea class="mcc-input" id="rl-faq" name="faq" rows="6" maxlength="10000" placeholder="Wie komme ich zum Spawn?&#10;Mit /spawn oder über das Portal am Hafen.">{{ settings.faq or "" }}</textarea>
+    <div class="mcc-actions"><button class="mcc-btn" type="submit">Speichern</button></div>
+    <div class="mcc-message" data-role="message"></div>
+  </form>
+</section>
+{% endblock %}

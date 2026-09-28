@@ -64,7 +64,7 @@ stat units, screenshot workflow) and still useful as background.
 | Competitions | `/wettbewerbe`, created on `/users` | start/end announced in chat by the socket server |
 | Profile & privacy | `/profil` | bio, "hide my stats" (`hide_stats`: left out of every public view except server totals), favourites |
 | Stat card | `/spieler/<name>/karte.png` | Pillow, fonts in `web/card_fonts/`, used as `og:image` |
-| Moderation | `/users` (moderators only) | server health (TPS, RAM, uptime, 24 h charts, availability), log of all moderation actions, inactive players, competitions, bans |
+| Moderation | `/users` (moderators only) | overview (open tasks, server health, newest log entries) and sub pages `/users/spieler` (reports, bans, warnings, X-ray, activity), `/users/inhalte` (gallery, guestbook, events, polls, competitions, goals), `/users/zugang` (whitelist access, codes, rules/FAQ), `/users/protokoll`; templates in `web/templates/mod/`, every action saved without reload by `web/static/mod.js` (replaces the `data-live` parts); old anchors like `/users#reports` are forwarded |
 | Motivation (phase 5) | `database/motivation.py` | streaks + badges 7/30/100, anniversaries (`player_milestones`), record history (`record_history`, cooldown against flip-flops), community goals (`community_goals`, `/wettbewerbe#ziele`, created on `/users`), trophies (`trophies`: competition places, player of the week), fun facts on `/server-statistik`, trophy cabinet on the player page, hall of fame `/ruhmeshalle`; news in feed and chat |
 | In game (phase 6) | `mc_socket/commands.py` | `/stats`, `/top`, `/wettbewerb`, `/duell`, `/report`, `/seitenleiste` answered by the socket server (`!CMD` → `!tell`); scoreboard sidebar (`!sidebar`, setting also on `/profil`); duels (`duels`, `/duelle`), reports (`reports`, `/melden`, list on `/users`, online moderators get a chat message) |
 | Community (phase 7) | `/events`, `/umfragen`, `/galerie`, player page | event calendar with sign up and chat reminder (`events`, `event_signups`, `/events` in game), polls (`polls`, `poll_votes`, `/vote`, result in chat), build gallery with approval and likes (`builds`, `build_likes`, uploads like the server images), guestbook on the player page (`guestbook`, report/delete); created and moderated on `/users` (jump links at the top) |
@@ -93,7 +93,7 @@ Progress is ticked off here, so a new session knows where to continue.
       streaks at most every 15 s per player; sidebar, player page, competitions and duels follow faster.
 
 **B. Menus** (settings are saved without a page reload – nothing collapses, no scrolling back)
-- [ ] B1 Moderation `/users` → overview (open tasks: reports, builds, guestbook, applications; health) plus
+- [x] B1 Moderation `/users` → overview (open tasks: reports, builds, guestbook, applications; health) plus
       sub pages: players (bans, warnings/mutes, X-ray, activity), content (events, polls, competitions, goals,
       gallery, guestbook), access & rules, rewards, log
 - [ ] B2 Admin `/manage` → server tiles, `/manage/<server>` with tabs: overview, plugin & connection,

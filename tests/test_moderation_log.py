@@ -37,7 +37,7 @@ def test_ban_and_unban_are_logged(mod, db, server):
     assert mod.post("/api/mod/unban", json={"player_id": str(player_id)}, **on("testdomain")).status_code == 200
     assert actions(db, server) == [("_Tobias4444", "ban", "Notch"), ("_Tobias4444", "unban", "Notch")]
     assert "Griefing" in db.get_mod_log(server["id"])[1]["details"]
-    html = mod.get("/users", **on("testdomain")).get_data(as_text=True)
+    html = mod.get("/users/protokoll", **on("testdomain")).get_data(as_text=True)
     assert "Protokoll" in html and "hat gebannt" in html and "hat entbannt" in html
 
 

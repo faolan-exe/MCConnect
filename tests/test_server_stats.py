@@ -129,7 +129,7 @@ def test_moderation_page_lists_player_activity(db, server):
     db.set_plugin_connected(server["id"], True)
     db.set_moderator(server["id"], "_Tobias4444", True)
     assert login_player(client, db, player_id).json["status"] == "success"
-    html = client.get("/users", **on("testdomain")).get_data(as_text=True)
+    html = client.get("/users/spieler", **on("testdomain")).get_data(as_text=True)
     assert "Aktivität der Spieler" in html
     # never seen players come first, online players last
     assert html.index('data-name="Notch"') < html.index('data-name="_Tobias4444"')

@@ -1,0 +1,95 @@
+{% extends "mod/_layout.html" %}
+{% block mod_content %}
+{% set open_tasks = tasks.values() | selectattr(0) | list %}
+<section class="srv-card" id="tasks">
+  <h2>Offene Aufgaben</h2>
+  <div data-live="tasks">
+    {% if open_tasks %}
+    <ul class="md-tasks">
+      {% for count, label, link in open_tasks %}
+      <li><a href="{{ link }}"><b>{{ count }}</b> {{ label }}</a></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="st-empty">Alles erledigt – keine offenen Meldungen, Bilder, Gästebucheinträge oder Bewerbungen.</p>
+    {% endif %}
+  </div>
+</section>
+
+<section class="srv-card" id="health">
+  <h2>Serverzustand</h2>
+  {% if not health.online %}
+  <p class="hl-alert" role="alert"><b>⚠ Der Minecraft-Server ist nicht mit MCConnect verbunden</b>
+    {% if health.offline_since %}– zuletzt gesehen am {{ health.offline_since }}{% endif %}.
+    Läuft der Server, und ist das Plugin installiert?</p>
+  {% endif %}
+  {% if health.latest %}
+  <div class="hl-grid">
+    <div class="hl-item"><span class="hl-label">TPS</span>
+      <strong>{{ health.tps or "–" }}</strong>
+      {% if health.status %}<span class="hl-status hl-{{ health.status }}">{{ {"good": "✓ flüssig", "warning": "! etwas langsam", "critical": "✕ überlastet"}[health.status] }}</span>{% endif %}</div>
+    <div class="hl-item"><span class="hl-label">Arbeitsspeicher</span>
+      <strong>{{ "{:,}".format(health.latest.mem_used_mb or 0).replace(",", ".") }} MB</strong>
+      <span class="hl-sub">von {{ "{:,}".format(health.latest.mem_max_mb or 0).replace(",", ".") }} MB</span></div>
+    <div class="hl-item"><span class="hl-label">Läuft seit</span><strong>{{ health.uptime }}</strong>
+      <span class="hl-sub">Erreichbar: {{ health.availability or "–" }} (7 Tage)</span></div>
+    <div class="hl-item"><span class="hl-label">Spieler · Chunks · Entities</span>
+      <strong>{{ health.latest.players }} · {{ health.latest.chunks }} · {{ health.latest.entities }}</strong>
+      <span class="hl-sub">Stand {{ health.sampled }}</span></div>
+  </div>
+  <div class="hl-charts">
+    <div>
+      <h3>TPS (24 Stunden)</h3>
+      <script id="tps-data" type="application/json">{{ health.tps_chart | tojson }}</script>
+      <div class="cmp-chart" data-line-chart="tps-data" aria-label="TPS der letzten 24 Stunden"></div>
+    </div>
+    <div>
+      <h3>Arbeitsspeicher (24 Stunden)</h3>
+      <script id="mem-data" type="application/json">{{ health.mem_chart | tojson }}</script>
+      <div class="cmp-chart" data-line-chart="mem-data" aria-label="Arbeitsspeicher der letzten 24 Stunden"></div>
+    </div>
+  </div>
+  <p class="mcc-hint">{{ health.latest.mc_version or "" }} · MCDataLink {{ health.latest.plugin_version or "" }}.
+    20 TPS sind ideal; unter 15 merken Spieler Ruckler.</p>
+  {% elif health.online %}
+  <p class="hl-alert hl-alert-soft"><b>Das Plugin ist verbunden, schickt aber keinen Serverzustand{% if health.stale %} mehr (zuletzt {{ health.last_sample }}){% endif %}.</b><br/>
+    Der Serverzustand kommt ab Plugin-Version 3.2. Lade auf der Admin-Seite das aktuelle MCDataLink.jar herunter,
+    ersetze die alte Datei im <code>plugins</code>-Ordner und starte den Minecraft-Server neu. Hilft das nicht:
+    <code>docker compose logs socket | tail -50</code> zeigt, was ankommt.</p>
+  {% else %}
+  <p class="mcc-hint">Noch keine Daten. Sobald der Server mit Plugin 3.2 oder neuer verbunden ist, erscheinen sie hier.</p>
+  {% endif %}
+</section>
+
+<section class="srv-card" id="recent">
+  <h2>Zuletzt</h2>
+  <div data-live="recent">
+    {% if log %}
+    <ul class="md-recent">
+      {% for e in log %}
+      <li><span class="lg-when">{{ e.when }}</span> <b>{{ e.actor or "–" }}</b> <span class="lg-action lg-{{ e.action }}">{{ e.label }}</span>
+        {% if e.target_name %}<a href="/spieler?player={{ e.target_name | urlencode }}">{{ e.target_name }}</a>{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="st-empty">Noch keine Einträge.</p>
+    {% endif %}
+  </div>
+  <p><a href="/users/protokoll">Ganzes Protokoll</a></p>
+</section>
+{% endblock %}
+
+{% block mod_scripts %}
+<script src="{{ url_for('static', filename='line-chart.js') }}"></script>
+<script>
+  // links to the old one-page moderation (chat messages, e-mails, bookmarks) go to the new pages
+  (() => {
+    const moved = { reports: "spieler", warnings: "spieler", xray: "spieler", activity: "spieler",
+      competitions: "inhalte", goals: "inhalte", events: "inhalte", polls: "inhalte", builds: "inhalte", guestbook: "inhalte",
+      access: "zugang", rules: "zugang", log: "protokoll" };
+    const page = moved[location.hash.slice(1)];
+    if (page) location.replace(`/users/${page}${page === "protokoll" ? "" : location.hash}`);
+  })();
+  modLive(30000);  // open tasks and the newest log entries stay current
+</script>
+{% endblock %}

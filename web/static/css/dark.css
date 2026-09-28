@@ -63,7 +63,7 @@
 :root[data-dark] .lg-ingame_unban { background: var(--dk-tint-green); color: var(--dk-tint-green-text); }
 :root[data-dark] .cp-badge-soon, :root[data-dark] .pl-badge-op, :root[data-dark] .cm-icon, :root[data-dark] .lg-mod_add,
 :root[data-dark] .lg-mod_remove { background: var(--dk-tint-blue); color: var(--dk-tint-blue-text); }
-:root[data-dark] .pl-badge-ban, :root[data-dark] .gl-status-failed, :root[data-dark] .md-nav b, :root[data-dark] .lg-ban,
+:root[data-dark] .pl-badge-ban, :root[data-dark] .gl-status-failed, :root[data-dark] .md-nav b, :root[data-dark] .md-tabs b, :root[data-dark] .lg-ban,
 :root[data-dark] .lg-ingame_ban { background: var(--dk-tint-red); color: var(--dk-tint-red-text); }
 :root[data-dark] .xr-flag { color: var(--dk-tint-red-text); }
 :root[data-dark] .pl-badge-streak { background: var(--dk-tint-amber); color: var(--dk-tint-amber-text); }

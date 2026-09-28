@@ -169,7 +169,8 @@ def test_build_upload_approve_like(player_client, client, db, server, two_player
     assert db.list_builds(server["id"]) == []  # not in the gallery before the approval
 
     db.set_moderator(server["id"], "_Tobias4444", True)
-    assert "Galerie freigeben · 1" in player_client.get("/users", **on("testdomain")).get_data(as_text=True)
+    assert "<b>1</b> Bilder warten auf Freigabe" in player_client.get("/users", **on("testdomain")).get_data(as_text=True)
+    assert "Leuchtturm" in player_client.get("/users/inhalte", **on("testdomain")).get_data(as_text=True)
     assert player_client.post("/api/mod/builds/approve", json={"id": build["id"]}, **on("testdomain")).status_code == 200
     assert "Leuchtturm" in client.get("/galerie", **on("testdomain")).get_data(as_text=True)
     assert "Bauten in der Galerie" in client.get("/spieler?player=_Tobias4444", **on("testdomain")).get_data(as_text=True)

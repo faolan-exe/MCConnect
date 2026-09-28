@@ -43,7 +43,8 @@ def test_application_flow(client, mod_client, db, server, plugin):
     assert client.post("/api/access/apply", json=body, **on("testdomain")).status_code == 200
     assert client.post("/api/access/apply", json=body, **on("testdomain")).status_code == 409  # already open
     request_id = db.list_access_requests(server["id"])[0]["id"]
-    assert "Neuling_1" in mod_client.get("/users", **on("testdomain")).get_data(as_text=True)
+    assert "Neuling_1" in mod_client.get("/users/zugang", **on("testdomain")).get_data(as_text=True)
+    assert "<b>1</b> Bewerbungen" in mod_client.get("/users", **on("testdomain")).get_data(as_text=True)
 
     assert mod_client.post("/api/mod/applications", json={"id": request_id, "accept": True},
                            **on("testdomain")).status_code == 200
@@ -149,7 +150,7 @@ def test_xray_hints(mod_client, db, server, two_players):
     a, b = two_players
     db.update_player_stats(b, {"stats": {"minecraft:mined": {"minecraft:stone": 2500, "minecraft:deepslate_diamond_ore": 40}}})
     db.update_player_stats(a, {"stats": {"minecraft:mined": {"minecraft:stone": 9000, "minecraft:diamond_ore": 12}}})
-    html = mod_client.get("/users", **on("testdomain")).get_data(as_text=True)
+    html = mod_client.get("/users/spieler", **on("testdomain")).get_data(as_text=True)
     section = html.split('id="xray"')[1].split("</section>")[0]
     assert "Notch" in section and "16,0" in section and "_Tobias4444" not in section
 
