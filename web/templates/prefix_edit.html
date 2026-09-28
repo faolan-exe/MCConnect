@@ -6,15 +6,17 @@
 <p class="srv-lead">Dein Prefix steht im Chat, in der Tabliste, über deinem Kopf und hier auf der Website vor deinem Namen.
   Andere können ihm beitreten – mit Passwort nur, wenn sie es kennen.</p>
 
+<div data-live="current">
 {% if current_prefix and (not own_prefix or current_prefix.prefix_id != own_prefix.prefix_id) %}
 <div class="srv-card">
   <p style="margin: 0">Gerade trägst du {{ prefix_chip(current_prefix.text, current_prefix.color, prefix_colors) }}
     von {{ current_prefix.owner_name }}. Speicherst du hier deinen eigenen, wechselst du zu diesem.</p>
 </div>
 {% endif %}
+</div>
 
 <form class="srv-card mcc-form" id="prefix-form">
-  <h2>{{ "Prefix bearbeiten" if own_prefix else "Prefix erstellen" }}</h2>
+  <h2 data-live="heading">{{ "Prefix bearbeiten" if own_prefix else "Prefix erstellen" }}</h2>
 
   <label for="text">Text <span class="mcc-hint">(1–16 Zeichen)</span></label>
   <input class="mcc-input" id="text" maxlength="16" required value="{{ own_prefix.text if own_prefix else '' }}" />
@@ -31,14 +33,16 @@
   <label>Vorschau im Chat</label>
   <div class="mcc-chat"><span id="preview-prefix"></span> {{ name }}: Hallo zusammen!</div>
 
-  <label for="password">Passwort zum Beitreten <span class="mcc-hint">
+  <label for="password">Passwort zum Beitreten <span class="mcc-hint" data-live="password-hint">
     {% if own_prefix and own_prefix.has_password %}(leer lassen, um das bisherige zu behalten){% else %}(optional, ohne Passwort kann jeder beitreten){% endif %}</span></label>
   <input class="mcc-input" id="password" type="password" autocomplete="new-password" minlength="4" />
+  <div data-live="remove-password">
   {% if own_prefix and own_prefix.has_password %}
   <label style="font-weight: 400"><input type="checkbox" id="remove-password" /> Passwort entfernen</label>
   {% endif %}
+  </div>
 
-  <div class="mcc-actions">
+  <div class="mcc-actions" data-live="actions">
     <button class="mcc-btn" type="submit">Speichern</button>
     {% if own_prefix %}
     <button class="mcc-btn mcc-btn-secondary" type="button" id="delete-prefix">Prefix löschen</button>
@@ -51,6 +55,7 @@
 <p><a href="/join_pref">Lieber einem bestehenden Prefix beitreten →</a></p>
 {% endblock %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='poll.js') }}"></script>
 <script>
   const COLORS = {{ prefix_colors | tojson }};
   const form = document.getElementById("prefix-form");
@@ -76,24 +81,29 @@
     });
     if (result.ok) {
       showMessage(message, "Gespeichert. Im Spiel siehst du den Prefix sofort.", "success");
-      setTimeout(() => window.location.reload(), 900);
+      document.getElementById("password").value = "";
+      refreshLiveParts();
     } else {
       showMessage(message, result.data.error || "Speichern fehlgeschlagen.", "error");
     }
   });
 
-  const deleteButton = document.getElementById("delete-prefix");
-  if (deleteButton) {
-    deleteButton.addEventListener("click", async () => {
-      if (deleteButton.dataset.confirm !== "1") {
-        deleteButton.dataset.confirm = "1";
-        deleteButton.textContent = "Wirklich löschen? Alle Mitglieder verlieren ihn";
-        return;
-      }
-      const result = await postJson("/api/prefix/delete");
-      if (result.ok) window.location.reload();
-      else showMessage(message, "Löschen fehlgeschlagen.", "error");
-    });
-  }
+  // delegated: the button is replaced after saving
+  document.addEventListener("click", async (event) => {
+    const deleteButton = event.target.closest("#delete-prefix");
+    if (!deleteButton) return;
+    if (deleteButton.dataset.confirm !== "1") {
+      deleteButton.dataset.confirm = "1";
+      deleteButton.textContent = "Wirklich löschen? Alle Mitglieder verlieren ihn";
+      return;
+    }
+    const result = await postJson("/api/prefix/delete");
+    if (result.ok) {
+      showMessage(message, "Prefix gelöscht.", "success");
+      document.getElementById("text").value = "";
+      updatePreview();
+      refreshLiveParts();
+    } else showMessage(message, "Löschen fehlgeschlagen.", "error");
+  });
 </script>
 {% endblock %}

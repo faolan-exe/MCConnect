@@ -219,7 +219,7 @@ def test_guestbook(player_client, client, db, server, two_players):
     assert player_client.post("/api/guestbook", json={"name": "Notch", "text": "Coole Burg!"}, **on("testdomain")).status_code == 200
     assert player_client.post("/api/guestbook", json={"name": "Notch", "text": "x"}, **on("testdomain")).status_code == 400
     html = client.get("/spieler?player=Notch", **on("testdomain")).get_data(as_text=True)
-    assert "Gästebuch · 1" in html and "Coole Burg!" in html
+    assert "Gästebuch<span data-live=\"guestbook-count\"> · 1</span>" in html and "Coole Burg!" in html
     entry = db.get_guestbook(b)[0]
     # Notch reports it, a moderator keeps it; Notch as page owner can delete it
     assert db.report_guestbook_entry(server["id"], entry["id"])

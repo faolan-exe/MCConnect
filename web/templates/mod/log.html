@@ -39,7 +39,7 @@
       document.querySelectorAll("#log tbody tr").forEach((row) => (row.hidden = query && !row.dataset.text.includes(query)));
     };
     filter.addEventListener("input", apply);
-    document.addEventListener("mod:refreshed", apply);  // new entries keep the filter
+    document.addEventListener("live:refreshed", apply);  // new entries keep the filter
   })();
   modLive(30000);
 </script>

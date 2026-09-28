@@ -1,37 +1,16 @@
 // Moderation pages (/users/...): everything is saved with fetch, the page is never reloaded. After a change
 // only the parts marked data-live="<name>" (tables, lists, the tabs with their counters) are replaced with
 // the current version of the page, so open sections, typed text and the scroll position stay as they are.
-// Needs postJson and showMessage from the base template.
+// Needs postJson and showMessage from the base template and refreshLiveParts/liveParts from poll.js.
 //
 //   <button data-mod-post="/api/..." data-id="3" [data-body='{"accept": true}'] [data-confirm="Sure?"]>
 //   <form data-mod-form="/api/..." [data-options]>   fields as JSON (data-options: "options" split by line)
 //   <form data-settings-form>                         fields to /api/mod/settings (checkboxes as true/false)
 //   <button data-setting="access_mode" data-value="code" aria-pressed="false">  one option of a setting
 
-async function modRefresh() {
-  try {
-    const response = await fetch(location.pathname, { headers: { Accept: "text/html" } });
-    if (!response.ok) return;
-    const fresh = new DOMParser().parseFromString(await response.text(), "text/html");
-    document.querySelectorAll("[data-live]").forEach((part) => {
-      const next = fresh.querySelector(`[data-live="${part.dataset.live}"]`);
-      if (next && next.innerHTML !== part.innerHTML) part.innerHTML = next.innerHTML;
-    });
-    document.dispatchEvent(new Event("mod:refreshed"));
-  } catch (e) {}
-}
-
-// keeps the live parts current while the tab is visible (e.g. new reports on the overview)
-function modLive(intervalMs) {
-  let timer = null;
-  const start = () => { if (!timer) timer = setInterval(modRefresh, intervalMs); };
-  const stop = () => { clearInterval(timer); timer = null; };
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) stop();
-    else { modRefresh(); start(); }
-  });
-  if (!document.hidden) start();
-}
+// modRefresh = refreshLiveParts (poll.js), modLive = liveParts
+const modRefresh = refreshLiveParts;
+const modLive = liveParts;
 
 (() => {
   // a short note next to the element that was used ("Gespeichert.")

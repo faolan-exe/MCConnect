@@ -21,24 +21,27 @@ function pollJson(url, intervalMs, onData) {
   if (!document.hidden) start();
 }
 
-// Keeps the parts of a page marked with data-live="<name>" up to date: loads the page itself every
-// intervalMs (only while the tab is visible) and replaces those parts when they changed. Everything
-// else (forms, opened <details>, scroll position) stays as it is; use event delegation for buttons
-// inside the live parts.
+// Replaces the parts of the page marked with data-live="<name>" with their current version (the page is
+// loaded again in the background). Everything else (forms, opened <details>, scroll position) stays as it
+// is, so saving something never needs a page reload. Use event delegation for buttons inside live parts.
+async function refreshLiveParts() {
+  try {
+    const response = await fetch(location.pathname + location.search, { headers: { Accept: "text/html" } });
+    if (!response.ok) return;
+    const fresh = new DOMParser().parseFromString(await response.text(), "text/html");
+    document.querySelectorAll("[data-live]").forEach((part) => {
+      const next = fresh.querySelector(`[data-live="${part.dataset.live}"]`);
+      if (next && next.innerHTML !== part.innerHTML) part.innerHTML = next.innerHTML;
+    });
+    document.dispatchEvent(new Event("live:refreshed"));
+  } catch (e) {}
+}
+
+// refreshLiveParts every intervalMs while the tab is visible
 function liveParts(intervalMs) {
   if (!document.querySelector("[data-live]")) return;
   let timer = null;
-  async function tick() {
-    try {
-      const response = await fetch(location.href, { headers: { Accept: "text/html" } });
-      if (!response.ok) return;
-      const fresh = new DOMParser().parseFromString(await response.text(), "text/html");
-      document.querySelectorAll("[data-live]").forEach((part) => {
-        const next = fresh.querySelector(`[data-live="${part.dataset.live}"]`);
-        if (next && next.innerHTML !== part.innerHTML) part.innerHTML = next.innerHTML;
-      });
-    } catch (e) {}
-  }
+  const tick = refreshLiveParts;
   function start() {
     if (!timer) timer = setInterval(tick, intervalMs);
   }

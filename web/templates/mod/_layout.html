@@ -12,6 +12,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='poll.js') }}"></script>
 <script src="{{ url_for('static', filename='mod.js') }}"></script>
 {% block mod_scripts %}{% endblock %}
 {% endblock %}

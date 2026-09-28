@@ -440,6 +440,7 @@
           {% if notes is not none %}
           <h2>Moderation · nur für Moderatoren sichtbar</h2>
           <div class="nt-card" id="notes" data-player="{{ user_name }}">
+            <div data-live="notes">
             {% for n in notes %}
             <div class="nt-note">
               <div class="nt-head"><b>{{ n.author or "Unbekannt" }}</b> <span>{{ n.when }}</span>
@@ -449,6 +450,7 @@
             {% else %}
             <p class="st-empty">Noch keine Notizen zu {{ user_name }}.</p>
             {% endfor %}
+            </div>
             <form class="nt-form">
               <label class="st-sr" for="note-text">Neue Notiz</label>
               <textarea class="mcc-input" id="note-text" maxlength="1000" rows="2" placeholder="Notiz zu {{ user_name }} …" required></textarea>
@@ -456,17 +458,19 @@
             </form>
             {% if player_log %}
             <details class="nt-log"><summary>Protokoll zu {{ user_name }} ({{ player_log | length }})</summary>
-              <ul>{% for e in player_log %}<li><span>{{ e.when }}</span> {{ e.actor or "–" }}: {{ e.label }}{% if e.details %} – {{ e.details }}{% endif %}</li>{% endfor %}</ul>
+              <ul data-live="player-log">{% for e in player_log %}<li><span>{{ e.when }}</span> {{ e.actor or "–" }}: {{ e.label }}{% if e.details %} – {{ e.details }}{% endif %}</li>{% endfor %}</ul>
             </details>
             {% endif %}
           </div>
           {% if warnings is not none %}
           <div class="nt-card wn-card" id="discipline" data-player="{{ user_name }}">
+            <div data-live="warnings">
             <div class="wn-head"><b>Verwarnungen: {{ warnings | length }}</b>{% if muted_until %} · <span class="xr-flag">stumm bis {{ muted_until }}</span>{% endif %}</div>
             {% if warnings %}
             <ul class="wn-list">{% for w in warnings %}<li><span>{{ w.when }}</span> {{ w.reason }} <span class="mcc-hint">({{ w.created_by or "–" }})</span>
               <button type="button" class="nt-delete" data-warning="{{ w.id }}">Löschen</button></li>{% endfor %}</ul>
             {% endif %}
+            </div>
             <form class="nt-form" data-discipline="/api/mod/warn">
               <label class="st-sr" for="wn-reason">Grund der Verwarnung</label>
               <input class="mcc-input" id="wn-reason" name="reason" maxlength="200" placeholder="Grund der Verwarnung" required/>
@@ -491,15 +495,16 @@
               root.querySelectorAll("[data-discipline]").forEach((form) => form.addEventListener("submit", async (event) => {
                 event.preventDefault();
                 const result = await post(form.dataset.discipline, Object.assign({ name: root.dataset.player }, Object.fromEntries(new FormData(form))));
-                if (result.ok) return location.reload();
                 const message = root.querySelector('[data-role="message"]');
-                message.textContent = result.data.error || "Das hat nicht geklappt.";
-                message.className = "mcc-message error";
+                message.textContent = result.ok ? (result.data.message || "Gespeichert.") : (result.data.error || "Das hat nicht geklappt.");
+                message.className = "mcc-message " + (result.ok ? "success" : "error");
+                if (result.ok) { form.reset(); refreshLiveParts(); }
               }));
-              root.querySelectorAll("[data-warning]").forEach((button) => button.addEventListener("click", async () => {
-                if (!confirm("Verwarnung löschen?")) return;
-                if ((await post("/api/mod/warnings/delete", { id: Number(button.dataset.warning) })).ok) location.reload();
-              }));
+              root.addEventListener("click", async (event) => {  // delegated: the list is replaced after changes
+                const button = event.target.closest("[data-warning]");
+                if (!button || !confirm("Verwarnung löschen?")) return;
+                if ((await post("/api/mod/warnings/delete", { id: Number(button.dataset.warning) })).ok) refreshLiveParts();
+              });
             })();
           </script>
           {% endif %}
@@ -536,7 +541,7 @@
         {% endif %}
 
         <section class="pi-extra gb-section" id="guestbook" data-player="{{ user_name }}">
-          <h2>Gästebuch{% if guestbook %} · {{ guestbook | length }}{% endif %}</h2>
+          <h2>Gästebuch<span data-live="guestbook-count">{% if guestbook %} · {{ guestbook | length }}{% endif %}</span></h2>
           {% if logged_in and not is_self %}
           <form class="gb-form">
             <label class="st-sr" for="gb-text">Eintrag für {{ user_name }}</label>
@@ -548,6 +553,7 @@
           {% elif not logged_in %}
           <p class="mcc-hint"><a href="/login?next=/spieler?player={{ user_name | urlencode }}">Log dich ein</a>, um etwas ins Gästebuch zu schreiben.</p>
           {% endif %}
+          <div data-live="guestbook">
           {% if guestbook %}
           <ul class="gb-list">
             {% for e in guestbook %}
@@ -567,6 +573,7 @@
           {% elif not (logged_in and not is_self) %}
           <p class="st-empty">Noch keine Einträge.</p>
           {% endif %}
+          </div>
         </section>
         <script>
           (() => {
@@ -577,21 +584,23 @@
             if (form) form.addEventListener("submit", async (event) => {
               event.preventDefault();
               const result = await post("/api/guestbook", { name: root.dataset.player, text: form.elements.text.value });
-              if (result.ok) return location.reload();
               const message = root.querySelector('[data-role="message"]');
-              message.textContent = result.data.error || "Das hat nicht geklappt.";
-              message.className = "mcc-message error";
+              message.textContent = result.ok ? "" : (result.data.error || "Das hat nicht geklappt.");
+              message.className = "mcc-message" + (result.ok ? "" : " error");
+              if (result.ok) { form.reset(); refreshLiveParts(); }
             });
-            root.querySelectorAll("[data-gb-delete]").forEach((button) => button.addEventListener("click", async () => {
-              if (!confirm("Eintrag wirklich löschen?")) return;
-              const result = await post("/api/guestbook/delete", { id: Number(button.dataset.gbDelete) });
-              if (result.ok) location.reload();
-            }));
-            root.querySelectorAll("[data-gb-report]").forEach((button) => button.addEventListener("click", async () => {
-              if (!confirm("Diesen Eintrag den Moderatoren melden?")) return;
-              const result = await post("/api/guestbook/report", { id: Number(button.dataset.gbReport) });
-              if (result.ok) { button.textContent = "Gemeldet"; button.disabled = true; }
-            }));
+            root.addEventListener("click", async (event) => {  // delegated: the list is replaced after changes
+              const remove = event.target.closest("[data-gb-delete]");
+              const report = event.target.closest("[data-gb-report]");
+              if (remove && confirm("Eintrag wirklich löschen?")) {
+                if ((await post("/api/guestbook/delete", { id: Number(remove.dataset.gbDelete) })).ok) refreshLiveParts();
+              } else if (report && confirm("Diesen Eintrag den Moderatoren melden?")) {
+                if ((await post("/api/guestbook/report", { id: Number(report.dataset.gbReport) })).ok) {
+                  report.textContent = "Gemeldet";
+                  report.disabled = true;
+                }
+              }
+            });
           })();
         </script>
 
@@ -686,11 +695,15 @@
           notes.querySelector(".nt-form").addEventListener("submit", async (event) => {
             event.preventDefault();
             const text = document.getElementById("note-text").value;
-            if ((await post("/api/mod/notes", { name: notes.dataset.player, text })).ok) location.reload();
+            if ((await post("/api/mod/notes", { name: notes.dataset.player, text })).ok) {
+              event.target.reset();
+              refreshLiveParts();
+            }
           });
-          notes.querySelectorAll("[data-note]").forEach((button) => button.addEventListener("click", async () => {
-            if (confirm("Notiz löschen?") && (await post("/api/mod/notes/delete", { id: Number(button.dataset.note) })).ok) location.reload();
-          }));
+          notes.addEventListener("click", async (event) => {  // delegated: the notes are replaced after changes
+            const button = event.target.closest("[data-note]");
+            if (button && confirm("Notiz löschen?") && (await post("/api/mod/notes/delete", { id: Number(button.dataset.note) })).ok) refreshLiveParts();
+          });
         }
         // achievements update live (the plugin sends the stats of online players every minute)
         const achievements = document.getElementById("achievements");

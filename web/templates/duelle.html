@@ -76,10 +76,11 @@
 
 {% set open = duels | selectattr("status", "in", ["running", "pending"]) | list %}
 {% set done = duels | rejectattr("status", "in", ["running", "pending"]) | list %}
+<div data-live="duels">
 <section class="st-group">
   <h2>Aktuell</h2>
   {% if open %}
-  <div class="st-boards" data-live="duels">{% for d in open %}{{ duel_card(d) }}{% endfor %}</div>
+  <div class="st-boards">{% for d in open %}{{ duel_card(d) }}{% endfor %}</div>
   {% else %}
   <p class="st-empty">Gerade läuft kein Duell.</p>
   {% endif %}
@@ -91,6 +92,7 @@
   <div class="st-boards">{% for d in done %}{{ duel_card(d) }}{% endfor %}</div>
 </section>
 {% endif %}
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -102,7 +104,11 @@
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const result = await postJson("/api/duels", Object.fromEntries(new FormData(form)));
-      if (result.ok) location.reload();
+      if (result.ok) {
+        form.reset();
+        showMessage(form.querySelector('[data-role="message"]'), "Herausforderung verschickt.", "success");
+        refreshLiveParts();
+      }
       else showMessage(form.querySelector('[data-role="message"]'), result.data.error || "Das hat nicht geklappt.", "error");
     });
   }
@@ -114,7 +120,7 @@
     if (cancel && !confirm("Herausforderung zurückziehen?")) return;
     const result = cancel ? await postJson("/api/duels/cancel", { id: Number(cancel.dataset.cancel) })
       : await postJson("/api/duels/respond", { id: Number(respond.dataset.respond), accept: respond.dataset.accept === "1" });
-    if (result.ok) location.reload();
+    if (result.ok) refreshLiveParts();
     else alert(result.data.error || "Das hat nicht geklappt.");
   });
 </script>

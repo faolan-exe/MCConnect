@@ -5,6 +5,7 @@
 <h1>Prefixes</h1>
 <p class="srv-lead">Tritt einem Prefix bei, um ihn im Spiel und hier auf der Website zu tragen. Du kannst immer nur einen tragen.</p>
 
+<div data-live="prefixes">
 {% if current_prefix %}
 <div class="srv-card">
   <p style="margin: 0 0 12px">Du trägst gerade {{ prefix_chip(current_prefix.text, current_prefix.color, prefix_colors) }}
@@ -37,31 +38,37 @@
   {% else %}
   <p class="mcc-empty" style="margin: 0">Auf diesem Server gibt es noch keine Prefixes.</p>
   {% endif %}
-  <div class="mcc-message" id="join-message"></div>
 </div>
+</div>
+<div class="mcc-message" id="join-message"></div>
 
 <p><a href="/add_pref">Eigenen Prefix erstellen →</a></p>
 {% endblock %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='poll.js') }}"></script>
 <script>
+  // delegated: the list is replaced after joining or leaving
   const message = document.getElementById("join-message");
-  document.querySelectorAll(".srv-prefix-join").forEach((form) => {
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const password = form.querySelector("input");
-      const result = await postJson("/api/prefix/join", {
-        prefix_id: Number(form.dataset.prefixId), password: password ? password.value : "",
-      });
-      if (result.ok) window.location.reload();
-      else showMessage(message, result.data.error || "Beitreten fehlgeschlagen.", "error");
+  document.addEventListener("submit", async (event) => {
+    const form = event.target.closest(".srv-prefix-join");
+    if (!form) return;
+    event.preventDefault();
+    const password = form.querySelector("input");
+    const result = await postJson("/api/prefix/join", {
+      prefix_id: Number(form.dataset.prefixId), password: password ? password.value : "",
     });
+    if (result.ok) {
+      showMessage(message, "Beigetreten. Im Spiel siehst du den Prefix sofort.", "success");
+      refreshLiveParts();
+    } else showMessage(message, result.data.error || "Beitreten fehlgeschlagen.", "error");
   });
-  const leave = document.getElementById("leave-prefix");
-  if (leave) {
-    leave.addEventListener("click", async () => {
-      const result = await postJson("/api/prefix/leave");
-      if (result.ok) window.location.reload();
-    });
-  }
+  document.addEventListener("click", async (event) => {
+    if (!event.target.closest("#leave-prefix")) return;
+    const result = await postJson("/api/prefix/leave");
+    if (result.ok) {
+      showMessage(message, "Prefix abgelegt.", "success");
+      refreshLiveParts();
+    }
+  });
 </script>
 {% endblock %}

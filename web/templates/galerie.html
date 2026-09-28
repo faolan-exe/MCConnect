@@ -8,7 +8,9 @@
   Moderatoren ist er hier zu sehen.</p>
 
 {% if viewer %}
-<details class="srv-card bg-upload"{% if waiting %} open{% endif %}>
+<details class="srv-card bg-upload"<div data-live="waiting">
+  {% if waiting %} open{% endif %}
+  </div>>
   <summary><b>Eigenen Bau hochladen</b></summary>
   <form class="mcc-form" id="build-form">
     <div class="mcc-row">
@@ -48,6 +50,7 @@
       <a href="/galerie?sortierung=beliebt"{% if order == 'top' %} aria-current="page"{% endif %}>Beliebteste</a>
     </nav>
   </div>
+  <div data-live="builds">
   {% if builds %}
   <div class="bg-grid">
     {% for b in builds %}
@@ -73,11 +76,13 @@
   {% else %}
   <p class="st-empty">Noch keine Bilder. Zeig, was du gebaut hast!</p>
   {% endif %}
+  </div>
 </section>
 
 <dialog class="srv-lightbox" id="lightbox" aria-label="Bild"><img id="lightbox-image" alt=""/></dialog>
 {% endblock %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='poll.js') }}"></script>
 <script>
   const form = document.getElementById("build-form");
   if (form) form.addEventListener("submit", async (event) => {
@@ -87,32 +92,35 @@
     const response = await fetch("/api/builds", { method: "POST", body: new FormData(form) });
     let data = {};
     try { data = await response.json(); } catch (e) {}
-    if (response.ok) location.reload();
-    else showMessage(message, data.error || "Hochladen fehlgeschlagen.", "error");
+    if (response.ok) {
+      form.reset();
+      showMessage(message, "Hochgeladen – sobald ein Moderator es freigibt, ist es in der Galerie.", "success");
+      refreshLiveParts();
+    } else showMessage(message, data.error || "Hochladen fehlgeschlagen.", "error");
   });
-  document.querySelectorAll("[data-like]").forEach((button) => button.addEventListener("click", async () => {
-    const result = await postJson("/api/builds/like", { id: Number(button.dataset.like) });
-    if (!result.ok) return alert(result.data.error || "Das hat nicht geklappt.");
-    button.setAttribute("aria-pressed", String(result.data.liked));
-    button.querySelector("span").textContent = result.data.likes;
-  }));
-  document.querySelectorAll("[data-delete]").forEach((button) => button.addEventListener("click", async () => {
-    if (!confirm("Bild wirklich löschen?")) return;
-    const result = await postJson("/api/builds/delete", { id: Number(button.dataset.delete) });
-    if (result.ok) location.reload();
-    else alert(result.data.error || "Das hat nicht geklappt.");
-  }));
-  document.querySelectorAll("[data-mod-delete]").forEach((button) => button.addEventListener("click", async () => {
-    if (!confirm("Bild als Moderator löschen? Das wird protokolliert.")) return;
-    const result = await postJson("/api/mod/builds/delete", { id: Number(button.dataset.modDelete) });
-    if (result.ok) location.reload();
-    else alert(result.data.error || "Das hat nicht geklappt.");
-  }));
   const lightbox = document.getElementById("lightbox");
-  document.querySelectorAll(".bg-open").forEach((button) => button.addEventListener("click", () => {
-    document.getElementById("lightbox-image").src = button.dataset.full;
-    lightbox.showModal();
-  }));
+  // delegated: the lists are replaced after changes
+  document.addEventListener("click", async (event) => {
+    const like = event.target.closest("[data-like]");
+    const remove = event.target.closest("[data-delete]");
+    const modRemove = event.target.closest("[data-mod-delete]");
+    const open = event.target.closest(".bg-open");
+    if (like) {
+      const result = await postJson("/api/builds/like", { id: Number(like.dataset.like) });
+      if (!result.ok) return alert(result.data.error || "Das hat nicht geklappt.");
+      like.setAttribute("aria-pressed", String(result.data.liked));
+      like.querySelector("span").textContent = result.data.likes;
+    } else if (remove || modRemove) {
+      if (!confirm(remove ? "Bild wirklich löschen?" : "Bild als Moderator löschen? Das wird protokolliert.")) return;
+      const result = remove ? await postJson("/api/builds/delete", { id: Number(remove.dataset.delete) })
+        : await postJson("/api/mod/builds/delete", { id: Number(modRemove.dataset.modDelete) });
+      if (result.ok) refreshLiveParts();
+      else alert(result.data.error || "Das hat nicht geklappt.");
+    } else if (open) {
+      document.getElementById("lightbox-image").src = open.dataset.full;
+      lightbox.showModal();
+    }
+  });
   lightbox.addEventListener("click", () => lightbox.close());
 </script>
 {% endblock %}
