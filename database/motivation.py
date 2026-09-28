@@ -59,8 +59,9 @@ def goal_unit(metric):
 
 def format_goal_value(metric, value):
     """A goal value in the goal unit, e.g. "381 Std." or "12,5 km" (all values of a goal in one unit)."""
-    if metric.unit == "time":
-        return f"{metrics._number(value / (20 * 3600))} Std."
+    if metric.unit == "time":  # below 10 hours with a decimal: 21 minutes are "0,4 Std.", not "0 Std."
+        hours = value / (20 * 3600)
+        return f"{metrics._number(hours, 1 if 0 < hours < 10 and hours != int(hours) else 0)} Std."
     if metric.unit == "distance":
         return f"{metrics._number(value / 100_000, 1)} km"
     return metrics.format_value(metric, value)

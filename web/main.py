@@ -1392,7 +1392,7 @@ def player_achievements_api(player_name):
 def my_new_achievements_api():
     """Tiers the logged in player reached after ?seit=<iso time> (for the toast on every page)."""
     player_id = logged_in_player_id()
-    now = datetime.now(timezone.utc)
+    now = db().get_now()  # the database's clock: the achievements are stamped with it
     if not player_id:
         return {"now": now.isoformat(), "new": []}
     try:

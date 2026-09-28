@@ -237,3 +237,50 @@ def test_player_page_without_snapshots_has_no_activity(client, db, two_players):
     html = client.get("/spieler?player=Notch", **on("testdomain")).get_data(as_text=True)
     assert "Aktivität der letzten 30 Tage" not in html
     assert "Highlights" in html
+
+
+def new_player_stats(minutes, stone):
+    return {"stats": {"minecraft:custom": {"minecraft:play_time": minutes * 60 * 20},
+                      "minecraft:mined": {"minecraft:stone": stone}}}
+
+
+def test_new_player_counts_from_the_first_join(db, server):
+    """A new player's first stats often arrive late (world save, quit): everything since the first join counts."""
+    player = db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
+    with db._cursor() as cur:  # joined 30 minutes ago, the stats come now
+        cur.execute("UPDATE player_sessions SET started_at = now() - interval '30 minutes'")
+    db.update_player_stats(player, new_player_stats(29, 400))
+    today = db.get_today()
+    assert db.get_metrics_between(server["id"], today, today)[str(player)]["blocks_mined"] == 400
+    goal_id = db.create_goal(server["id"], "Seit gestern", "blocks_mined", 1000, today - timedelta(days=1))
+    goal = next(g for g in db.list_goals(server["id"]) if g["id"] == goal_id)
+    assert db.get_goal_progress(goal)[1] == {str(player): 400}
+
+
+def test_known_player_seen_for_the_first_time_counts_from_then_on(db, server):
+    """More play time than time online since MCConnect: the stats are older, they do not count as gain."""
+    player = db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
+    db.update_player_stats(player, new_player_stats(600, 5000))
+    today = db.get_today()
+    assert db.get_metrics_between(server["id"], today, today)[str(player)]["blocks_mined"] == 0
+    db.update_player_stats(player, new_player_stats(601, 5010))
+    assert db.get_metrics_between(server["id"], today, today)[str(player)]["blocks_mined"] == 10
+
+
+def test_migration_gives_new_players_their_first_session_back(db, server):
+    """Migration 21: baselines of new players stored with the old rule (= their first stats) become 0."""
+    from database.databaseManagerV2 import MIGRATIONS
+    new = db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
+    old = db.register_player_join(server["id"], OTHER_UUID, "Notch")
+    with db._cursor() as cur:
+        cur.execute("UPDATE player_sessions SET started_at = now() - interval '30 minutes'")
+    db.update_player_stats(new, new_player_stats(29, 400))
+    db.update_player_stats(old, new_player_stats(600, 5000))
+    with db._cursor() as cur:  # the old rule: the first stats were the baseline
+        cur.execute("UPDATE stat_snapshots s SET value = t.value FROM stat_snapshots t WHERE s.player_id = t.player_id "
+                    "AND s.metric = t.metric AND s.day = current_date - 1 AND t.day = current_date")
+        for statement in MIGRATIONS[21]:
+            cur.execute(statement)
+    today = db.get_today()
+    gains = db.get_metrics_between(server["id"], today, today)
+    assert gains[str(new)]["blocks_mined"] == 400 and gains[str(old)]["blocks_mined"] == 0
