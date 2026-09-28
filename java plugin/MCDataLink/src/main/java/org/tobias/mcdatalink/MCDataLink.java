@@ -412,8 +412,10 @@ public final class MCDataLink extends JavaPlugin {
 
     // ------------------------------------------------------------------ players & stats
 
+    /** Also sends the first join on this Minecraft server: MCConnect tells new players from old ones by it. */
     void playerJoined(Player player) {
-        sendAsync("!JOIN~" + player.getUniqueId() + "|" + player.getName() + "|" + (player.isOp() ? "1" : "0"));
+        sendAsync("!JOIN~" + player.getUniqueId() + "|" + player.getName() + "|" + (player.isOp() ? "1" : "0") + "|"
+                + player.getFirstPlayed());
     }
 
     /** Main thread: current stats of an online player (see LiveStats). */

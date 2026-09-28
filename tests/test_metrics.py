@@ -1,10 +1,11 @@
 """Rankings and player comparison: metrics, snapshots, history and the web pages."""
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
 from database import metrics, stats
-from tests.conftest import OTHER_UUID, PLAYER_UUID
+from tests.conftest import OTHER_UUID, PLAYER_UUID, wait_for
+from tests.test_socket import plugin, socket_server  # noqa: F401 (fixtures)
 from tests.test_web import app, client, on  # noqa: F401 (fixtures)
 
 STATS_A = {"stats": {
@@ -289,3 +290,65 @@ def test_migration_gives_new_players_their_first_session_back(db, server, migrat
     today = db.get_today()
     gains = db.get_metrics_between(server["id"], today, today)
     assert gains[str(new)]["blocks_mined"] == 400 and gains[str(old)]["blocks_mined"] == 0
+
+
+def epoch_ms(delta):
+    from datetime import datetime, timezone
+    return int((datetime.now(timezone.utc) + delta).timestamp() * 1000)
+
+
+def test_first_join_in_the_game_decides_new_or_old(db, server, plugin):
+    """Plugin 3.15 sends the game's first join: after MCConnect's start on the server = new (all stats count)."""
+    from tests.conftest import OTHER_UUID
+    connection = plugin().auth(server["key"])  # the recording starts now
+    # joined the game an hour ago while the plugin was disconnected: 50 minutes of play, seen only now
+    assert connection.request(f"!JOIN~{PLAYER_UUID}|_Tobias4444|0|{epoch_ms(timedelta(hours=-1))}") == "success|101"
+    with db._cursor() as cur:  # the recording started two hours ago
+        cur.execute("UPDATE servers SET tracking_since = now() - interval '2 hours'")
+    db.update_player_stats(db.get_player_id_from_mojang_uuid_and_server_id(PLAYER_UUID, server["id"]), new_player_stats(50, 300))
+    # an old player: first join long before MCConnect
+    assert connection.request(f"!JOIN~{OTHER_UUID}|Notch|0|{epoch_ms(timedelta(days=-400))}") == "success|101"
+    db.update_player_stats(db.get_player_id_from_mojang_uuid_and_server_id(OTHER_UUID, server["id"]), new_player_stats(3, 50))
+    today = db.get_today()
+    gains = db.get_metrics_between(server["id"], today, today)
+    new, old = (str(db.get_player_id_from_mojang_uuid_and_server_id(u, server["id"])) for u in (PLAYER_UUID, OTHER_UUID))
+    assert gains[new]["blocks_mined"] == 300 and gains[new]["play_time"] == 50 * 60 * 20
+    assert gains[old]["blocks_mined"] == 0  # 3 minutes since the first join here, but an old player
+
+
+def test_wrong_baseline_is_corrected_by_the_first_join_info(db, server, plugin):
+    """A new player counted as old before plugin 3.15 (stats first, first join unknown) is corrected on the next join."""
+    player = db.ensure_player_on_server(server["id"], PLAYER_UUID, "_Tobias4444")  # stats before any join
+    db.update_player_stats(player, new_player_stats(90, 700))
+    today = db.get_today()
+    assert db.get_metrics_between(server["id"], today, today)[str(player)]["blocks_mined"] == 0
+    with db._cursor() as cur:
+        cur.execute("UPDATE servers SET tracking_since = now() - interval '1 day'")
+    connection = plugin().auth(server["key"])
+    assert connection.request(f"!JOIN~{PLAYER_UUID}|_Tobias4444|0|{epoch_ms(timedelta(hours=-3))}") == "success|101"
+    assert db.get_metrics_between(server["id"], today, today)[str(player)]["blocks_mined"] == 700
+    # only once: a later join does not touch the history again
+    db.update_player_stats(player, new_player_stats(95, 720))
+    assert connection.request(f"!JOIN~{PLAYER_UUID}|_Tobias4444|0|{epoch_ms(timedelta(hours=-3))}") == "success|101"
+    assert db.get_metrics_between(server["id"], today, today)[str(player)]["blocks_mined"] == 720
+
+
+def test_old_player_is_not_corrected(db, server, plugin):
+    player = db.ensure_player_on_server(server["id"], PLAYER_UUID, "_Tobias4444")
+    db.update_player_stats(player, new_player_stats(900, 9000))
+    connection = plugin().auth(server["key"])
+    assert connection.request(f"!JOIN~{PLAYER_UUID}|_Tobias4444|0|{epoch_ms(timedelta(days=-30))}") == "success|101"
+    today = db.get_today()
+    assert db.get_metrics_between(server["id"], today, today)[str(player)]["blocks_mined"] == 0
+
+
+def test_old_player_new_to_mcconnect_is_not_new(db, server, plugin):
+    """An old player seen by MCConnect for the first time: anniversary from the game's first join, not "new"."""
+    connection = plugin().auth(server["key"])
+    assert connection.request(f"!JOIN~{PLAYER_UUID}|_Tobias4444|0|{epoch_ms(timedelta(days=-800))}") == "success|101"
+    player = db.get_player_id_from_mojang_uuid_and_server_id(PLAYER_UUID, server["id"])
+    wait_for(lambda: [(m["kind"], m["value"]) for m in db.get_player_milestones(player)] == [("anniversary", 2)])
+    assert "new" not in [e["kind"] for e in db.get_feed(server["id"])]  # not "ist neu auf dem Server"
+    today = db.get_today()
+    assert db.get_new_players_between(server["id"], today, today) == 0
+    assert db.get_veterans(server["id"])[0]["first_seen"].year == (datetime.now() - timedelta(days=800)).year

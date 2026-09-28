@@ -443,6 +443,15 @@ MIGRATIONS = {
            UPDATE stat_snapshots s SET value = 0 FROM new_players n
            WHERE s.player_id = n.player_id AND s.day = n.day AND s.value <> 0""",
     ],
+    24: [
+        # A new player is one whose first join on the Minecraft server (Bukkit getFirstPlayed, sent with !JOIN
+        # by plugin 3.15) lies after the start of MCConnect's recording on that server: all their stats count.
+        # No guessing from times, which failed for players who joined while the plugin was disconnected.
+        "ALTER TABLE player_server_info ADD COLUMN first_played timestamptz",
+        "ALTER TABLE servers ADD COLUMN tracking_since timestamptz",
+        """UPDATE servers s SET tracking_since = COALESCE(
+             (SELECT min(first_seen) FROM player_server_info WHERE server_id = s.id), s.created_at)""",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -889,11 +898,15 @@ class DatabaseManager:
                 # A new player (no more play time than time since their first join) gained all of it here:
                 # baseline 0. Otherwise the stats are older than MCConnect: count from now on. (Not the sessions:
                 # while the plugin is disconnected, e.g. during an update, nobody has a session.)
-                cur.execute("SELECT extract(epoch FROM now() - first_seen) FROM player_server_info WHERE player_id = %s",
-                            (player_id,))
-                since_first_join = cur.fetchone()[0]
+                cur.execute("""SELECT psi.first_played >= s.tracking_since, extract(epoch FROM now() - psi.first_seen)
+                               FROM player_server_info psi JOIN servers s ON s.id = psi.server_id
+                               WHERE psi.player_id = %s""", (player_id,))
+                joined_after_start, since_first_join = cur.fetchone()
                 play_time = next(value for _, key, value in snapshot if key == "play_time") / 20
-                new_player = since_first_join is not None and play_time <= float(since_first_join) + NEW_PLAYER_SLACK_SECONDS
+                if joined_after_start is not None:  # plugin 3.15: the game's own first join is known
+                    new_player = joined_after_start
+                else:
+                    new_player = since_first_join is not None and play_time <= float(since_first_join) + NEW_PLAYER_SLACK_SECONDS
                 cur.executemany("""INSERT INTO stat_snapshots (player_id, metric, day, value)
                                    VALUES (%s, %s, current_date - 1, %s) ON CONFLICT DO NOTHING""",
                                 [(pid, key, 0 if new_player else value) for pid, key, value in snapshot])
@@ -922,12 +935,25 @@ class DatabaseManager:
         """Mark the player online on the server, creating it if needed. Returns the player_id."""
         return self.register_player_join_info(server_id, mojang_uuid, name)[0]
 
-    def register_player_join_info(self, server_id, mojang_uuid, name=None):
-        """Like register_player_join, returns (player_id, first join on this server)."""
+    def register_player_join_info(self, server_id, mojang_uuid, name=None, first_played=None):
+        """Like register_player_join, returns (player_id, first join on this server). first_played: the player's
+        first join on the Minecraft server (datetime, from the game) if the plugin sends it."""
         player_id = self.ensure_player_on_server(server_id, mojang_uuid, name)
         with self._cursor() as cur:
             cur.execute("SELECT first_seen IS NULL FROM player_server_info WHERE player_id = %s", (player_id,))
             first = cur.fetchone()[0]
+            if first_played is not None:
+                cur.execute("""UPDATE player_server_info SET first_played = %s WHERE player_id = %s AND first_played IS NULL
+                               RETURNING first_played >= (SELECT tracking_since FROM servers WHERE id = %s)""",
+                            (first_played, player_id, server_id))
+                row = cur.fetchone()
+                if row and row[0]:
+                    # Joined the game after MCConnect started recording: everything the player has was gained here.
+                    # The baseline of their first sync may have been guessed wrong (e.g. they joined while the
+                    # plugin was disconnected): it becomes 0.
+                    cur.execute("""UPDATE stat_snapshots SET value = 0 WHERE player_id = %s AND value <> 0
+                                     AND day = (SELECT min(day) FROM stat_snapshots WHERE player_id = %s)""",
+                                (player_id, player_id))
             cur.execute("""UPDATE player_server_info
                            SET online = true, first_seen = COALESCE(first_seen, now()), last_seen = now()
                            WHERE player_id = %s""", (player_id,))
@@ -1583,7 +1609,7 @@ class DatabaseManager:
     def get_player_list_details(self, server_id):
         """{player_id: {"first_seen", "last_seen", "is_op", "moderator", "banned"}} for the player list."""
         rows = self._fetchall(f"""
-            SELECT psi.player_id, psi.first_seen, psi.last_seen, psi.is_op,
+            SELECT psi.player_id, COALESCE(psi.first_played, psi.first_seen), psi.last_seen, psi.is_op,
                    psi.web_access_permissions <= %s OR (s.auto_mod_ops AND psi.is_op),
                    EXISTS (SELECT 1 FROM banned_players bp
                            WHERE bp.banned_player_id = psi.player_id AND {self._ACTIVE_BAN})
@@ -1664,7 +1690,7 @@ class DatabaseManager:
             FROM generate_series(date_trunc('month', now()) - (%s - 1) * interval '1 month',
                                  date_trunc('month', now()), interval '1 month') AS m(month)
             LEFT JOIN player_server_info psi ON psi.server_id = %s
-                 AND date_trunc('month', psi.first_seen) = m.month
+                 AND date_trunc('month', COALESCE(psi.first_played, psi.first_seen)) = m.month
             GROUP BY m.month ORDER BY m.month""", (months, server_id))
 
     def get_server_daily_gain(self, server_id, metric, days=30):
@@ -1724,7 +1750,8 @@ class DatabaseManager:
 
     def get_new_players_between(self, server_id, start, end):
         return self._fetchvalue("""SELECT count(*) FROM player_server_info WHERE server_id = %s
-                                   AND first_seen >= %s::date::timestamptz AND first_seen < (%s::date + 1)::timestamptz""",
+                                   AND COALESCE(first_played, first_seen) >= %s::date::timestamptz
+                                   AND COALESCE(first_played, first_seen) < (%s::date + 1)::timestamptz""",
                                 (server_id, start, end))
 
     ###----------------------------- Profile, privacy, favourites ------------------------------------###
@@ -1772,7 +1799,7 @@ class DatabaseManager:
         """
         rows = self._fetchall("""
             WITH visible AS (
-                SELECT psi.player_id, p.name, psi.mojang_uuid, psi.first_seen FROM player_server_info psi
+                SELECT psi.player_id, p.name, psi.mojang_uuid, psi.first_seen, psi.first_played FROM player_server_info psi
                 JOIN player p ON p.uuid = psi.mojang_uuid
                 WHERE psi.server_id = %s AND NOT psi.hide_stats),
             achievements AS (
@@ -1782,7 +1809,9 @@ class DatabaseManager:
                 WHERE pa.earned_at > now() - %s * interval '1 day' AND NOT pa.silent)
             SELECT at, kind, name, uuid, detail, tier FROM (
                 SELECT ps.started_at AS at,
-                       CASE WHEN ps.started_at - v.first_seen < interval '1 minute' THEN 'new' ELSE 'join' END AS kind,
+                       CASE WHEN ps.started_at - v.first_seen < interval '1 minute'
+                                 AND (v.first_played IS NULL OR v.first_played > v.first_seen - interval '1 day')
+                            THEN 'new' ELSE 'join' END AS kind,
                        v.name, v.mojang_uuid::text AS uuid, NULL AS detail, NULL::smallint AS tier
                 FROM player_sessions ps JOIN visible v USING (player_id)
                 WHERE ps.started_at > now() - %s * interval '1 day'
@@ -2097,7 +2126,7 @@ class DatabaseManager:
         """
         streak = self.get_player_streak(player_id)
         with self._cursor() as cur:
-            cur.execute("""SELECT extract(year FROM age(current_date, first_seen::date))::int
+            cur.execute("""SELECT extract(year FROM age(current_date, COALESCE(first_played, first_seen)::date))::int
                            FROM player_server_info WHERE player_id = %s""", (player_id,))
             row = cur.fetchone()
             years = (row[0] or 0) if row else 0
@@ -3012,6 +3041,10 @@ class DatabaseManager:
         keys = ("server_id", "server_name", "subdomain", "email", "kind", "since")
         return [dict(zip(keys, row)) for row in rows]
 
+    def mark_tracking_started(self, server_id):
+        """The plugin connected: MCConnect records this server from now on (only the first time counts)."""
+        self._execute("UPDATE servers SET tracking_since = now() WHERE id = %s AND tracking_since IS NULL", (server_id,))
+
     def mark_alert_sent(self, server_id, kind):
         column = "alert_offline_at" if kind == "offline" else "alert_tps_at"
         self._execute(f"UPDATE servers SET {column} = now() WHERE id = %s", (server_id,))
@@ -3038,7 +3071,8 @@ class DatabaseManager:
     def get_reward_facts(self, player_id):
         """What the reward conditions look at: {"streak" (best), "tiers", "play_hours", "days", "trophies", "metrics"}."""
         values = self.get_player_metrics(player_id)
-        first_seen = self._fetchvalue("SELECT first_seen FROM player_server_info WHERE player_id = %s", (player_id,))
+        first_seen = self._fetchvalue("SELECT COALESCE(first_played, first_seen) FROM player_server_info WHERE player_id = %s",
+                                      (player_id,))
         return {
             "streak": self.get_player_streak(player_id)["best"],
             "tiers": len(self.get_player_achievements(player_id)),
@@ -3172,12 +3206,12 @@ class DatabaseManager:
     ###----------------------------- Hall of fame ------------------------------------###
 
     def get_veterans(self, server_id, limit=10):
-        """[{"name", "uuid", "first_seen"}] of the visible players who joined first."""
+        """[{"name", "uuid", "first_seen"}] of the visible players who joined first (the game's first join if known)."""
         return [{"name": n, "uuid": str(u), "first_seen": f} for n, u, f in self._fetchall("""
-            SELECT p.name, psi.mojang_uuid, psi.first_seen FROM player_server_info psi
+            SELECT p.name, psi.mojang_uuid, COALESCE(psi.first_played, psi.first_seen) FROM player_server_info psi
             JOIN player p ON p.uuid = psi.mojang_uuid
-            WHERE psi.server_id = %s AND NOT psi.hide_stats AND psi.first_seen IS NOT NULL
-            ORDER BY psi.first_seen LIMIT %s""", (server_id, limit))]
+            WHERE psi.server_id = %s AND NOT psi.hide_stats AND COALESCE(psi.first_played, psi.first_seen) IS NOT NULL
+            ORDER BY 3 LIMIT %s""", (server_id, limit))]
 
     def get_achievement_leaders(self, server_id, limit=10):
         """[{"name", "uuid", "tiers", "diamond"}] of the visible players with the most achievement tiers."""

@@ -23,6 +23,7 @@ import org.bukkit.inventory.ItemStack;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -106,6 +107,9 @@ final class LiveStats implements Listener {
     private final List<Material> blocks = new ArrayList<>();
     /** Statistics changed since the last send, per player. Main thread only. */
     private final Map<UUID, Set<Changed>> changed = new HashMap<>();
+    /** Players whose complete stats were sent since they joined: the first update of a player is complete, so
+     *  MCConnect never takes a partial one as the first values (baseline). Main thread only. */
+    private final Set<UUID> complete = new HashSet<>();
 
     LiveStats(MCDataLink plugin, int intervalSeconds) {
         this.plugin = plugin;
@@ -210,6 +214,7 @@ final class LiveStats implements Listener {
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         changed.remove(event.getPlayer().getUniqueId());  // the stats file is sent after the quit anyway
+        complete.remove(event.getPlayer().getUniqueId());
     }
 
     // ------------------------------------------------------------------ sending (main thread: the statistics API is not thread safe)
@@ -217,6 +222,11 @@ final class LiveStats implements Listener {
     /** Every few seconds: custom stats and what changed. */
     private void sendChanged() {
         for (Player player : plugin.getServer().getOnlinePlayers()) {
+            if (complete.add(player.getUniqueId())) {  // first update since the join: everything
+                changed.remove(player.getUniqueId());
+                plugin.sendLiveStats(player.getUniqueId(), json(player));
+                continue;
+            }
             Set<Changed> stats = changed.remove(player.getUniqueId());
             StringBuilder out = new StringBuilder("{\"stats\":{");
             appendCustom(out, player);

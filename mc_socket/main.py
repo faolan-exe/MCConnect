@@ -10,7 +10,7 @@ by the utf-8 payload.
 Plugin -> server:
     !AUTH~<server_key>           authenticate (must be the first message)
     !BEAT                        heartbeat
-    !JOIN~<uuid>[|<name>[|<op 0/1>]]  player joined
+    !JOIN~<uuid>[|<name>[|<op 0/1>[|<first played, epoch ms>]]]  player joined (first played: plugin 3.15)
     !QUIT~<uuid>                 player left
     !STATS~<uuid>|<stats json>   content of world/stats/<uuid>.json
     !BANS~<json list>            the server's ban list without MCConnect bans:
@@ -78,7 +78,7 @@ import sys
 import threading
 import time
 import uuid as uuid_mod
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -743,6 +743,7 @@ class SocketServer:
         # The plugin re-sends JOIN for everyone online after auth.
         self.db.set_all_players_offline(server_id)
         self.db.set_plugin_connected(server_id, True)
+        self.db.mark_tracking_started(server_id)
         logger.info(f"{client.addr} authenticated as server {server_id}")
         client.send("success|100")
         client.send("!sendAllPlayerStats")
@@ -784,9 +785,15 @@ class SocketServer:
             return
         try:
             if command == "!JOIN":
-                player_uuid, name, is_op = (value.split("|") + ["", ""])[:3]
+                player_uuid, name, is_op, first_played = (value.split("|") + ["", "", ""])[:4]
                 player_uuid = parse_uuid(player_uuid)
-                player_id, first = self.db.register_player_join_info(client.server_id, player_uuid, name.strip() or None)
+                try:
+                    first_played = int(first_played)
+                    first_played = datetime.fromtimestamp(first_played / 1000, timezone.utc) if first_played > 0 else None
+                except (ValueError, OverflowError, OSError):
+                    first_played = None
+                player_id, first = self.db.register_player_join_info(client.server_id, player_uuid, name.strip() or None,
+                                                                     first_played)
                 if is_op.strip() in ("0", "1"):
                     self.db.set_player_op(client.server_id, player_uuid, is_op.strip() == "1")
                 client.send("success|101")
@@ -794,7 +801,9 @@ class SocketServer:
                 self.announce_milestones(client.server_id, player_id, self.db.check_milestones(player_id))
                 if self.db.get_sidebar(player_id) != "off":
                     self.update_sidebar(client.server_id, player_id)
-                if first and self.db.get_server_settings(client.server_id)["rules_enabled"]:
+                # new on the server (not only new to MCConnect, e.g. an old player after installing the plugin)
+                new_here = first and (first_played is None or first_played > datetime.now(timezone.utc) - timedelta(days=1))
+                if new_here and self.db.get_server_settings(client.server_id)["rules_enabled"]:
                     self.tell(client.server_id, player_uuid, "&6Willkommen auf dem Server! &7Bitte lies zuerst die Regeln: &b"
                               + commands.page_url(self.db, client.server_id, "/regeln"))
             elif command == "!QUIT":
