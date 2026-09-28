@@ -279,12 +279,22 @@ def test_impressum_shows_configured_operator(client, monkeypatch):
 
 def test_prefix_menu_is_shown(client, server):
     body = client.get("/", **on("testdomain")).data.decode()
-    assert "/add_pref" in body and "/users" not in body  # "Verwaltung" only for moderators
+    assert "/add_pref" not in body and "/users" not in body  # prefixes in the player's menu, "Verwaltung" for moderators
+
+
+def test_player_menu_has_profile_and_prefixes(player_client):
+    body = player_client.get("/", **on("testdomain")).data.decode()
+    assert "/profil" in body and "/add_pref" in body and "/join_pref" in body and "/users" not in body
 
 
 def test_menu_items_can_be_disabled(db, server):
     app = create_app(db, {"TESTING": True, "SECRET_KEY": "t", "SERVER_NAME": BASE, "FEATURE_PREFIXES": False})
-    assert "/add_pref" not in app.test_client().get("/", **on("testdomain")).data.decode()
+    client = app.test_client()
+    db.set_plugin_connected(server["id"], True)
+    db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
+    login_player(client, db, db.get_player_id_from_mojang_uuid_and_server_id(PLAYER_UUID, server["id"]))
+    assert "/profil" in client.get("/", **on("testdomain")).data.decode()
+    assert "/add_pref" not in client.get("/", **on("testdomain")).data.decode()
 
 
 def test_server_description_is_escaped(client, db, admin_id):

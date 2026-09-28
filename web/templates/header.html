@@ -69,27 +69,31 @@
           <li>
             <div class="dropdown">
               <button
-                class="dropbtn {% if request.path=='/spieler' %} current{% endif %}"
-                onclick="window.location.href=`/spieler`"
+                class="dropbtn {% if request.path in ('/spieler', '/vergleich', '/teams') %} current{% endif %}"
               >
-                Spieler
+                ▼ Spieler
               </button>
+              <div class="dropdown-content">
+                <a href="/spieler">Alle Spieler</a>
+                {% if config.FEATURE_RANKINGS %}
+                <a href="/vergleich">Spieler vergleichen</a>
+                <a href="/teams">Teams</a>
+                {% endif %}
+              </div>
             </div>
           </li>
           {% if config.FEATURE_RANKINGS %}
           <li>
             <div class="dropdown">
               <button
-                class="dropbtn {% if request.path in ('/rangliste', '/teams', '/wettbewerbe', '/vergleich', '/server-statistik', '/ruhmeshalle') %} current{% endif %}"
+                class="dropbtn {% if request.path in ('/rangliste', '/wettbewerbe', '/server-statistik', '/ruhmeshalle') %} current{% endif %}"
               >
                 ▼ Statistiken
               </button>
               <div class="dropdown-content">
                 <a href="/rangliste">Rangliste</a>
-                <a href="/teams">Teams</a>
                 <a href="/wettbewerbe">Wettbewerbe &amp; Ziele</a>
                 <a href="/ruhmeshalle">Ruhmeshalle</a>
-                <a href="/vergleich">Spieler vergleichen</a>
                 <a href="/server-statistik">Server-Statistik</a>
               </div>
             </div>
@@ -97,7 +101,7 @@
           <li>
             <div class="dropdown">
               <button
-                class="dropbtn {% if request.path in ('/duelle', '/melden', '/events', '/umfragen', '/galerie') %} current{% endif %}"
+                class="dropbtn {% if request.path in ('/duelle', '/melden', '/events', '/umfragen', '/galerie', '/regeln', '/mitmachen') %} current{% endif %}"
               >
                 ▼ Community
               </button>
@@ -106,27 +110,17 @@
                 <a href="/umfragen">Umfragen</a>
                 <a href="/galerie">Baugalerie</a>
                 <a href="/duelle">Duelle</a>
-                <a href="/melden">Etwas melden</a>
+                <span class="dropdown-sep" role="separator"></span>
                 {% if rules_enabled %}<a href="/regeln">Regeln</a>{% endif %}
                 {% if access_open %}<a href="/mitmachen">Mitmachen</a>{% endif %}
+                <a href="/melden">Etwas melden</a>
               </div>
             </div>
           </li>
           {% endif %}
-          {% if config.FEATURE_PREFIXES %}
-          <li>
-            <div class="dropdown">
-              <button
-                class="dropbtn {% if request.path=='/add_pref' or request.path=='/join_pref' %} current{% endif %}"
-              >
-                ▼ Prefixes
-              </button>
-              <div class="dropdown-content">
-                <a href="/add_pref">Erstellen/Ändern</a>
-                <a href="/join_pref">Beitreten</a>
-              </div>
-            </div>
-          </li>
+          {% if name != "" %}
+          <li class="mobile-view-only mobile-link"><a href="/profil">Mein Profil</a></li>
+          {% if config.FEATURE_PREFIXES %}<li class="mobile-view-only mobile-link"><a href="/add_pref">Mein Prefix</a></li>{% endif %}
           {% endif %}
           {% if config.FEATURE_ADMIN_PANEL and perm <= 1 %}
           <li>
@@ -168,6 +162,10 @@
               >Statistiken</a
             >
             <a href="/profil" style="padding-top: 6px; padding-bottom: 6px">Mein Profil</a>
+            {% if config.FEATURE_PREFIXES %}
+            <a href="/add_pref" style="padding-top: 6px; padding-bottom: 6px">Mein Prefix</a>
+            <a href="/join_pref" style="padding-top: 6px; padding-bottom: 6px">Prefix beitreten</a>
+            {% endif %}
             <a
               style="color: red; padding-top: 6px; padding-bottom: 6px"
               onclick="logout()"

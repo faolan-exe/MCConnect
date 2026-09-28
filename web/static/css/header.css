@@ -268,3 +268,7 @@ header {
 .login-group .dropbtn:hover {
   background-color: transparent !important;
 }
+/* separator inside a dropdown (Community: rules, joining, reporting) */
+.dropdown-sep { display: block; height: 1px; margin: 4px 12px; background: rgba(0, 0, 0, 0.15); }
+/* mobile menu entries of the logged in player (the first mobile entry is the red logout) */
+li.mobile-view-only.mobile-link > a:nth-child(1) { color: inherit; }

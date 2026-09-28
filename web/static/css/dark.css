@@ -138,3 +138,4 @@
 
 /* login page (login.html, login.css): the blue shapes become dark blue */
 :root[data-dark] svg.bg circle, :root[data-dark] svg.bg path { fill: #17244a; }
+:root[data-dark] .dropdown-sep { background: rgba(255, 255, 255, 0.12); }

@@ -98,7 +98,7 @@ Progress is ticked off here, so a new session knows where to continue.
       gallery, guestbook), access & rules, rewards, log
 - [x] B2 Admin `/manage` → server tiles, `/manage/<server>` with tabs: overview, plugin & connection,
       appearance (texts, images, directory), moderators & bans, notifications, danger zone
-- [ ] B3 Header of the server pages regrouped (fewer dropdown entries): players, rankings & statistics,
+- [x] B3 Header of the server pages regrouped (fewer dropdown entries): players, rankings & statistics,
       community, my area
 - [ ] B4 Full CSP (nonces, no inline handlers)
 
