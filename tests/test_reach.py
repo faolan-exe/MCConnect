@@ -76,7 +76,7 @@ def test_directory_opt_out(admin_client, db, server):
     assert admin_client.post(f"/api/servers/{server['id']}/update", json={"listed": False}, **on(None)).status_code == 200
     assert "Test Server" not in admin_client.get("/", **on(None)).get_data(as_text=True).split("Server entdecken")[-1]
     assert db.get_directory() == []
-    assert "Im öffentlichen Serververzeichnis" in admin_client.get("/manage", **on(None)).get_data(as_text=True)
+    assert "Im öffentlichen Serververzeichnis" in admin_client.get(f"/manage/{server['id']}", **on(None)).get_data(as_text=True)
 
 
 # ------------------------------------------------------------------ dark mode

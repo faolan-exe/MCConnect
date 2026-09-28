@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "_components.html" import bans_panel %}
 {% block title %}Meine Server – MCConnect{% endblock %}
 {% block content %}
 <div class="server-head" style="margin-bottom: 24px">
@@ -18,422 +17,47 @@
 </div>
 {% endif %}
 
-{% for server in servers %}
-{% set url = config.PREFERRED_URL_SCHEME ~ "://" ~ server.subdomain ~ "." ~ base_domain %}
-<div class="card" id="server-{{ server.id }}">
-  <div class="server-head">
-    <div>
-      <h2>{{ server.server_name }}</h2>
-      <p class="meta"><a href="{{ url }}" target="_blank">{{ server.subdomain }}.{{ base_domain }}</a>
-        · {{ "Nur Whitelist" if server.whitelist else "Öffentlich" }}
-        · <span id="player-count-{{ server.id }}">{{ server.player_count }}</span> Spieler bekannt</p>
-    </div>
-    <span id="plugin-badge-{{ server.id }}" data-online="{{ 'true' if server.plugin_online else 'false' }}"
-          class="badge {{ 'badge-online' if server.plugin_online else 'badge-offline' }}">
-      {{ 'Plugin verbunden' if server.plugin_online else 'Plugin nicht verbunden' }}</span>
-  </div>
-  <div class="message" id="plugin-message-{{ server.id }}"></div>
-
-  <details {% if server.health and server.health.status in ("warning", "critical") %}open{% endif %}>
-    <summary>Serverzustand{% if server.health and server.health.status %} ·
-      <span class="health-{{ server.health.status }}">{{ {"good": "läuft rund", "warning": "etwas langsam", "critical": "laggt"}[server.health.status] }}</span>{% endif %}</summary>
-    {% if server.health %}
-    <div class="health-grid">
-      <div><span>TPS</span><b>{{ server.health.tps or "–" }}</b></div>
-      <div><span>Arbeitsspeicher</span><b>{{ server.health.memory }}</b></div>
-      <div><span>Online</span><b>{{ server.health.players if server.health.players is not none else "–" }}</b></div>
-      <div><span>Laufzeit</span><b>{{ server.health.uptime }}</b></div>
-      <div><span>Erreichbar (7 Tage)</span><b>{{ server.health.availability or "–" }}</b></div>
-      <div><span>Version</span><b>{{ server.health.version or "–" }}</b></div>
-    </div>
-    <p class="hint">Letzter Messwert: {{ server.health.sampled }}{% if server.health.stale %} (veraltet – ist der Server offline?){% endif %}.
-      Verläufe der letzten 24 Stunden sehen die Moderatoren auf <a href="{{ url }}/users#health" target="_blank">der Verwaltungsseite</a>.</p>
-    {% else %}
-    <p class="hint">Noch keine Messwerte. Das Plugin schickt sie ab Version 3.2 jede Minute.</p>
-    {% endif %}
-    <label style="font-weight: 400; display: flex; gap: 8px; align-items: center">
-      <input type="checkbox" style="width: auto" {% if server.listed %}checked{% endif %}
-             onchange="setListed({{ server.id }}, this)" />
-      Im öffentlichen Serververzeichnis auf der MCConnect-Startseite zeigen
-    </label>
-    <label style="font-weight: 400; display: flex; gap: 8px; align-items: center">
-      <input type="checkbox" style="width: auto" {% if server.alerts_enabled %}checked{% endif %}
-             onchange="setAlerts({{ server.id }}, this)" />
-      E-Mail an mich, wenn der Server länger als 5 Minuten offline ist oder laggt (unter 15 TPS)
-    </label>
-    <div class="message" id="alerts-message-{{ server.id }}"></div>
-  </details>
-
-  <details id="setup-{{ server.id }}" {% if not server.plugin_online %}open{% endif %}>
-    <summary>Plugin einrichten</summary>
-    <ol class="steps">
-      <li>
-        {% if plugin_available %}
-        <a href="/download/MCDataLink.jar">MCDataLink.jar herunterladen</a>
-        {% else %}
-        MCDataLink.jar (Download gerade nicht verfügbar)
-        {% endif %}
-        und in den <code>plugins</code>-Ordner deines Servers legen (Spigot/Paper 1.13+).
-      </li>
-      <li>Server einmal starten, danach <code>plugins/MCDataLink/config.yml</code> so befüllen:
-        <pre id="config-{{ server.id }}">key: {{ server.server_key }}
-host: {{ plugin_host }}
-port: {{ plugin_port }}</pre>
-        <p class="hint">Die Verbindung ist immer verschlüsselt (TLS). Dafür braucht es MCDataLink ab Version 3.12 –
-          ältere Plugins werden abgewiesen, einfach die neue Datei herunterladen.</p>
-        <div class="btn-row" style="margin-top: 8px">
-          <button class="btn btn-secondary" type="button" onclick="copyConfig({{ server.id }}, this)">Kopieren</button>
-        </div>
-      </li>
-      <li>Server neu starten. Sobald das Plugin verbunden ist, erscheint hier „Plugin verbunden“.</li>
-    </ol>
-    <p class="hint">Der Key ist geheim. Wenn er in falsche Hände gerät, erzeuge einen neuen.</p>
-  </details>
-
-  <details>
-    <summary>Serverseite bearbeiten</summary>
-    <form onsubmit="updateServer(event, {{ server.id }})">
-      <label>Name des Servers</label>
-      <input name="server_name" required maxlength="64" value="{{ server.server_name }}" />
-      <fieldset class="choice">
-        <legend>Zugang</legend>
-        <label><input type="radio" name="whitelist" value="false" {% if not server.whitelist %}checked{% endif %}
-                      onchange="updateAddressField(this.form)" /> Öffentlich
-          <span class="hint">– die Adresse wird auf der Serverseite angezeigt</span></label>
-        <label><input type="radio" name="whitelist" value="true" {% if server.whitelist %}checked{% endif %}
-                      onchange="updateAddressField(this.form)" /> Nur Whitelist
-          <span class="hint">– die Adresse wird nicht veröffentlicht</span></label>
-      </fieldset>
-      <div class="address-field" {% if server.whitelist %}hidden{% endif %}>
-        <label>Adresse zum Verbinden</label>
-        <input name="mc_server_domain" maxlength="253" value="{{ server.mc_server_domain or '' }}"
-               {% if not server.whitelist %}required{% endif %} />
-      </div>
-      <label>Kurzbeschreibung</label>
-      <input name="server_description_short" required maxlength="200" value="{{ server.server_description_short }}" />
-      <label>Beschreibung</label>
-      <textarea name="server_description_long" required maxlength="5000">{{ server.server_description_long }}</textarea>
-      <label>Discord-Einladung <span class="hint">(optional)</span></label>
-      <input name="discord_url" type="url" maxlength="300" value="{{ server.discord_url or '' }}" />
-      <div class="btn-row"><button class="btn" type="submit">Speichern</button></div>
-      <div class="message"></div>
-    </form>
-  </details>
-
-  <details {% if not server.images.banner and not server.images.gallery and server.plugin_online %}open{% endif %}>
-    <summary>Bilder</summary>
-    <p class="hint">JPG, PNG, WebP oder GIF, bis 10 MB. Bilder werden verkleinert und ohne Metadaten gespeichert.</p>
-
-    <h3 class="images-title">Titelbild</h3>
-    <p class="hint" style="margin-top: 0">Großes Bild oben auf deiner Serverseite, am besten im Querformat (z.&nbsp;B. 2400 × 1200).</p>
-    <div class="banner-preview" id="banner-preview-{{ server.id }}">
-      {% if server.images.banner %}
-      <img src="{{ url_for('main.uploaded_image', filename=server.images.banner) }}" alt="Titelbild" />
-      {% else %}
-      <span class="hint">Noch kein Titelbild</span>
+<div class="server-tiles">
+  {% for server in servers %}
+  <a class="card server-tile" href="/manage/{{ server.id }}" id="server-{{ server.id }}">
+    <span class="server-tile-head">
+      <b>{{ server.server_name }}</b>
+      <span id="plugin-badge-{{ server.id }}" data-online="{{ 'true' if server.plugin_online else 'false' }}"
+            class="badge {{ 'badge-online' if server.plugin_online else 'badge-offline' }}">
+        {{ 'Plugin verbunden' if server.plugin_online else 'Plugin nicht verbunden' }}</span>
+    </span>
+    <span class="meta">{{ server.subdomain }}.{{ base_domain }} · {{ "Nur Whitelist" if server.whitelist else "Öffentlich" }}</span>
+    <span class="server-tile-facts">
+      <span><b id="player-count-{{ server.id }}">{{ server.player_count }}</b> Spieler</span>
+      {% if server.health and not server.health.stale %}
+      <span><b>{{ server.health.tps or "–" }}</b> TPS{% if server.health.status and server.health.status != "good" %}
+        · <span class="health-{{ server.health.status }}">{{ {"warning": "etwas langsam", "critical": "laggt"}[server.health.status] }}</span>{% endif %}</span>
+      <span><b>{{ server.health.players if server.health.players is not none else "–" }}</b> online</span>
       {% endif %}
-    </div>
-    <div class="btn-row" style="margin-top: 10px">
-      <label class="btn btn-secondary upload-button">
-        <span id="banner-label-{{ server.id }}">{{ "Titelbild ersetzen" if server.images.banner else "Titelbild hochladen" }}</span>
-        <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden
-               onchange="uploadImages({{ server.id }}, 'banner', this)" />
-      </label>
-    </div>
-
-    <h3 class="images-title">Galerie <span class="hint">(<span id="gallery-count-{{ server.id }}">{{ server.images.gallery | length }}</span> / {{ max_gallery_images }})</span></h3>
-    <div class="gallery-admin" id="gallery-{{ server.id }}">
-      {% for image in server.images.gallery %}
-      <figure>
-        <img src="{{ url_for('main.uploaded_image', filename=image.filename) }}" alt="Galeriebild" />
-        <button type="button" class="btn btn-secondary" onclick="deleteImage({{ server.id }}, {{ image.id }}, this)">Entfernen</button>
-      </figure>
-      {% endfor %}
-    </div>
-    <div class="btn-row" style="margin-top: 10px" id="gallery-add-{{ server.id }}"
-         {% if server.images.gallery | length >= max_gallery_images %}hidden{% endif %}>
-      <label class="btn btn-secondary upload-button">
-        Bilder hinzufügen
-        <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden
-               onchange="uploadImages({{ server.id }}, 'gallery', this)" />
-      </label>
-    </div>
-    <div class="message" id="image-message-{{ server.id }}"></div>
-  </details>
-
-  <details>
-    <summary>Moderation</summary>
-    <p class="hint">Moderatoren loggen sich auf der Serverseite per Ingame-PIN ein und können dort unter
-      „Verwaltung“ Spieler bannen. Bans werden sofort im Spiel ausgeführt.</p>
-
-    <label style="font-weight: 400; display: flex; gap: 8px; align-items: center">
-      <input type="checkbox" style="width: auto" {% if server.auto_mod_ops %}checked{% endif %}
-             onchange="setAutoModOps({{ server.id }}, this)" />
-      OPs vom Minecraft-Server automatisch zu Moderatoren machen
-    </label>
-
-    <h3 class="images-title">Moderatoren</h3>
-    <ul class="moderator-list" id="moderators-{{ server.id }}"><li class="hint">Lade …</li></ul>
-    <form class="input-suffix" style="max-width: 420px" onsubmit="addModerator(event, {{ server.id }})">
-      <input name="name" placeholder="Spielername" list="players-{{ server.id }}" required autocomplete="off" />
-      <button class="btn" style="border-radius: 0 8px 8px 0" type="submit">Hinzufügen</button>
-    </form>
-    <datalist id="players-{{ server.id }}">
-      {% for player in server.players %}<option value="{{ player.name }}"></option>{% endfor %}
-    </datalist>
-    <div class="message" id="moderation-message-{{ server.id }}"></div>
-
-    <h3 class="images-title" style="margin-top: 28px">Bans</h3>
-    {{ bans_panel("bans-" ~ server.id, "/api/servers/" ~ server.id ~ "/moderation", "/api/servers/" ~ server.id ~ "/ban",
-                  "/api/servers/" ~ server.id ~ "/unban", ban_reasons, server.players) }}
-  </details>
-
-  <details>
-    <summary>Gefahrenzone</summary>
-    <p>Ein neuer Key trennt das Plugin, bis du die neue <code>config.yml</code> einträgst.</p>
-    <div class="btn-row" style="margin-top: 0">
-      <button class="btn btn-secondary" type="button" onclick="regenerateKey({{ server.id }})">Neuen Key erzeugen</button>
-    </div>
-    <p style="margin-top: 20px">Löschen entfernt den Server mit allen Spielerdaten und Statistiken endgültig.
-      Gib zur Bestätigung <code>{{ server.subdomain }}</code> ein.</p>
-    <div class="input-suffix">
-      <input id="confirm-{{ server.id }}" placeholder="{{ server.subdomain }}" />
-      <button class="btn btn-danger" style="border-radius: 0 8px 8px 0" type="button"
-              onclick="deleteServer({{ server.id }})">Löschen</button>
-    </div>
-    <div class="message" id="danger-message-{{ server.id }}"></div>
-  </details>
+    </span>
+    <span class="server-tile-go">Verwalten →</span>
+  </a>
+  {% endfor %}
 </div>
-{% endfor %}
 {% endblock %}
 {% block scripts %}
 <script>
-  // Live plugin status: poll while the page is visible.
-  const POLL_INTERVAL_MS = 5000;
+  // live plugin status of the tiles while the page is visible
   async function pollStatus() {
     if (document.hidden) return;
-    let data;
     try {
       const response = await fetch("/api/servers/status");
       if (!response.ok) return;
-      data = await response.json();
-    } catch (e) {
-      return;
-    }
-    for (const server of data.servers) {
-      const badge = document.getElementById("plugin-badge-" + server.id);
-      if (!badge) continue;
-      const wasOnline = badge.dataset.online === "true";
-      badge.dataset.online = server.plugin_online ? "true" : "false";
-      badge.className = "badge " + (server.plugin_online ? "badge-online" : "badge-offline");
-      badge.textContent = server.plugin_online ? "Plugin verbunden" : "Plugin nicht verbunden";
-      document.getElementById("player-count-" + server.id).textContent = server.player_count;
-      if (server.plugin_online && !wasOnline) {
-        document.getElementById("setup-" + server.id).open = false;
-        showMessage(document.getElementById("plugin-message-" + server.id),
-                    "Das Plugin ist verbunden. Die Spieler und Statistiken erscheinen gleich auf deiner Serverseite.", "success");
+      for (const server of (await response.json()).servers) {
+        const badge = document.getElementById("plugin-badge-" + server.id);
+        if (!badge) continue;
+        badge.className = "badge " + (server.plugin_online ? "badge-online" : "badge-offline");
+        badge.textContent = server.plugin_online ? "Plugin verbunden" : "Plugin nicht verbunden";
+        document.getElementById("player-count-" + server.id).textContent = server.player_count;
       }
-    }
+    } catch (e) {}
   }
-  setInterval(pollStatus, POLL_INTERVAL_MS);
+  setInterval(pollStatus, 5000);
   document.addEventListener("visibilitychange", pollStatus);
-
-  async function copyConfig(id, button) {
-    await navigator.clipboard.writeText(document.getElementById("config-" + id).textContent);
-    button.textContent = "Kopiert!";
-    setTimeout(() => (button.textContent = "Kopieren"), 2000);
-  }
-
-  function updateAddressField(form) {
-    const whitelist = form.querySelector('input[name="whitelist"]:checked').value === "true";
-    form.querySelector(".address-field").hidden = whitelist;
-    form.querySelector('input[name="mc_server_domain"]').required = !whitelist;
-  }
-
-  async function updateServer(event, id) {
-    event.preventDefault();
-    const form = event.target;
-    const body = Object.fromEntries(new FormData(form).entries());
-    body.whitelist = body.whitelist === "true";
-    const result = await postJson(`/api/servers/${id}/update`, body);
-    showMessage(form.querySelector(".message"),
-                result.ok ? "Gespeichert." : (result.data.error || "Speichern fehlgeschlagen."),
-                result.ok ? "success" : "error");
-  }
-
-  const MAX_GALLERY_IMAGES = {{ max_gallery_images }};
-
-  function updateGalleryCount(serverId) {
-    const count = document.getElementById("gallery-" + serverId).children.length;
-    document.getElementById("gallery-count-" + serverId).textContent = count;
-    document.getElementById("gallery-add-" + serverId).hidden = count >= MAX_GALLERY_IMAGES;
-  }
-
-  function addGalleryImage(serverId, imageId, url) {
-    const figure = document.createElement("figure");
-    const img = document.createElement("img");
-    img.src = url;
-    img.alt = "Galeriebild";
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "btn btn-secondary";
-    button.textContent = "Entfernen";
-    button.addEventListener("click", () => deleteImage(serverId, imageId, button));
-    figure.append(img, button);
-    document.getElementById("gallery-" + serverId).append(figure);
-    updateGalleryCount(serverId);
-  }
-
-  function showBanner(serverId, url) {
-    const preview = document.getElementById("banner-preview-" + serverId);
-    const img = document.createElement("img");
-    img.src = url;
-    img.alt = "Titelbild";
-    preview.replaceChildren(img);
-    document.getElementById("banner-label-" + serverId).textContent = "Titelbild ersetzen";
-  }
-
-  // Uploads one file after the other and shows each image right away, without reloading.
-  async function uploadImages(serverId, kind, input) {
-    const message = document.getElementById("image-message-" + serverId);
-    const files = Array.from(input.files);
-    input.value = "";  // allow choosing the same file again
-    for (let i = 0; i < files.length; i++) {
-      showMessage(message, `Lade hoch … (${i + 1}/${files.length})`, "success");
-      const form = new FormData();
-      form.append("kind", kind);
-      form.append("image", files[i]);
-      let response, data = {};
-      try {
-        response = await fetch(`/api/servers/${serverId}/images`, { method: "POST", body: form });
-        data = await response.json();
-      } catch (e) {}
-      if (!response || !response.ok) {
-        showMessage(message, `${files[i].name}: ${data.error || "Hochladen fehlgeschlagen."}`, "error");
-        return;
-      }
-      if (kind === "banner") showBanner(serverId, data.url);
-      else addGalleryImage(serverId, data.id, data.url);
-    }
-    showMessage(message, files.length === 1 ? "Bild hochgeladen." : `${files.length} Bilder hochgeladen.`, "success");
-  }
-
-  async function deleteImage(serverId, imageId, button) {
-    const result = await postJson(`/api/servers/${serverId}/images/${imageId}/delete`);
-    const message = document.getElementById("image-message-" + serverId);
-    if (result.ok) {
-      button.closest("figure").remove();
-      updateGalleryCount(serverId);
-      showMessage(message, "Bild entfernt.", "success");
-    } else {
-      showMessage(message, "Entfernen fehlgeschlagen.", "error");
-    }
-  }
-
-  async function loadModerators(serverId) {
-    const list = document.getElementById("moderators-" + serverId);
-    const response = await fetch(`/api/servers/${serverId}/moderation`);
-    if (!response.ok) return;
-    const moderators = (await response.json()).moderators;
-    list.replaceChildren();
-    if (!moderators.length) {
-      const li = document.createElement("li");
-      li.className = "hint";
-      li.textContent = "Noch keine Moderatoren.";
-      list.append(li);
-    }
-    for (const moderator of moderators) {
-      const li = document.createElement("li");
-      li.append(moderator.name);
-      if (!moderator.explicit) {
-        const note = document.createElement("span");
-        note.className = "hint";
-        note.textContent = " (OP)";
-        li.append(note);
-      } else {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "btn btn-secondary";
-        button.textContent = "Entfernen";
-        button.addEventListener("click", async () => {
-          await postJson(`/api/servers/${serverId}/moderators`, { name: moderator.name, moderator: false });
-          loadModerators(serverId);
-        });
-        li.append(button);
-      }
-      list.append(li);
-    }
-  }
-
-  async function addModerator(event, serverId) {
-    event.preventDefault();
-    const input = event.target.elements.name;
-    const result = await postJson(`/api/servers/${serverId}/moderators`, { name: input.value, moderator: true });
-    const message = document.getElementById("moderation-message-" + serverId);
-    if (result.ok) {
-      showMessage(message, result.data.name + " ist jetzt Moderator.", "success");
-      input.value = "";
-      loadModerators(serverId);
-    } else {
-      showMessage(message, result.data.error || "Das hat nicht geklappt.", "error");
-    }
-  }
-
-  async function setListed(serverId, checkbox) {
-    const result = await postJson(`/api/servers/${serverId}/update`, { listed: checkbox.checked });
-    const message = document.getElementById("alerts-message-" + serverId);
-    if (result.ok) {
-      showMessage(message, checkbox.checked ? "Der Server steht im Verzeichnis." : "Der Server ist nicht mehr im Verzeichnis.", "success");
-    } else {
-      checkbox.checked = !checkbox.checked;
-      showMessage(message, result.data.error || "Speichern fehlgeschlagen.", "error");
-    }
-  }
-
-  async function setAlerts(serverId, checkbox) {
-    const result = await postJson(`/api/servers/${serverId}/update`, { alerts_enabled: checkbox.checked });
-    const message = document.getElementById("alerts-message-" + serverId);
-    if (result.ok) {
-      showMessage(message, checkbox.checked ? "Du bekommst eine E-Mail, wenn etwas nicht stimmt." : "Keine E-Mails mehr.", "success");
-    } else {
-      checkbox.checked = !checkbox.checked;
-      showMessage(message, result.data.error || "Speichern fehlgeschlagen.", "error");
-    }
-  }
-
-  async function setAutoModOps(serverId, checkbox) {
-    const result = await postJson(`/api/servers/${serverId}/update`, { auto_mod_ops: checkbox.checked });
-    const message = document.getElementById("moderation-message-" + serverId);
-    if (result.ok) {
-      showMessage(message, checkbox.checked ? "OPs sind jetzt Moderatoren." : "OPs sind keine automatischen Moderatoren mehr.", "success");
-      loadModerators(serverId);
-    } else {
-      checkbox.checked = !checkbox.checked;
-      showMessage(message, result.data.error || "Speichern fehlgeschlagen.", "error");
-    }
-  }
-
-  document.querySelectorAll("[id^='moderators-']").forEach((list) => loadModerators(list.id.split("-")[1]));
-
-  async function regenerateKey(id) {
-    const result = await postJson(`/api/servers/${id}/regenerate_key`);
-    if (result.ok) {
-      window.location.reload();
-    } else {
-      showMessage(document.getElementById("danger-message-" + id), "Das hat nicht geklappt.", "error");
-    }
-  }
-
-  async function deleteServer(id) {
-    const result = await postJson(`/api/servers/${id}/delete`, {
-      confirm: document.getElementById("confirm-" + id).value,
-    });
-    if (result.ok) {
-      window.location.reload();
-    } else {
-      showMessage(document.getElementById("danger-message-" + id),
-                  result.data.error || "Löschen fehlgeschlagen.", "error");
-    }
-  }
 </script>
 {% endblock %}

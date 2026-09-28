@@ -324,8 +324,10 @@ def test_create_server(admin_client, db, admin_id):
     assert info["owner_id"] == admin_id and info["discord_url"] == "https://discord.gg/abc"
     assert admin_client.get("/", **on("survival")).status_code == 200
 
-    manage = admin_client.get("/manage", **on(None)).data.decode()
+    tiles = admin_client.get("/manage", **on(None)).data.decode()
     key = db._fetchvalue("SELECT server_key FROM servers WHERE subdomain = 'survival'")
+    assert f"/manage/{response.json['id']}" in tiles and "Plugin nicht verbunden" in tiles and key not in tiles
+    manage = admin_client.get(f"/manage/{response.json['id']}", **on(None)).data.decode()
     assert key in manage and "Plugin nicht verbunden" in manage
     assert admin_client.post("/api/servers", json=NEW_SERVER, **on(None)).status_code == 409
 
@@ -830,7 +832,7 @@ def test_admin_manages_moderators_and_bans(admin_client, db, server):
     assert ban["banned_by"] == "Admin tobi"
     player_id = db.get_player_id_from_mojang_uuid_and_server_id(PLAYER_UUID, server["id"])
     assert admin_client.post(f"{url}/unban", json={"player_id": player_id}, **on(None)).status_code == 200
-    page = admin_client.get("/manage", **on(None)).data.decode()
+    page = admin_client.get(f"/manage/{server['id']}", **on(None)).data.decode()
     assert "Moderation" in page and "OPs vom Minecraft-Server" in page
 
 
@@ -841,6 +843,7 @@ def test_admin_cannot_moderate_foreign_server(client, db, server):
     assert client.get(f"{url}/moderation", **on(None)).status_code == 404
     assert client.post(f"{url}/ban", json={"name": "x"}, **on(None)).status_code == 404
     assert client.post(f"{url}/moderators", json={"name": "x", "moderator": True}, **on(None)).status_code == 404
+    assert client.get(f"/manage/{server['id']}", **on(None)).status_code == 404
 
 
 def test_ban_dropdown_groups_online_and_offline(player_client, db, server):

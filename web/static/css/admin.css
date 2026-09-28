@@ -249,3 +249,22 @@ summary { cursor: pointer; font-weight: 600; }
 .dir-online { color: #1f8f47; }
 .dir-text { font-size: 15px; }
 .dir-meta { font-size: 13px; color: #5c6862; }
+
+/* /manage: server tiles; /manage/<id>: tabs */
+.server-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+a.server-tile { display: flex; flex-direction: column; gap: 8px; margin: 0; color: var(--text); text-decoration: none;
+  border: 1px solid var(--border); transition: border-color 0.15s; }
+a.server-tile:hover { border-color: var(--accent); }
+.server-tile-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; font-size: 18px; }
+.server-tile-facts { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: 15px; }
+.server-tile-facts b { color: var(--text); }
+.server-tile-go { margin-top: auto; color: var(--accent-dark); font-weight: 700; }
+.crumbs { margin: 0 0 8px; font-size: 15px; }
+.admin-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 16px; padding: 4px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--card); }
+.admin-tabs button { padding: 8px 14px; border: 0; border-radius: 9px; background: none; color: var(--muted);
+  font: inherit; font-weight: 700; cursor: pointer; }
+.admin-tabs button:hover { color: var(--text); background: var(--bg); }
+.admin-tabs button[aria-selected="true"] { background: var(--header); color: #fff; }
+[data-panel] h2 { margin-top: 0; }
+@media (max-width: 600px) { .admin-tabs button { flex: 1 1 auto; } }

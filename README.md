@@ -96,7 +96,7 @@ Progress is ticked off here, so a new session knows where to continue.
 - [x] B1 Moderation `/users` → overview (open tasks: reports, builds, guestbook, applications; health) plus
       sub pages: players (bans, warnings/mutes, X-ray, activity), content (events, polls, competitions, goals,
       gallery, guestbook), access & rules, rewards, log
-- [ ] B2 Admin `/manage` → server tiles, `/manage/<server>` with tabs: overview, plugin & connection,
+- [x] B2 Admin `/manage` → server tiles, `/manage/<server>` with tabs: overview, plugin & connection,
       appearance (texts, images, directory), moderators & bans, notifications, danger zone
 - [ ] B3 Header of the server pages regrouped (fewer dropdown entries): players, rankings & statistics,
       community, my area

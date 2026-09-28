@@ -2476,17 +2476,26 @@ def create_new_server():
 @main_bp.route("/manage")
 @admin_required
 def manage_server():
+    """The admin's servers as tiles; each leads to /manage/<id>."""
     servers = db().get_servers_by_owner(session["admin_id"])
     for server in servers:
         server["health"] = admin_health(server)
-        server["images"] = db().get_server_images(server["id"])
-        server["players"] = db().get_players_overview_from_subdomain(server["subdomain"])
-    return render_template("serverAdminManage.html",
-                           servers=servers, max_gallery_images=MAX_GALLERY_IMAGES,
-                           ban_reasons=db().get_ban_reasons(),
-                           base_domain=current_app.config["SERVER_NAME"],
+    return render_template("serverAdminManage.html", servers=servers, base_domain=current_app.config["SERVER_NAME"])
+
+
+@main_bp.route("/manage/<int:server_id>")
+@admin_required
+def manage_one_server(server_id):
+    """One server with tabs (overview, plugin, server page, moderation, danger zone), switched without reload."""
+    server = owned_server_or_404(server_id)
+    server["health"] = admin_health(server)
+    server["images"] = db().get_server_images(server["id"])
+    server["players"] = db().get_players_overview_from_subdomain(server["subdomain"])
+    return render_template("serverAdminServer.html", server=server, max_gallery_images=MAX_GALLERY_IMAGES,
+                           ban_reasons=db().get_ban_reasons(), base_domain=current_app.config["SERVER_NAME"],
                            plugin_host=config.PLUGIN_PUBLIC_HOST, plugin_port=config.PLUGIN_PUBLIC_PORT,
-                           plugin_available=plugin_jar_path() is not None)
+                           plugin_available=plugin_jar_path() is not None,
+                           server_count=len(db().get_servers_by_owner(session["admin_id"])))
 
 
 @main_bp.route("/healthz")

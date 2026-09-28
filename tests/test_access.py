@@ -197,7 +197,8 @@ def test_tps_alert(db, server, socket_server):
 
 def test_admin_page_shows_health_and_alert_setting(admin_client, db, server):
     db.add_health_sample(server["id"], {"tps": 19.9, "mem_used_mb": 1024, "mem_max_mb": 4096, "players": 2})
-    html = admin_client.get("/manage", **on(None)).get_data(as_text=True)
+    assert "19,9" in admin_client.get("/manage", **on(None)).get_data(as_text=True)  # tile
+    html = admin_client.get(f"/manage/{server['id']}", **on(None)).get_data(as_text=True)
     assert "Serverzustand" in html and "19,9" in html and "E-Mail an mich" in html
     assert admin_client.post(f"/api/servers/{server['id']}/update", json={"alerts_enabled": False},
                              **on(None)).status_code == 200

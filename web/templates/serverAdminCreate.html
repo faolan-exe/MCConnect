@@ -66,7 +66,7 @@
     if (body.whitelist) body.mc_server_domain = "";
     const result = await postJson("/api/servers", body);
     if (result.ok) {
-      window.location.href = "/manage#server-" + result.data.id;
+      window.location.href = "/manage/" + result.data.id + "#plugin";
     } else {
       showMessage(document.getElementById("create-message"),
                   result.data.error || "Der Server konnte nicht angelegt werden.", "error");
