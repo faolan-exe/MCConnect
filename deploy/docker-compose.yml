@@ -76,7 +76,7 @@ services:
       MCC_LEGAL_ADDRESS: ${MCC_LEGAL_ADDRESS:-}
       MCC_LEGAL_EMAIL: ${MCC_LEGAL_EMAIL:-}
       MCC_LEGAL_PHONE: ${MCC_LEGAL_PHONE:-}
-      # optional encrypted plugin connection on port 9992 (see README, "Verschlüsselte Plugin-Verbindung")
+      # certificate of the plugin connection (TLS only, port 9991; see README, "Zertifikat für die Plugin-Verbindung")
       MCC_SOCKET_TLS_CERT: ${MCC_SOCKET_TLS_CERT:-}
       MCC_SOCKET_TLS_KEY: ${MCC_SOCKET_TLS_KEY:-}
       TZ: Europe/Berlin
@@ -113,10 +113,9 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "9991:9991"
-      - "9992:9992"  # TLS, only used with a certificate
+      - "9991:9991"  # plugin connection, TLS
     volumes:
-      - ./tls:/tls:ro  # fullchain.pem and privkey.pem for the TLS port
+      - ./tls:/tls:ro  # fullchain.pem and privkey.pem of the plugin connection
     networks: [internal]
 
   backup:

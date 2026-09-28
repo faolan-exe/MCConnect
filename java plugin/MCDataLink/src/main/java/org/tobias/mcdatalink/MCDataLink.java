@@ -59,7 +59,8 @@ public final class MCDataLink extends JavaPlugin {
     private String key;
     private String host;
     private int port;
-    private boolean tls;
+    /** SHA-256 fingerprint of a self-signed MCConnect certificate ("tls-fingerprint"), or null for normal checks. */
+    private byte[] tlsFingerprint;
     private File worldFolder;
     /** Found lazily: the folder only exists once the game has saved stats. */
     private volatile File statsDir;
@@ -77,7 +78,13 @@ public final class MCDataLink extends JavaPlugin {
         key = getConfig().getString("key", "").trim();
         host = getConfig().getString("host", "mc.tobisit.de").trim();
         port = getConfig().getInt("port", 9991);
-        tls = getConfig().getBoolean("tls", false);
+        String fingerprint = getConfig().getString("tls-fingerprint", "").trim();
+        tlsFingerprint = fingerprint.isEmpty() ? null : TlsPinning.parse(fingerprint);
+        if (!fingerprint.isEmpty() && tlsFingerprint == null) {
+            getLogger().severe("tls-fingerprint in config.yml is not a SHA-256 fingerprint (64 hex digits). Fix it and restart.");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
         if (key.isEmpty() || key.contains("<")) {
             getLogger().severe("No server key configured. Enter your key in plugins/MCDataLink/config.yml and restart.");
             getServer().getPluginManager().disablePlugin(this);
@@ -120,7 +127,8 @@ public final class MCDataLink extends JavaPlugin {
         connectionThread.start();
 
         getServer().getPluginManager().registerEvents(new JoinListener(this), this);
-        getLogger().info("MCDataLink enabled, connecting to " + host + ":" + port + (tls ? " (TLS)" : ""));
+        getLogger().info("MCDataLink enabled, connecting to " + host + ":" + port + " (TLS"
+                + (tlsFingerprint != null ? ", pinned certificate)" : ")"));
     }
 
     @Override
@@ -172,16 +180,24 @@ public final class MCDataLink extends JavaPlugin {
     private void connectAndServe() throws IOException, AuthenticationException {
         Socket s = new Socket();
         s.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
-        if (tls) {
-            // encrypted connection; the certificate must be valid for the host name (checked like HTTPS)
-            SSLSocket secure = (SSLSocket) ((SSLSocketFactory) SSLSocketFactory.getDefault()).createSocket(s, host, port, true);
+        // Always encrypted (MCConnect refuses plain connections). The certificate must be valid for the host name
+        // (checked like HTTPS), or match tls-fingerprint exactly (self-signed, self-hosted MCConnect).
+        SSLSocketFactory factory;
+        try {
+            factory = tlsFingerprint != null ? TlsPinning.factory(tlsFingerprint) : (SSLSocketFactory) SSLSocketFactory.getDefault();
+        } catch (java.security.GeneralSecurityException e) {
+            s.close();
+            throw new IOException("TLS setup failed: " + e, e);
+        }
+        SSLSocket secure = (SSLSocket) factory.createSocket(s, host, port, true);
+        if (tlsFingerprint == null) {
             SSLParameters parameters = secure.getSSLParameters();
             parameters.setEndpointIdentificationAlgorithm("HTTPS");
             secure.setSSLParameters(parameters);
-            secure.setSoTimeout(CONNECT_TIMEOUT_MS);
-            secure.startHandshake();
-            s = secure;
         }
+        secure.setSoTimeout(CONNECT_TIMEOUT_MS);
+        secure.startHandshake();
+        s = secure;
         s.setSoTimeout(READ_TIMEOUT_MS);
         s.setKeepAlive(true);
         InputStream in = new BufferedInputStream(s.getInputStream());

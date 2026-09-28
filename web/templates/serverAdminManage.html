@@ -78,10 +78,9 @@
       <li>Server einmal starten, danach <code>plugins/MCDataLink/config.yml</code> so befüllen:
         <pre id="config-{{ server.id }}">key: {{ server.server_key }}
 host: {{ plugin_host }}
-{% if plugin_tls_port %}port: {{ plugin_tls_port }}
-tls: true{% else %}port: {{ plugin_port }}{% endif %}</pre>
-        {% if plugin_tls_port %}<p class="hint">Die Verbindung ist verschlüsselt (ab Plugin-Version 3.8). Ältere Plugins
-          verbinden sich unverschlüsselt über Port {{ plugin_port }} ohne die Zeile <code>tls</code>.</p>{% endif %}
+port: {{ plugin_port }}</pre>
+        <p class="hint">Die Verbindung ist immer verschlüsselt (TLS). Dafür braucht es MCDataLink ab Version 3.12 –
+          ältere Plugins werden abgewiesen, einfach die neue Datei herunterladen.</p>
         <div class="btn-row" style="margin-top: 8px">
           <button class="btn btn-secondary" type="button" onclick="copyConfig({{ server.id }}, this)">Kopieren</button>
         </div>

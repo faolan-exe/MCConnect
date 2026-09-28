@@ -1,6 +1,7 @@
 """Socket server tests with a fake plugin speaking the real wire protocol."""
 import json
 import socket
+import ssl
 import time
 
 import pytest
@@ -9,11 +10,17 @@ from mc_socket.main import HEADER, SocketServer, encode_msg, recv_msg
 from tests.conftest import OTHER_UUID, PLAYER_UUID, wait_for
 
 
+def tls_connect(port, certificate):
+    """TLS connection that trusts exactly the test certificate (like the plugin's tls-fingerprint)."""
+    context = ssl.create_default_context(cafile=certificate[0])
+    return context.wrap_socket(socket.create_connection(("127.0.0.1", port), timeout=5), server_hostname="localhost")
+
+
 class FakePlugin:
     """Speaks the plugin protocol. Prefix updates are collected separately (self.prefixes)."""
 
-    def __init__(self, port):
-        self.sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+    def __init__(self, port, certificate):
+        self.sock = tls_connect(port, certificate)
         self.prefixes = []
 
     def send(self, msg):
@@ -67,9 +74,9 @@ class FakePlugin:
 
 
 @pytest.fixture
-def socket_server(db):
+def socket_server(db, certificate):
     srv = SocketServer(db, host="127.0.0.1", port=0, heartbeat_interval=0.5, heartbeat_timeout=2,
-                       poll_interval=0.05)
+                       poll_interval=0.05, tls_cert=certificate[0], tls_key=certificate[1])
     srv.start()
     time.sleep(0.2)  # let the LISTEN connection come up
     yield srv
@@ -77,11 +84,11 @@ def socket_server(db):
 
 
 @pytest.fixture
-def plugin(socket_server):
+def plugin(socket_server, certificate):
     clients = []
 
     def connect():
-        client = FakePlugin(socket_server.port)
+        client = FakePlugin(socket_server.port, certificate)
         clients.append(client)
         return client
     yield connect

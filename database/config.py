@@ -29,11 +29,10 @@ PUBLIC_SCHEME = _env("MCC_PUBLIC_SCHEME", "http")
 
 SOCKET_HOST = _env("MCC_SOCKET_HOST", "0.0.0.0")
 SOCKET_PORT = int(_env("MCC_SOCKET_PORT", "9991"))
-# Optional encrypted plugin connection: with a certificate (PEM, e.g. Let's Encrypt fullchain.pem and
-# privkey.pem) the socket server also listens with TLS on SOCKET_TLS_PORT.
+# The plugin connection is TLS only. Certificate (PEM, e.g. Let's Encrypt fullchain.pem and privkey.pem);
+# without one the socket server creates a self-signed development certificate (mc_socket/devcert.py).
 SOCKET_TLS_CERT = _env("MCC_SOCKET_TLS_CERT")
 SOCKET_TLS_KEY = _env("MCC_SOCKET_TLS_KEY")
-SOCKET_TLS_PORT = int(_env("MCC_SOCKET_TLS_PORT", "9992"))
 
 SMTP_HOST = _env("MCC_SMTP_HOST")
 SMTP_PORT = int(_env("MCC_SMTP_PORT", "587"))
@@ -43,8 +42,6 @@ SMTP_PASSWORD = _env("MCC_SMTP_PASSWORD")
 # Address the plugin connects to, shown on the manage page (defaults to the base domain).
 PLUGIN_PUBLIC_HOST = _env("MCC_PLUGIN_PUBLIC_HOST", BASE_DOMAIN.split(":")[0])
 PLUGIN_PUBLIC_PORT = int(_env("MCC_PLUGIN_PUBLIC_PORT", str(SOCKET_PORT)))
-# TLS port shown to the admins (None: no encrypted connection offered).
-PLUGIN_PUBLIC_TLS_PORT = int(_env("MCC_PLUGIN_PUBLIC_TLS_PORT", str(SOCKET_TLS_PORT))) if SOCKET_TLS_CERT else None
 # Plugin jar offered for download; defaults to the local maven build output.
 PLUGIN_JAR = _env("MCC_PLUGIN_JAR")
 

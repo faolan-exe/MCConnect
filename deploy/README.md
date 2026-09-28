@@ -122,8 +122,7 @@ Cloudflare → *My Profile → API Tokens → Create Token* → Vorlage **„Edi
   ```
 - E-Mail eintragen, AGB akzeptieren, speichern. Das Ausstellen dauert etwa eine Minute.
 
-*Tab „Advanced“*: nichts nötig. Die App sagt nginx selbst, dass die Live-Updates (Spielerzahl,
-Online-Status) nicht gepuffert werden sollen.
+*Tab „Advanced“*: nichts nötig.
 
 Jetzt sollte `https://mc.tobisit.de` die Startseite zeigen.
 
@@ -156,15 +155,12 @@ docker compose exec web python -m database.manage create-admin tobi tobi@tobisit
 Test des Logins: Auf der Serverseite *Login* klicken und den Spielernamen eingeben, während du
 online bist. Die PIN erscheint im Minecraft-Chat.
 
-### Verschlüsselte Plugin-Verbindung (optional)
+### Zertifikat für die Plugin-Verbindung (Pflicht)
 
-Ohne Zertifikat läuft die Verbindung Plugin → MCConnect unverschlüsselt über Port 9991. Mit einem
-Zertifikat für `mc.tobisit.de` bietet der Socket-Server zusätzlich **Port 9992 mit TLS** an; Plugins ab
-Version 3.8 nutzen ihn mit `tls: true` (die Verwaltungsseite zeigt dann automatisch diese Konfiguration).
-Ältere Plugins verbinden sich weiter über 9991.
+Die Verbindung Plugin → MCConnect ist immer verschlüsselt (TLS, Port 9991, ab Plugin 3.12); unverschlüsselte
+Verbindungen weist der Socket-Server mit `error|006` ab. Dafür braucht er ein Zertifikat für `mc.tobisit.de`:
 
-1. Router: **9992/TCP** ebenfalls auf den MCConnect-LXC weiterleiten.
-2. Zertifikat nach `/opt/mcconnect/deploy/tls/` legen: `fullchain.pem` und `privkey.pem`. Am einfachsten das
+1. Zertifikat nach `/opt/mcconnect/deploy/tls/` legen: `fullchain.pem` und `privkey.pem`. Am einfachsten das
    Wildcard-Zertifikat des NPM verwenden. Es liegt im NPM unter `/etc/letsencrypt/live/npm-<nr>/`
    (Nummer: im NPM unter *SSL Certificates* per Maus über dem Zertifikat). Per Cronjob auf dem NPM-Host
    täglich kopieren, z.&nbsp;B.:
@@ -172,13 +168,17 @@ Version 3.8 nutzen ihn mit `tls: true` (die Verwaltungsseite zeigt dann automati
    scp -L /pfad/zum/npm/letsencrypt/live/npm-3/{fullchain,privkey}.pem root@192.168.1.50:/opt/mcconnect/deploy/tls/
    ```
    Der Socket-Server lädt ein erneuertes Zertifikat bei der nächsten Verbindung selbst neu.
-3. In `.env` einkommentieren:
+2. In `.env`:
    ```
    MCC_SOCKET_TLS_CERT=/tls/fullchain.pem
    MCC_SOCKET_TLS_KEY=/tls/privkey.pem
    ```
    und `docker compose up -d` ausführen. Im Log des Socket-Containers steht dann
-   `Socket server listening with TLS on 0.0.0.0:9992`.
+   `Socket server listening with TLS on 0.0.0.0:9991`.
+
+Ohne Zertifikat startet der Socket-Server nur, wenn `openssl` ein selbstsigniertes Entwicklungszertifikat
+anlegen kann (lokal, `mc_socket/devcert.py`); Plugins brauchen dann dessen Fingerprint als `tls-fingerprint`
+in der `config.yml`. Für den echten Betrieb immer ein richtiges Zertifikat verwenden.
 
 ## 8. Updates
 
@@ -243,8 +243,8 @@ docker compose --profile traefik up -d --build
 
 ## Bekannte Einschränkungen
 
-- Ohne Zertifikat (siehe „Verschlüsselte Plugin-Verbindung“) ist die Verbindung Plugin → Server auf Port 9991
-  **nicht verschlüsselt**; der Server-Key wird dann im Klartext übertragen. Wenn jemand den Key abgreift, kann er
-  falsche Statistiken für den Server senden. In dem Fall auf der Verwaltungsseite einen neuen Key erzeugen.
+- Wer den Server-Key kennt, kann falsche Statistiken für den Server senden (die Verbindung ist verschlüsselt,
+  der Key steht aber in der `config.yml` des Minecraft-Servers). In dem Fall auf der Verwaltungsseite einen neuen
+  Key erzeugen.
 - Die Statistiken von Spielern, die online sind, kommen ab Plugin 3.3 jede Minute, sonst beim Autosave der Welt
   (standardmäßig alle 5 Minuten) und beim Verlassen des Servers.

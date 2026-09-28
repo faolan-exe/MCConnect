@@ -1,7 +1,8 @@
 """Socket server the MCDataLink minecraft plugin connects to.
 
-Plain TCP on SOCKET_PORT and, with a certificate configured (MCC_SOCKET_TLS_CERT/KEY), the same
-protocol over TLS on SOCKET_TLS_PORT (plugin 3.8 with "tls: true").
+TLS only, on SOCKET_PORT (plugin 3.12; plain connections are answered with error|006 and closed).
+The certificate comes from MCC_SOCKET_TLS_CERT/KEY; without one a self-signed development certificate
+is created (mc_socket/devcert.py) and its fingerprint is logged for the plugin's "tls-fingerprint".
 
 Protocol: every message is a 10 byte, space padded, ascii length header followed
 by the utf-8 payload.
@@ -51,6 +52,7 @@ Error codes:
 003: Update player status failed
 004: Invalid command
 005: Invalid request
+006: TLS required (the plugin connected without encryption)
 
 Success codes:
 100: Auth successful
@@ -81,7 +83,7 @@ if PROJECT_ROOT not in sys.path:
 
 from colorlogx import get_logger
 from database import achievements, config, metrics, motivation
-from mc_socket import commands
+from mc_socket import commands, devcert
 from database.databaseManagerV2 import DatabaseManager
 
 logger = get_logger("socket")
@@ -187,11 +189,9 @@ class ClientConnection:
 class SocketServer:
     def __init__(self, db_manager, host=config.SOCKET_HOST, port=config.SOCKET_PORT,
                  heartbeat_interval=HEARTBEAT_SEND_INTERVAL, heartbeat_timeout=HEARTBEAT_TIMEOUT,
-                 poll_interval=1.0, mailer=None, tls_cert=config.SOCKET_TLS_CERT, tls_key=config.SOCKET_TLS_KEY,
-                 tls_port=config.SOCKET_TLS_PORT):
+                 poll_interval=1.0, mailer=None, tls_cert=config.SOCKET_TLS_CERT, tls_key=config.SOCKET_TLS_KEY):
         self.db = db_manager
-        self.tls_cert, self.tls_key, self.tls_port = tls_cert, tls_key, tls_port
-        self._tls_sock = None
+        self.tls_cert, self.tls_key = tls_cert, tls_key
         self._tls_context = None
         self._tls_loaded = None  # modification times of the loaded certificate files
         self.mailer = mailer  # SMTPMailer for the alerts to the server owners, or None
@@ -209,24 +209,19 @@ class SocketServer:
     # ------------------------------------------------------------------ lifecycle
     def start(self):
         """Bind and start accepting connections and login pin notifications in background threads."""
+        if not (self.tls_cert and self.tls_key):
+            self.tls_cert, self.tls_key = devcert.ensure_dev_certificate()
+            logger.warning(f"No TLS certificate configured, using the self-signed development certificate "
+                           f"{self.tls_cert}; plugins need tls-fingerprint: {devcert.fingerprint(self.tls_cert)}")
+        self.tls_context()  # fail early on a broken certificate
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._sock.bind((self.host, self.port))
         self._sock.listen()
         self._sock.settimeout(self.poll_interval)
         self.port = self._sock.getsockname()[1]
-        logger.info(f"Socket server listening on {self.host}:{self.port}")
-        self._spawn(self._accept_loop, self._sock, False, name="socket-accept")
-        if self.tls_cert and self.tls_key:
-            self.tls_context()  # fail early on a broken certificate
-            self._tls_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self._tls_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self._tls_sock.bind((self.host, self.tls_port))
-            self._tls_sock.listen()
-            self._tls_sock.settimeout(self.poll_interval)
-            self.tls_port = self._tls_sock.getsockname()[1]
-            logger.info(f"Socket server listening with TLS on {self.host}:{self.tls_port}")
-            self._spawn(self._accept_loop, self._tls_sock, True, name="socket-accept-tls")
+        logger.info(f"Socket server listening with TLS on {self.host}:{self.port}")
+        self._spawn(self._accept_loop, self._sock, name="socket-accept")
         self._spawn(self._login_pin_loop, name="login-pins")
         self._spawn(self._competition_loop, name="competitions")
 
@@ -238,9 +233,8 @@ class SocketServer:
     def stop(self, timeout=5):
         """Stop accepting, close all clients and wait for the worker threads."""
         self._stop.set()
-        for sock in (self._sock, self._tls_sock):
-            if sock:
-                sock.close()
+        if self._sock:
+            self._sock.close()
         with self._lock:
             clients = list(self.active_connections.values())
         for client in clients:
@@ -269,7 +263,7 @@ class SocketServer:
             logger.info(f"Loaded TLS certificate {self.tls_cert}")
         return self._tls_context
 
-    def _accept_loop(self, sock, tls):
+    def _accept_loop(self, sock):
         while not self._stop.is_set():
             try:
                 conn, addr = sock.accept()
@@ -277,17 +271,23 @@ class SocketServer:
                 continue
             except OSError:
                 break
-            self._spawn(self._start_client, conn, addr, tls, name=f"client-{addr[0]}:{addr[1]}")
+            self._spawn(self._start_client, conn, addr, name=f"client-{addr[0]}:{addr[1]}")
 
-    def _start_client(self, conn, addr, tls):
-        if tls:
-            try:
-                conn.settimeout(10)  # the handshake of a silent client must not block the thread forever
-                conn = self.tls_context().wrap_socket(conn, server_side=True)
-            except (ssl.SSLError, OSError) as e:
-                logger.info(f"{addr} TLS handshake failed: {e}")
+    def _start_client(self, conn, addr):
+        try:
+            conn.settimeout(10)  # a silent client must not block the thread forever
+            first = conn.recv(1, socket.MSG_PEEK)
+            if first != b"\x16":  # not a TLS handshake: an old plugin (tls: false) or something else
+                logger.info(f"{addr} connected without TLS, refused")
+                if first:
+                    conn.sendall(encode_msg("error|006"))
                 conn.close()
                 return
+            conn = self.tls_context().wrap_socket(conn, server_side=True)
+        except (ssl.SSLError, OSError) as e:
+            logger.info(f"{addr} TLS handshake failed: {e}")
+            conn.close()
+            return
         conn.settimeout(None)
         self.handle_client_connection(conn, addr)
 
