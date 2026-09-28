@@ -499,6 +499,7 @@ def test_login_pins_are_rate_limited(client, db, online_player):
 def test_security_headers(client):
     headers = client.get("/", **on(None)).headers
     assert headers["X-Frame-Options"] == "SAMEORIGIN" and headers["X-Content-Type-Options"] == "nosniff"
+    assert "frame-ancestors 'self'" in headers["Content-Security-Policy"] and "object-src 'none'" in headers["Content-Security-Policy"]
 
 
 def test_admin_login_with_email(client, admin_id):

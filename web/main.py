@@ -2795,6 +2795,9 @@ def uploaded_image(filename):
 
 ################################ APP FACTORY #################################
 
+CSP = "frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+
+
 def create_app(db_manager=None, config_overrides=None):
     app = Flask(__name__, subdomain_matching=True)
     app.config.update(
@@ -2847,6 +2850,9 @@ def create_app(db_manager=None, config_overrides=None):
         response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        # Partial CSP that works with the inline scripts: no framing, no plugins, no <base> or form
+        # targets elsewhere. Scripts and styles follow with nonces during the menu rework.
+        response.headers.setdefault("Content-Security-Policy", CSP)
         return response
 
     app.register_blueprint(main_bp)
