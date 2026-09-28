@@ -227,3 +227,17 @@ def test_pardon_in_game_lifts_the_website_ban(db, server, plugin, two_players):
 def test_undelivered_bans_are_not_pardoned(db, server, two_players):
     db.ban_player(server["id"], "Notch", "Admin tobi", days=3)
     assert db.sync_web_bans(server["id"], []) == []
+
+
+def test_own_ban_reason_is_shown_to_the_player(mod_client, db, server, two_players, plugin):
+    connection = plugin().auth(server["key"])
+    reasons = db.get_ban_reasons()
+    response = mod_client.post("/api/mod/ban", json={"name": "Notch", "reason_id": reasons[0]["id"],
+                                                     "reason_text": "Griefing am Hafen", "comment": "intern"},
+                               **on("testdomain"))
+    assert response.status_code == 200
+    ban = until(connection, "!ban~")[-1]
+    assert ban.startswith(f"!ban~{OTHER_UUID}|Notch|") and "|Griefing am Hafen|bis " in ban
+    notch = db.get_player_id_from_mojang_uuid_and_server_id(OTHER_UUID, server["id"])
+    assert db.get_ban_reason_from_player_id(notch) == "Griefing am Hafen"
+    assert db.list_active_bans(server["id"])[0]["comment"] == "intern"

@@ -1,4 +1,6 @@
 """Rankings and player comparison: metrics, snapshots, history and the web pages."""
+from datetime import timedelta
+
 import pytest
 
 from database import metrics, stats
@@ -22,7 +24,12 @@ def mined(stone):
 
 
 def set_snapshot_day(db, player_id, days_ago):
+    """Move today's snapshot into the past. The automatic baseline of the first sync (yesterday, while it is the
+    earliest snapshot) is removed first, so the tests control the history completely."""
     with db._cursor() as cur:
+        cur.execute("""DELETE FROM stat_snapshots s WHERE s.player_id = %s AND s.day = current_date - 1
+                         AND NOT EXISTS (SELECT 1 FROM stat_snapshots e WHERE e.player_id = s.player_id
+                                         AND e.day < current_date - 1)""", (player_id,))
         cur.execute("UPDATE stat_snapshots SET day = current_date - %s WHERE player_id = %s AND day = current_date",
                     (days_ago, player_id))
 
@@ -62,13 +69,28 @@ def test_server_metrics_are_per_server(db, server, other_server, two_players):
 
 def test_snapshot_written_and_updated(db, two_players):
     a, _ = two_players
-    rows = dict(db._fetchall("SELECT metric, value FROM stat_snapshots WHERE player_id = %s", (a,)))
+    today = "SELECT metric, value FROM stat_snapshots WHERE player_id = %s AND day = current_date"
+    rows = dict(db._fetchall(today, (a,)))
     assert rows["blocks_mined"] == 107
     assert len(rows) == len(metrics.METRICS)
     db.update_player_stats(a, mined(200))
-    assert db._fetchvalue("SELECT value FROM stat_snapshots WHERE player_id = %s AND metric = 'blocks_mined'",
-                          (a,)) == 207
-    assert db._fetchvalue("SELECT count(*) FROM stat_snapshots WHERE player_id = %s", (a,)) == len(metrics.METRICS)
+    assert dict(db._fetchall(today, (a,)))["blocks_mined"] == 207
+    # the first sync is also the baseline of the day before, so today's gains count
+    baseline = dict(db._fetchall("SELECT metric, value FROM stat_snapshots WHERE player_id = %s AND day = current_date - 1",
+                                 (a,)))
+    assert baseline["blocks_mined"] == 107
+    assert db._fetchvalue("SELECT count(*) FROM stat_snapshots WHERE player_id = %s", (a,)) == 2 * len(metrics.METRICS)
+
+
+def test_first_sync_counts_from_then_on(db, server, two_players):
+    """A player first seen today: gains of today, of a competition starting today and in the sidebar."""
+    a, _ = two_players
+    db.update_player_stats(a, mined(130))
+    today = db.get_today()
+    assert db.get_metrics_between(server["id"], today, today)[str(a)]["blocks_mined"] == 30
+    assert db.get_player_gain(a, "blocks_mined", today) == 30
+    competition = db.get_competition(db.create_competition(server["id"], "Heute", "blocks_mined", today, today))
+    assert [(r["name"], r["value"]) for r in db.get_competition_standings(competition)] == [("_Tobias4444", 30)]
 
 
 def test_gain_over_period(db, server, two_players):
@@ -104,7 +126,8 @@ def test_old_snapshots_are_pruned_but_newest_kept(db, two_players):
     db.update_player_stats(a, STATS_A)
     days = [str(row[0]) for row in db._fetchall(
         "SELECT day FROM stat_snapshots WHERE player_id = %s AND metric = 'deaths' AND day < current_date ORDER BY day", (a,))]
-    assert days == [f"{year}-01-05", f"{year}-03-15", f"{year + 1}-04-01", f"{year + 1}-06-01"]
+    yesterday = str(db.get_today() - timedelta(days=1))  # baseline of the first sync
+    assert days == [f"{year}-01-05", f"{year}-03-15", f"{year + 1}-04-01", f"{year + 1}-06-01", yesterday]
 
 
 def test_metric_history(db, two_players):
@@ -114,7 +137,7 @@ def test_metric_history(db, two_players):
     dates, history = db.get_metric_history([str(a), str(b)], 7)
     assert len(dates) == 8
     assert history[str(a)]["blocks_mined"] == [None, None, 0, 0, 0, 0, 0, 193 - 100]
-    assert history[str(b)]["blocks_mined"] == [None] * 7 + [0]
+    assert history[str(b)]["blocks_mined"] == [None] * 6 + [0, 0]  # baseline yesterday
 
 
 def test_top_objects(db, two_players):
@@ -209,6 +232,8 @@ def test_player_page_extras(client, db, two_players):
 
 
 def test_player_page_without_snapshots_has_no_activity(client, db, two_players):
+    with db._cursor() as cur:
+        cur.execute("DELETE FROM stat_snapshots WHERE player_id = %s", (two_players[1],))
     html = client.get("/spieler?player=Notch", **on("testdomain")).get_data(as_text=True)
     assert "Aktivität der letzten 30 Tage" not in html
     assert "Highlights" in html

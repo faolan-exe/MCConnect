@@ -89,8 +89,8 @@ def test_events_command(db, server, game):
     cmd(game, OTHER_UUID, "events", "anmelden 1")
     assert tells(game, 1) == ["&aDu bist für »Bauwettbewerb« angemeldet."]
     cmd(game, OTHER_UUID, "events")
-    lines = tells(game, 3)
-    assert "(1 dabei) &a(angemeldet)" in lines[1]
+    lines = tells(game, 2)
+    assert "(1 dabei) &c/events abmelden #" in lines[1]  # button of plugins without clickable chat
 
 
 def test_events_page_and_api(player_client, mod_client, db, server):
@@ -131,15 +131,18 @@ def test_poll_votes(db, server, two_players):
 def test_vote_command(db, server, game, socket_server):
     db.create_poll(server["id"], "Was bauen wir?", ["Hafen", "Burg"], soon(60))
     cmd(game, PLAYER_UUID, "vote")
-    assert tells(game, 4)[1:3] == ["&7  1. &fHafen", "&7  2. &fBurg"]
+    poll_id = db.list_polls(server["id"])[0]["id"]
+    assert tells(game, 4)[1:3] == [f"&7  1. &fHafen &7(/vote #{poll_id} 1)", f"&7  2. &fBurg &7(/vote #{poll_id} 2)"]
     cmd(game, PLAYER_UUID, "vote", "1 2")
     assert tells(game, 1) == ["&aDanke! Deine Stimme: Burg"]
+    cmd(game, PLAYER_UUID, "vote", f"#{poll_id} 1")  # what the button sends
+    assert tells(game, 1) == ["&aDanke! Deine Stimme: Hafen"]
     cmd(game, PLAYER_UUID, "vote")
-    assert tells(game, 4)[2] == "&7  2. &fBurg &a← deine Stimme"
+    assert tells(game, 4)[1].endswith("&a← deine Stimme")
     with db._cursor() as cur:
         cur.execute("UPDATE polls SET ends_at = now() - interval '1 minute'")
     socket_server.periodic_checks()
-    assert until(game, "!broadcast~")[-1] == "!broadcast~gold|★ Umfrage »Was bauen wir?«: Burg (100 %, 1 Stimme)"
+    assert until(game, "!broadcast~")[-1] == "!broadcast~gold|★ Umfrage »Was bauen wir?«: Hafen (100 %, 1 Stimme)"
 
 
 def test_polls_page_and_api(mod_client, db, server):
@@ -224,3 +227,17 @@ def test_guestbook_delete_rights(player_client, db, server, two_players):
 def test_community_pages_render(client, server):
     for path in ("/events", "/umfragen", "/galerie"):
         assert client.get(path, **on("testdomain")).status_code == 200
+
+
+def test_new_event_is_announced_at_once(mod_client, db, server, plugin, socket_server):
+    connection = plugin().auth(server["key"])
+    soon_local = (datetime.now() + timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M")
+    later_local = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%dT20:00")
+    assert mod_client.post("/api/mod/events", json={"title": "Spontan", "starts_at": soon_local},
+                           **on("testdomain")).status_code == 200
+    first = until(connection, "!broadcast~")[-1]
+    assert first.startswith("!broadcast~gold|★ In Kürze: »Spontan« um ") and "/events anmelden #" in first
+    assert mod_client.post("/api/mod/events", json={"title": "Geplant", "starts_at": later_local},
+                           **on("testdomain")).status_code == 200
+    assert until(connection, "!broadcast~")[-1].startswith("!broadcast~gold|★ Neues Event: »Geplant« am ")
+    assert db.take_due_event_announcements([server["id"]]) == []  # the reminder of "Spontan" was already sent

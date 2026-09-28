@@ -383,6 +383,20 @@ MIGRATIONS = {
         "ALTER TABLE banned_players ADD COLUMN delivered_at timestamptz",
         "UPDATE banned_players SET delivered_at = now() WHERE source = 'web'",
     ],
+    19: [
+        # A player's first snapshot is also stored as the day before (baseline): gains since the first sync
+        # then count from that sync on. Before, a player first seen today had no baseline and every gain of
+        # the day (today, competitions and goals starting today, sidebar) stayed 0. For existing players the
+        # baseline is their current value, so gains count from now on.
+        """INSERT INTO stat_snapshots (player_id, metric, day, value)
+           SELECT DISTINCT ON (player_id, metric) player_id, metric, day - 1, value FROM stat_snapshots
+           ORDER BY player_id, metric, day
+           ON CONFLICT DO NOTHING""",
+        # the challenger can withdraw a challenge that was not answered yet
+        "ALTER TABLE duels DROP CONSTRAINT duels_status_check",
+        """ALTER TABLE duels ADD CONSTRAINT duels_status_check
+             CHECK (status IN ('pending', 'running', 'finished', 'declined', 'expired', 'cancelled'))""",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -815,6 +829,12 @@ class DatabaseManager:
                             WHERE a.player_id = %s AND a.category = ANY(%s)""",
                         (*params, player_id, metrics_mod.METRIC_CATEGORIES))
             snapshot = [(player_id, m.key, int(v)) for m, v in zip(metrics_mod.METRICS, cur.fetchone())]
+            cur.execute("SELECT NOT EXISTS (SELECT 1 FROM stat_snapshots WHERE player_id = %s)", (player_id,))
+            if cur.fetchone()[0]:
+                # first sync: the same values as the day before are the baseline, so everything gained
+                # from now on counts (today, and in competitions and goals that start today)
+                cur.executemany("""INSERT INTO stat_snapshots (player_id, metric, day, value)
+                                   VALUES (%s, %s, current_date - 1, %s) ON CONFLICT DO NOTHING""", snapshot)
             cur.executemany("""
                 INSERT INTO stat_snapshots (player_id, metric, day, value) VALUES (%s, %s, current_date, %s)
                 ON CONFLICT (player_id, metric, day) DO UPDATE SET value = EXCLUDED.value
@@ -1148,9 +1168,10 @@ class DatabaseManager:
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
             (banned_player_id, moderator_id, ban_reason_id, ban_end, comment, reason_text, banned_by, source))
 
-    def ban_player(self, server_id, player_name, banned_by, reason_id=None, days=None, comment=None):
+    def ban_player(self, server_id, player_name, banned_by, reason_id=None, days=None, comment=None, reason_text=None):
         """
         Web ban by player name. days=None uses the reason's default duration, days=0 is permanent.
+        reason_text: own reason shown to the player instead of the reason's name.
         Returns {"uuid", "name", "reason", "end"} or None if the player is unknown on the server.
         """
         with self._cursor() as cur:
@@ -1170,9 +1191,11 @@ class DatabaseManager:
                     if days is None:
                         days = reason_row[1]
             end = None if not days else datetime.now(timezone.utc) + timedelta(days=int(days))
-            cur.execute("""INSERT INTO banned_players (banned_player_id, ban_reason_id, ban_end, comment, banned_by, source)
-                           VALUES (%s, %s, %s, %s, %s, 'web')""", (player_id, reason_id, end, comment, banned_by))
-        return {"uuid": str(uuid), "name": name, "reason": reason, "end": end}
+            cur.execute("""INSERT INTO banned_players (banned_player_id, ban_reason_id, ban_end, comment, banned_by, source,
+                                                       reason_text)
+                           VALUES (%s, %s, %s, %s, %s, 'web', %s)""",
+                        (player_id, reason_id, end, comment, banned_by, reason_text))
+        return {"uuid": str(uuid), "name": name, "reason": reason_text or reason, "end": end}
 
     def unban_player(self, server_id, player_id):
         """Remove all active bans of the player. Returns {"uuid", "name"} or None."""
@@ -1189,7 +1212,7 @@ class DatabaseManager:
 
     def list_active_bans(self, server_id):
         rows = self._fetchall(f"""
-            SELECT psi.player_id, p.name, psi.mojang_uuid, bp.source, COALESCE(br.reason, bp.reason_text),
+            SELECT psi.player_id, p.name, psi.mojang_uuid, bp.source, COALESCE(bp.reason_text, br.reason),
                    bp.banned_by, bp.ban_start, bp.ban_end, bp.comment
             FROM banned_players bp
             JOIN player_server_info psi ON psi.player_id = bp.banned_player_id
@@ -1256,7 +1279,7 @@ class DatabaseManager:
     def get_undelivered_web_bans(self, server_id):
         """[{"uuid", "name", "reason", "end"}] of active website bans the plugin has not received yet."""
         rows = self._fetchall(f"""
-            SELECT psi.mojang_uuid, p.name, COALESCE(br.reason, bp.reason_text, 'Gebannt'), bp.ban_end
+            SELECT psi.mojang_uuid, p.name, COALESCE(bp.reason_text, br.reason, 'Gebannt'), bp.ban_end
             FROM banned_players bp JOIN player_server_info psi ON psi.player_id = bp.banned_player_id
             JOIN player p ON p.uuid = psi.mojang_uuid LEFT JOIN ban_reasons br ON br.id = bp.ban_reason_id
             WHERE psi.server_id = %s AND bp.source = 'web' AND bp.delivered_at IS NULL AND {self._ACTIVE_BAN}""",
@@ -1283,7 +1306,7 @@ class DatabaseManager:
 
     def get_ban_reason_from_player_id(self, player_id):
         """Reason of the currently active ban (or "Gebannt" without a reason), or None if not banned."""
-        row = self._fetchone(f"""SELECT COALESCE(br.reason, bp.reason_text, 'Gebannt') FROM banned_players bp
+        row = self._fetchone(f"""SELECT COALESCE(bp.reason_text, br.reason, 'Gebannt') FROM banned_players bp
                                  LEFT JOIN ban_reasons br ON br.id = bp.ban_reason_id
                                  WHERE bp.banned_player_id = %s AND {self._ACTIVE_BAN}
                                  ORDER BY bp.ban_end DESC NULLS FIRST LIMIT 1""", (player_id,))
@@ -2383,6 +2406,13 @@ class DatabaseManager:
                 cur.execute("UPDATE duels SET status = 'declined' WHERE id = %s", (duel_id,))
         return self.get_duel(duel_id)
 
+    def cancel_duel(self, duel_id, player_id):
+        """The challenger withdraws a challenge that was not answered yet. Returns the duel or None."""
+        if not self._execute("""UPDATE duels SET status = 'cancelled' WHERE id = %s AND challenger_id = %s
+                                AND status = 'pending'""", (duel_id, player_id)):
+            return None
+        return self.get_duel(duel_id)
+
     def duel_gains(self, duel):
         """(challenger gain, opponent gain): final values of a finished duel, live values of a running one."""
         if duel["status"] == "finished":
@@ -2455,6 +2485,17 @@ class DatabaseManager:
         return self._fetchvalue("""INSERT INTO events (server_id, title, description, place, starts_at, created_by)
                                    VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
                                 (server_id, title, description, place, starts_at, created_by))
+
+    def get_event(self, event_id):
+        row = self._fetchone(f"""SELECT {self._EVENT_COLUMNS}, (SELECT count(*) FROM event_signups s WHERE s.event_id = e.id)
+                                 FROM events e WHERE e.id = %s""", (event_id,))
+        return self._event(row) if row else None
+
+    def mark_event_reminded_if_soon(self, event_id):
+        """Mark an event as reminded when it starts within EVENT_REMINDER_MINUTES. True if it does."""
+        return self._execute("""UPDATE events SET reminded = true WHERE id = %s AND NOT reminded
+                                AND starts_at <= now() + %s * interval '1 minute'""",
+                             (event_id, EVENT_REMINDER_MINUTES)) > 0
 
     def delete_event(self, server_id, event_id):
         """Returns the title of the deleted event, or None."""

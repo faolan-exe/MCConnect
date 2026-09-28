@@ -33,6 +33,7 @@ from database import achievements as achievements_mod
 from database import config
 from database import metrics as metrics_mod
 from database import motivation
+from mc_socket import commands as game_commands
 from database.databaseManagerV2 import MAX_GALLERY_IMAGES, MODERATOR_LEVEL, DatabaseManager
 from database import stats as stats_mod
 from database.stats import format_time
@@ -791,7 +792,7 @@ def duel_view(duel):
 
 
 DUEL_STATUS = {"pending": "wartet auf Antwort", "running": "läuft", "finished": "beendet",
-               "declined": "abgelehnt", "expired": "abgelaufen"}
+               "declined": "abgelehnt", "expired": "abgelaufen", "cancelled": "zurückgezogen"}
 
 
 @server_bp.route("/duelle")
@@ -1533,9 +1534,23 @@ def duel_create_api():
                           "open": "Mit diesem Spieler hast du schon ein offenes Duell."}[error]}, 409
     name = db().get_player_name_from_player_id(player_id)
     db().notify_server_event(g.server["id"], "tell", uuids=[str(db().get_mojang_uuid_from_player_id(opponent_id))],
-                             text=f"&6{name} fordert dich zum Duell heraus: &f{metric.label}, {days} "
-                                  f"{'Tag' if days == 1 else 'Tage'}. &a/duell annehmen &7oder &c/duell ablehnen")
+                             text=game_commands.challenge_text(name, metric, days))
     return {"id": duel_id}, 200
+
+
+@server_bp.route("/api/duels/cancel", methods=["POST"])
+@player_required
+def duel_cancel_api():
+    try:
+        duel_id = int((request.get_json(silent=True) or {}).get("id"))
+    except (TypeError, ValueError):
+        return {"error": "Unbekanntes Duell."}, 400
+    duel = db().cancel_duel(duel_id, logged_in_player_id())
+    if duel is None:
+        return {"error": "Diese Herausforderung kannst du nicht mehr zurückziehen."}, 404
+    db().notify_server_event(g.server["id"], "tell", uuids=[duel["opponent_uuid"]],
+                             text=f"&7{duel['challenger']} hat die Herausforderung zum Duell zurückgezogen.")
+    return ("", 200)
 
 
 @server_bp.route("/api/duels/respond", methods=["POST"])
@@ -1772,6 +1787,11 @@ def mod_event_create_api():
         return {"error": "Das Event muss in der Zukunft liegen (höchstens ein Jahr)."}, 400
     event_id = db().create_event(g.server["id"], title, starts_at, description, place, created_by=mod_name())
     db().add_mod_log(g.server["id"], mod_name(), "event_create", None, f"{title} · {starts_at.strftime('%d.%m.%Y %H:%M')}")
+    # announce it right away; an event that starts within the reminder time gets its reminder now
+    event = db().get_event(event_id)
+    soon = db().mark_event_reminded_if_soon(event_id)
+    color, text = game_commands.event_announcement("reminder" if soon else "new", event)
+    db().notify_server_event(g.server["id"], "broadcast", color=color, text=text)
     return {"id": event_id}, 200
 
 
@@ -1809,7 +1829,8 @@ def mod_poll_create_api():
                                created_by=mod_name())
     db().add_mod_log(g.server["id"], mod_name(), "poll_create", None, question)
     db().notify_server_event(g.server["id"], "broadcast", color="gold",
-                             text=f"★ Neue Umfrage: {question} – abstimmen mit /vote oder auf der Website")
+                             text=f"★ Neue Umfrage: {game_commands.clean(question)} "
+                                  + game_commands.button("&a[Abstimmen]", "/vote"))
     return {"id": poll_id}, 200
 
 
@@ -2117,6 +2138,9 @@ def bans_json(server_id):
              "start": fmt(b["start"]), "end": fmt(b["end"])} for b in db().list_active_bans(server_id)]
 
 
+BAN_TEXT_MAX = 100
+
+
 def do_ban(server_id, data, banned_by):
     name = str(data.get("name") or "").strip()
     reason_id = data.get("reason_id")
@@ -2129,7 +2153,9 @@ def do_ban(server_id, data, banned_by):
     if days is not None and not 0 <= days <= 3650:
         return {"error": "Die Dauer muss zwischen 0 (dauerhaft) und 3650 Tagen liegen."}, 400
     comment = str(data.get("comment") or "").strip()[:500] or None
-    ban = db().ban_player(server_id, name, banned_by, reason_id=reason_id, days=days, comment=comment)
+    reason_text = game_commands.clean(" ".join(str(data.get("reason_text") or "").split()))[:BAN_TEXT_MAX] or None
+    ban = db().ban_player(server_id, name, banned_by, reason_id=reason_id, days=days, comment=comment,
+                          reason_text=reason_text)
     if ban is None:
         return {"error": "Diesen Spieler gibt es auf dem Server nicht."}, 404
     end_ms = int(ban["end"].timestamp() * 1000) if ban["end"] else 0

@@ -84,9 +84,9 @@ def test_duel_flow(db, server, game, socket_server):
     cmd(game, PLAYER_UUID, "duell", "Notch abgebaut 2")
     first, second = game.recv(), game.recv()
     assert first == f"!tell~{OTHER_UUID}|&6_Tobias4444 fordert dich zum Duell heraus: &fBlöcke abgebaut, 2 Tage. " \
-                    "&a/duell annehmen &7oder &c/duell ablehnen"
+                    "&a&l/duell annehmen _Tobias4444 &c/duell ablehnen _Tobias4444"
     assert second.startswith(f"!tell~{PLAYER_UUID}|&aHerausforderung an Notch geschickt")
-    assert game.recv() == f"!tell~{PLAYER_UUID}|&7Sie gilt 24 Stunden."
+    assert game.recv() == f"!tell~{PLAYER_UUID}|&7Sie gilt 24 Stunden. &c/duell zurückziehen Notch"
     cmd(game, PLAYER_UUID, "duell", "Notch abgebaut 2")
     assert until(game, "!tell~")[-1] == f"!tell~{PLAYER_UUID}|&cMit Notch hast du schon ein offenes Duell."
 
@@ -225,3 +225,46 @@ def test_pages_need_login(client, server):
     assert client.get("/melden", **on("testdomain")).status_code == 302
     assert client.post("/api/duels", json={}, **on("testdomain")).status_code == 401
     assert client.get("/duelle", **on("testdomain")).status_code == 200
+
+
+def test_withdraw_a_challenge(db, server, game):
+    cmd(game, PLAYER_UUID, "duell", "Notch jumps 1")
+    tells(game, 3)
+    cmd(game, PLAYER_UUID, "duell", "zurückziehen Notch")
+    assert tells(game, 2) == ["&7_Tobias4444 hat die Herausforderung zum Duell zurückgezogen.",
+                              "&7Herausforderung an Notch zurückgezogen."]
+    cmd(game, OTHER_UUID, "duell", "annehmen")
+    assert tells(game, 1) == ["&7Du hast keine offene Herausforderung."]
+
+
+def test_buttons_for_plugins_with_clickable_chat(db, server, plugin, two_players):
+    connection = plugin().auth(server["key"])
+    assert connection.request("!FEATURES~click") == "success|106"
+    assert connection.request(f"!JOIN~{OTHER_UUID}|Notch") == "success|101"
+    cmd(connection, PLAYER_UUID, "duell", "Notch jumps 1")
+    invite = connection.recv()
+    assert "\u27e6&a&l[Annehmen]\u21d2/duell annehmen _Tobias4444\u27e7" in invite
+
+
+def test_players_cannot_inject_buttons():
+    assert commands.clean("\u27e6x\u21d2/op me\u27e7") == "x/op me"
+    assert commands.without_buttons(commands.button("&a[Ja]", "/vote #3 1")) == "&a/vote #3 1"
+
+
+def test_withdraw_on_the_website(player_client, db, server, two_players):
+    duel_id = player_client.post("/api/duels", json={"name": "Notch", "metric": "jumps", "days": 1},
+                                 **on("testdomain")).json["id"]
+    assert "Zurückziehen" in player_client.get("/duelle", **on("testdomain")).get_data(as_text=True)
+    assert player_client.post("/api/duels/cancel", json={"id": duel_id}, **on("testdomain")).status_code == 200
+    assert db.get_duel(duel_id)["status"] == "cancelled"
+    assert player_client.post("/api/duels/cancel", json={"id": duel_id}, **on("testdomain")).status_code == 404
+
+
+def test_one_failing_periodic_step_does_not_stop_the_others(db, server, game, socket_server, monkeypatch):
+    def broken(*args):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(socket_server, "announce_competitions", broken)
+    cmd(game, PLAYER_UUID, "seitenleiste", "spielzeit")
+    until(game, "!tell~")
+    socket_server.periodic_checks()  # the sidebar update still comes
+    assert until(game, "!sidebar~")[-1].startswith(f"!sidebar~{PLAYER_UUID}|Deine Spielzeit|")

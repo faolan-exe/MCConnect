@@ -20,7 +20,8 @@ docker run --rm -v "$PWD/tools/e2e":/bot -w /bot node:20-alpine sh -c "npm i --s
 docker exec mcc-paper rcon-cli whitelist on   # console commands
 ```
 
-Notes: Paper throttles joins from one IP (4 s), so start a second bot a few seconds later. mineflayer 4 cannot
+Notes: `jump:<ms>` gets the bot kicked on Paper 1.21.4 (invalid movement), use play time for competitions
+instead. Paper throttles joins from one IP (4 s), so start a second bot a few seconds later. mineflayer 4 cannot
 parse some player chat packets of 1.21.4 (the bot logs a parser error and goes on) and does not keep the
 sidebar lines; `RAW=1` prints the scoreboard packets instead. Make a bot a moderator with
 `db.set_moderator(server_id, "TestBot", True)`.

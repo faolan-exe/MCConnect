@@ -38,6 +38,9 @@
         <input class="mcc-input" id="{{ prefix_id }}-days" name="days" type="number" min="0" max="3650" />
       </div>
     </div>
+    <label for="{{ prefix_id }}-text">Grund für den Spieler <span class="mcc-hint">(optional, erscheint im Spiel beim Kick und
+      beim erneuten Joinen statt des Grundes oben)</span></label>
+    <input class="mcc-input" id="{{ prefix_id }}-text" name="reason_text" maxlength="100" placeholder="z. B. Griefing am Hafen (Haus von Notch)"/>
     <label for="{{ prefix_id }}-comment">Kommentar <span class="mcc-hint">(optional, nur hier sichtbar)</span></label>
     <input class="mcc-input" id="{{ prefix_id }}-comment" name="comment" maxlength="500" />
     <div class="mcc-actions"><button class="mcc-btn mcc-btn-danger" type="submit">Bannen</button></div>

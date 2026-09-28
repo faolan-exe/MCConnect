@@ -1,5 +1,6 @@
 package org.tobias.mcdatalink;
 
+import net.md_5.bungee.api.chat.BaseComponent;
 import org.bukkit.ChatColor;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
@@ -203,6 +204,7 @@ public final class MCDataLink extends JavaPlugin {
                 case "100":
                     authenticated = true;
                     getLogger().info("Connected to MCConnect");
+                    send("!FEATURES~click");  // chat messages may contain buttons (ChatMarkup)
                     sendOnlinePlayers();
                     runOnMainThread(this::sendBanList);
                     runOnMainThread(healthReporter::report);  // first health sample right away
@@ -254,13 +256,13 @@ public final class MCDataLink extends JavaPlugin {
             case "!unban":  // uuid|name
                 if (fields.length >= 2) runOnMainThread(() -> banSync.unban(fields[1]));
                 break;
-            case "!tell": {  // uuid|text with & color codes
+            case "!tell": {  // uuid|text with & color codes, buttons and links (ChatMarkup)
                 UUID uuid = fields.length >= 2 ? parseUuid(fields[0]) : null;
                 if (uuid == null) break;
-                String text = ChatColor.translateAlternateColorCodes('&', value.substring(value.indexOf('|') + 1));
+                String text = value.substring(value.indexOf('|') + 1);
                 runOnMainThread(() -> {
                     Player player = getServer().getPlayer(uuid);
-                    if (player != null) player.sendMessage(text);
+                    if (player != null) player.spigot().sendMessage(ChatMarkup.parse(text));
                 });
                 break;
             }
@@ -290,10 +292,14 @@ public final class MCDataLink extends JavaPlugin {
             case "!metrics":  // name|name|... for the tab completion
                 commands.setMetricNames(Arrays.asList(fields));
                 break;
-            case "!broadcast": {  // color|text (achievements, competitions)
+            case "!broadcast": {  // color|text (achievements, competitions, events, ...), may contain buttons
                 if (fields.length < 2) break;
-                String text = broadcastColor(fields[0]) + ChatColor.stripColor(value.substring(value.indexOf('|') + 1));
-                runOnMainThread(() -> getServer().broadcastMessage(text));
+                String text = "&" + broadcastColor(fields[0]).getChar() + value.substring(value.indexOf('|') + 1);
+                runOnMainThread(() -> {
+                    BaseComponent[] line = ChatMarkup.parse(text);
+                    for (Player player : getServer().getOnlinePlayers()) player.spigot().sendMessage(line);
+                    getLogger().info(ChatMarkup.plain(text));
+                });
                 break;
             }
             default:

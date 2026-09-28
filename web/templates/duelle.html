@@ -5,7 +5,7 @@
 
 {% macro duel_card(d) %}
 <article class="st-board du-card{% if d.status == 'running' %} cp-running{% endif %}">
-  <span class="cp-badge{% if d.status == 'pending' %} cp-badge-soon{% elif d.status in ('declined', 'expired') %} du-badge-off{% endif %}">
+  <span class="cp-badge{% if d.status == 'pending' %} cp-badge-soon{% elif d.status in ('declined', 'expired', 'cancelled') %} du-badge-off{% endif %}">
     {{ status_labels[d.status] }}{% if d.status == "running" %} · bis {{ d.ends }}{% endif %}</span>
   <p class="cp-meta">{{ d.metric_label }} · {{ d.days }} {{ "Tag" if d.days == 1 else "Tage" }}</p>
   <div class="du-sides">
@@ -23,6 +23,11 @@
   </div>
   {% if d.status == "finished" %}
   <p class="du-result">{% if d.leader %}{{ d[d.leader] }} hat gewonnen.{% else %}Unentschieden.{% endif %}</p>
+  {% endif %}
+  {% if d.status == "pending" and viewer == d.challenger_id %}
+  <div class="du-actions">
+    <button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-cancel="{{ d.id }}">Zurückziehen</button>
+  </div>
   {% endif %}
   {% if d.status == "pending" and viewer == d.opponent_id %}
   <div class="du-actions">
@@ -99,6 +104,12 @@
       else showMessage(form.querySelector('[data-role="message"]'), result.data.error || "Das hat nicht geklappt.", "error");
     });
   }
+  document.querySelectorAll("[data-cancel]").forEach((button) => button.addEventListener("click", async () => {
+    if (!confirm("Herausforderung zurückziehen?")) return;
+    const result = await postJson("/api/duels/cancel", { id: Number(button.dataset.cancel) });
+    if (result.ok) location.reload();
+    else alert(result.data.error || "Das hat nicht geklappt.");
+  }));
   document.querySelectorAll("[data-respond]").forEach((button) => button.addEventListener("click", async () => {
     const result = await postJson("/api/duels/respond", { id: Number(button.dataset.respond), accept: button.dataset.accept === "1" });
     if (result.ok) location.reload();

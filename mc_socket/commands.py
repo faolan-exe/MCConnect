@@ -3,6 +3,7 @@
 The plugin forwards the command (!CMD) and shows the answer lines (!tell). Lines use "&" color
 codes, which the plugin turns into chat colors; dynamic text is passed through clean().
 """
+import re
 from datetime import timedelta
 
 from database import achievements, config, metrics, motivation
@@ -25,9 +26,38 @@ SIDEBAR_LINES = 12
 SIDEBAR_WIDTH = 38  # the game cuts scoreboard lines at 40 characters
 
 
+# Clickable parts of a chat line: ⟦label⇒/command⟧ (plugin 3.10 turns it into a button that runs the command
+# as the clicking player; older plugins get the command as text, see without_buttons). clean() removes the
+# markers from free text, so players cannot inject buttons.
+BUTTON_OPEN, BUTTON_ARROW, BUTTON_CLOSE = "\u27e6", "\u21d2", "\u27e7"
+BUTTON_RE = re.compile(f"{BUTTON_OPEN}([^{BUTTON_ARROW}{BUTTON_CLOSE}]*){BUTTON_ARROW}([^{BUTTON_CLOSE}]*){BUTTON_CLOSE}")
+
+
+def button(label, command):
+    return f"{BUTTON_OPEN}{label}{BUTTON_ARROW}{command}{BUTTON_CLOSE}"
+
+
+def without_buttons(text):
+    """
+    For plugins without clickable chat: "[Annehmen]" buttons become their command (in the color of the label),
+    other labels stay and get the command in brackets unless the label is part of it ("/top spielzeit").
+    """
+    def plain(match):
+        label, command = match.group(1), match.group(2)
+        visible = re.sub(r"&[0-9a-fk-or]", "", label).strip()
+        if visible.startswith("["):
+            colors = "".join(re.findall(r"&[0-9a-fk-or]", label)[:2])
+            return f"{colors}{command}"
+        if visible.lower() in command.lower():
+            return label
+        return f"{label} &7({command})"
+    return BUTTON_RE.sub(plain, text)
+
+
 def clean(text):
-    """Free text for the chat: no color codes, no protocol separators."""
-    return str(text or "").replace("&", "+").replace("§", "").replace("|", "/").replace("~", "-").replace("\n", " ")
+    """Free text for the chat: no color codes, no protocol separators, no button markers."""
+    text = str(text or "").replace("&", "+").replace("§", "").replace("|", "/").replace("~", "-").replace("\n", " ")
+    return text.replace(BUTTON_OPEN, "").replace(BUTTON_ARROW, "").replace(BUTTON_CLOSE, "")
 
 
 def metric_by_name(name):
@@ -128,12 +158,12 @@ def _rank(players, metric, player_id):
 # ------------------------------------------------------------------ /top
 
 def cmd_top(ctx, args):
+    metric_buttons = "&7Kennzahlen: " + " ".join(button(f"&f{name}", f"/top {name}") for name in METRIC_NAMES)
     if not args:
-        return ["&7Benutzung: &f/top <kennzahl> [7|30]",
-                "&7Kennzahlen: &f" + ", ".join(METRIC_NAMES)]
+        return ["&7Benutzung: &f/top <kennzahl> [7|30]", metric_buttons]
     metric = metric_by_name(args[0])
     if metric is None:
-        return [f"&cUnbekannte Kennzahl: {clean(args[0])}", "&7Kennzahlen: &f" + ", ".join(METRIC_NAMES)]
+        return [f"&cUnbekannte Kennzahl: {clean(args[0])}", metric_buttons]
     days = int(args[1]) if len(args) > 1 and args[1] in ("7", "30") else None
     players = ctx.db.get_server_metrics(ctx.server_id, days)
     ranking = _ranking(players, metric)
@@ -214,10 +244,19 @@ def cmd_duel(ctx, args):
                 lines.append(f"&f{duel_text(db, d)} &7– endet {d['ends_at'].strftime('%d.%m. %H:%M')}")
             elif d["opponent_id"] == str(ctx.player_id):
                 lines.append(f"&e{d['challenger']} fordert dich heraus: {metric.label}, {d['days']} Tage "
-                             "&7– &a/duell annehmen &7oder &c/duell ablehnen")
+                             f"{answer_buttons(d['challenger'])}")
             else:
-                lines.append(f"&7Wartet auf {d['opponent']}: {metric.label}, {d['days']} Tage")
+                lines.append(f"&7Wartet auf {d['opponent']}: {metric.label}, {d['days']} Tage "
+                             + button("&c[Zurückziehen]", f"/duell zurückziehen {d['opponent']}"))
         return lines
+
+    if args[0].lower() in ("zurückziehen", "zurueckziehen", "abbrechen"):
+        mine = [d for d in db.get_player_duels(ctx.player_id, ("pending",)) if d["challenger_id"] == str(ctx.player_id)]
+        if len(args) > 1:
+            mine = [d for d in mine if d["opponent"].lower() == args[1].lower()]
+        if not mine:
+            return ["&7Du hast keine offene Herausforderung verschickt."]
+        return withdraw(ctx, mine[0]["id"])
 
     if args[0].lower() in ("annehmen", "ablehnen"):
         accept = args[0].lower() == "annehmen"
@@ -257,11 +296,28 @@ def challenge(ctx, opponent_id, metric, days):
         return ["&cDuelle gehen nur, wenn ihr beide eure Statistiken öffentlich zeigt."]
     if error == "open":
         return [f"&cMit {opponent} hast du schon ein offenes Duell."]
-    ctx.tell(str(db.get_mojang_uuid_from_player_id(opponent_id)),
-             f"&6{ctx.name} fordert dich zum Duell heraus: &f{metric.label}, {days} {'Tag' if days == 1 else 'Tage'}. "
-             "&a/duell annehmen &7oder &c/duell ablehnen")
+    ctx.tell(str(db.get_mojang_uuid_from_player_id(opponent_id)), challenge_text(ctx.name, metric, days))
     return [f"&aHerausforderung an {opponent} geschickt: {metric.label}, {days} {'Tag' if days == 1 else 'Tage'}.",
-            "&7Sie gilt 24 Stunden."]
+            "&7Sie gilt 24 Stunden. " + button("&c[Zurückziehen]", f"/duell zurückziehen {opponent}")]
+
+
+def answer_buttons(challenger):
+    return (button("&a&l[Annehmen]", f"/duell annehmen {challenger}") + " "
+            + button("&c[Ablehnen]", f"/duell ablehnen {challenger}"))
+
+
+def challenge_text(challenger, metric, days):
+    """The invitation the challenged player gets (also sent when the challenge comes from the website)."""
+    return (f"&6{challenger} fordert dich zum Duell heraus: &f{metric.label}, {days} {'Tag' if days == 1 else 'Tage'}. "
+            + answer_buttons(challenger))
+
+
+def withdraw(ctx, duel_id):
+    duel = ctx.db.cancel_duel(duel_id, ctx.player_id)
+    if duel is None:
+        return ["&7Die Herausforderung gibt es nicht mehr."]
+    ctx.tell(duel["opponent_uuid"], f"&7{duel['challenger']} hat die Herausforderung zum Duell zurückgezogen.")
+    return [f"&7Herausforderung an {duel['opponent']} zurückgezogen."]
 
 
 def respond(ctx, duel_id, accept):
@@ -330,7 +386,8 @@ def cmd_sidebar(ctx, args):
     db.set_sidebar(ctx.player_id, mode)
     ctx.update_sidebar(ctx.player_id)
     label = {v: k for k, v in SIDEBAR_MODES.items()}[mode]
-    return [f"&aSeitenleiste: {label}." + (" &7(/seitenleiste aus zum Ausblenden)" if mode != "off" else "")]
+    others = " ".join(button(f"&7[{name}]", f"/seitenleiste {name}") for name, value in SIDEBAR_MODES.items() if value != mode)
+    return [f"&aSeitenleiste: {label}. " + others]
 
 
 def sidebar(db, player_id, mode):
@@ -385,11 +442,11 @@ def cmd_vote(ctx, args):
             lines.append(f"&6Umfrage {number}: &f{clean(poll['question'])} &7(bis {poll['ends_at'].strftime('%d.%m. %H:%M')})")
             for index, option in enumerate(poll["options"], 1):
                 chosen = " &a← deine Stimme" if mine.get(poll["id"]) == index - 1 else ""
-                lines.append(f"&7  {index}. &f{clean(option)}{chosen}")
-        lines.append("&7Abstimmen: &f/vote <umfrage> <antwort>" + (" &7z. B. /vote 1 2" if polls else ""))
+                lines.append(f"&7  {index}. " + button(f"&f{clean(option)}", f"/vote #{poll['id']} {index}") + chosen)
+        lines.append("&7Klick auf eine Antwort oder: &f/vote <umfrage> <antwort>")
         return lines
     try:
-        poll = polls[int(args[0]) - 1]
+        poll = by_reference(polls, args[0])
         option = int(args[1]) - 1
     except (ValueError, IndexError):
         return ["&cDiese Umfrage gibt es nicht. &7/vote zeigt alle."]
@@ -419,7 +476,7 @@ def cmd_events(ctx, args):
         return ["&7Gerade ist kein Event geplant."]
     if args and args[0].lower() in ("anmelden", "abmelden"):
         try:
-            event = events[int(args[1]) - 1] if len(args) > 1 else events[0]
+            event = by_reference(events, args[1]) if len(args) > 1 else events[0]
         except (ValueError, IndexError):
             return ["&cDieses Event gibt es nicht. &7/events zeigt alle."]
         signed = db.toggle_event_signup(ctx.server_id, event["id"], ctx.player_id, args[0].lower() == "anmelden")
@@ -431,17 +488,33 @@ def cmd_events(ctx, args):
     lines = ["&6--- Nächste Events ---"]
     for number, event in enumerate(events, 1):
         place = f" &7@ {clean(event['place'])}" if event["place"] else ""
-        signed = " &a(angemeldet)" if event["id"] in mine else ""
+        action = (button("&c[Abmelden]", f"/events abmelden #{event['id']}") if event["id"] in mine
+                  else button("&a[Anmelden]", f"/events anmelden #{event['id']}"))
         lines.append(f"&e{number}. &f{clean(event['title'])} &7– {event['starts_at'].strftime('%d.%m. %H:%M')} Uhr{place} "
-                     f"&7({event['signups']} dabei){signed}")
-    lines.append("&7Anmelden: &f/events anmelden <nr>")
+                     f"&7({event['signups']} dabei) " + action)
     return lines
 
 
+def by_reference(items, reference):
+    """The item for "#<id>" (from a button, stays right when the list changes) or a 1-based number."""
+    if reference.startswith("#"):
+        wanted = int(reference[1:])
+        return next(item for item in items if item["id"] == wanted)
+    number = int(reference)
+    if number < 1:
+        raise IndexError(reference)
+    return items[number - 1]
+
+
 def event_announcement(kind, event):
+    """(color, text) of an event: "new" (just created), "reminder" (soon) or "start"."""
     place = f" Treffpunkt: {clean(event['place'])}." if event["place"] else ""
+    signup = " " + button("&a[Anmelden]", f"/events anmelden #{event['id']}")
+    if kind == "new":
+        when = event["starts_at"].strftime("%d.%m. um %H:%M Uhr")
+        return "gold", f"★ Neues Event: »{clean(event['title'])}« am {when}.{place}{signup}"
     if kind == "reminder":
-        return "gold", f"★ In Kürze: »{clean(event['title'])}« um {event['starts_at'].strftime('%H:%M')} Uhr.{place}"
+        return "gold", f"★ In Kürze: »{clean(event['title'])}« um {event['starts_at'].strftime('%H:%M')} Uhr.{place}{signup}"
     return "gold", f"★ Jetzt geht's los: »{clean(event['title'])}«!{place}"
 
 

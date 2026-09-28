@@ -20,6 +20,7 @@ Plugin -> server:
                                  "entities", "uptime_s", "mc_version", "plugin_version"}
     !CMD~<uuid>|<world>|<x>|<y>|<z>|<command>|<args>   in-game command (stats, top, wettbewerb, duell, report,
                                  seitenleiste, vote, events; see mc_socket/commands.py), answered with !tell
+    !FEATURES~<name>,<name>      what the plugin can do (after auth): "click" = buttons in chat messages (3.10)
     !DISCONNECT                  close the connection
 
 Server -> plugin:
@@ -33,7 +34,8 @@ Server -> plugin:
     !broadcast~<color>|<text>    chat message to everyone (achievements, competitions, records, streaks,
                                  anniversaries, community goals, player of the week);
                                  color is a ChatColor name, e.g. gold
-    !tell~<uuid>|<text>          chat message to one player; "&" color codes (plugin 3.4)
+    !tell~<uuid>|<text>          chat message to one player; "&" color codes (plugin 3.4); buttons as
+                                 ⟦label⇒/command⟧ only for plugins that announced "click" (see commands.button)
     !sidebar~<uuid>|<title>|<line>|...   scoreboard sidebar of a player ("&" color codes); empty title hides it
     !metrics~<name>|<name>|...   metric names for the tab completion of /top and /duell (after auth)
     !whitelist~add|<name>        put a player on the server's whitelist (accepted application or invite code)
@@ -57,9 +59,11 @@ Success codes:
 103: ban list synced
 104: health sample stored
 105: website bans synced
+106: features noted
 """
 import json
 import os
+import re
 import select
 import socket
 import ssl
@@ -160,6 +164,7 @@ class ClientConnection:
         self.conn = conn
         self.addr = addr
         self.server_id = None
+        self.features = set()  # announced by the plugin with !FEATURES, e.g. "click" (plugin 3.10)
         self._send_lock = threading.Lock()
 
     def send(self, msg):
@@ -301,7 +306,7 @@ class SocketServer:
 
     # ------------------------------------------------------------------ announcements
     def broadcast(self, server_id, color, text):
-        return self._send_to_server(server_id, f"!broadcast~{color}|{self._clean(text)}")
+        return self._send_to_server(server_id, f"!broadcast~{color}|{self._clean(text)}", chat=True)
 
     def announce_achievements(self, server_id, player_id, awards):
         if not awards or len(awards) > MAX_ANNOUNCED_ACHIEVEMENTS or self.db.is_stats_hidden(player_id):
@@ -331,28 +336,55 @@ class SocketServer:
         self.announce_milestones(server_id, player_id, self.db.check_milestones(player_id))
 
     def periodic_checks(self):
-        """Competitions, community goals and the player of the week on the connected servers (the others later)."""
-        self.send_alerts()
+        """
+        Everything that runs once a minute. Each step is guarded on its own: a failing step is logged and
+        does not stop the others (event reminders, sidebar updates, ...).
+        """
+        self._step("alerts", self.send_alerts)
         with self._lock:
             connected = list(self.active_connections)
         if not connected:
             return
-        self.announce_competitions(connected)
-        self.db.award_finished_competitions(connected)
-        for goal in self.db.take_reached_goals(connected):
-            self.broadcast(goal["server_id"], *motivation.goal_announcement(goal))
+        self._step("competitions", self.announce_competitions, connected)
+        self._step("competition trophies", self.db.award_finished_competitions, connected)
+        self._step("events", self.announce_events, connected)
+        self._step("community goals", self.announce_goals, connected)
         for server_id in connected:
-            trophy = self.db.settle_player_of_week(server_id)
-            if trophy:
-                self.broadcast(server_id, *motivation.player_of_week_announcement(trophy))
+            self._step(f"player of the week (server {server_id})", self.announce_player_of_week, server_id)
+        self._step("polls", self.announce_polls, connected)
+        self._step("duels", self.announce_duels, connected)
+        self._step("sidebars", self.update_sidebars, connected)
+
+    def _step(self, name, function, *args):
+        try:
+            function(*args)
+        except Exception:
+            logger.exception(f"Periodic check failed: {name}")
+
+    def announce_events(self, connected):
         for kind, event in self.db.take_due_event_announcements(connected):
             self.broadcast(event["server_id"], *commands.event_announcement(kind, event))
+
+    def announce_goals(self, connected):
+        for goal in self.db.take_reached_goals(connected):
+            self.broadcast(goal["server_id"], *motivation.goal_announcement(goal))
+
+    def announce_player_of_week(self, server_id):
+        trophy = self.db.settle_player_of_week(server_id)
+        if trophy:
+            self.broadcast(server_id, *motivation.player_of_week_announcement(trophy))
+
+    def announce_polls(self, connected):
         for poll in self.db.take_finished_polls(connected):
             self.broadcast(poll["server_id"], *commands.poll_result(poll))
+
+    def announce_duels(self, connected):
         for duel in self.db.take_finished_duels(connected):
             self.broadcast(duel["server_id"], *commands.duel_result(duel))
+
+    def update_sidebars(self, connected):
         for server_id, player_id, uuid, mode in self.db.get_sidebar_players(connected):
-            self.send_sidebar(server_id, uuid, commands.sidebar(self.db, player_id, mode))
+            self._step(f"sidebar of {uuid}", lambda: self.send_sidebar(server_id, uuid, commands.sidebar(self.db, player_id, mode)))
 
     def send_alerts(self):
         """E-mail the owners of servers that are offline or lag (see DatabaseManager.get_alert_candidates)."""
@@ -410,7 +442,8 @@ class SocketServer:
 
     # ------------------------------------------------------------------ in-game commands
     def tell(self, server_id, mojang_uuid, text):
-        return self._send_to_server(server_id, f"!tell~{mojang_uuid}|{text.replace('|', '/').replace(chr(10), ' ')}")
+        return self._send_to_server(server_id, f"!tell~{mojang_uuid}|{text.replace('|', '/').replace(chr(10), ' ')}",
+                                    chat=True)
 
     def send_sidebar(self, server_id, mojang_uuid, content):
         if content is None:
@@ -489,11 +522,16 @@ class SocketServer:
         """Remove the protocol separators from free text."""
         return str(text or "").replace("~", "-").replace("|", "/").replace("\n", " ")
 
-    def _send_to_server(self, server_id, msg):
+    def _send_to_server(self, server_id, msg, chat=False):
+        """Send a message to the plugin of a server. chat: may contain buttons (removed for older plugins)."""
         with self._lock:
             client = self.active_connections.get(server_id)
         if client is None:
             return False
+        if chat and "click" not in client.features:
+            msg = commands.without_buttons(msg)
+            if msg.startswith("!broadcast~"):  # older plugins show broadcasts without "&" color codes
+                msg = re.sub(r"&[0-9a-fk-or]", "", msg)
         try:
             client.send(msg)
             return True
@@ -669,6 +707,9 @@ class SocketServer:
                 self.db.update_player_stats(player_id, stats)
                 client.send("success|102")
                 self.after_stats(client.server_id, player_id)
+            elif command == "!FEATURES":
+                client.features = {f.strip() for f in value.split(",") if f.strip()}
+                client.send("success|106")
             elif command == "!CMD":
                 self.run_command(client.server_id, value)
             elif command == "!HEALTH":
