@@ -1,0 +1,131 @@
+{% extends "mod/_layout.html" %}
+{% block mod_content %}
+<section class="srv-card" id="rewards">
+  <h2>Join-Nachrichten &amp; Belohnungen</h2>
+  <p class="mcc-hint">Spieler gestalten ihre Join- und Leave-Nachricht auf <a href="/profil">/profil</a> oder im Spiel mit
+    <code>/joinmessage</code> (ab Plugin-Version 3.14). Farben, Symbole, Stile, Texte und Sounds schalten sie mit Stufen frei;
+    eine erreichte Stufe bleibt, auch wenn eine Serie reißt. Moderatoren und OPs können zusätzlich {{ mod_colors | join(", ") }} nutzen.</p>
+  <label class="pf-check">
+    <input type="checkbox" data-role="enabled"{% if rewards_enabled %} checked{% endif %}/>
+    <span><b>Eigene Join-Nachrichten erlauben</b> <span class="mcc-hint">(aus: alle haben die normale Nachricht des Spiels)</span></span>
+  </label>
+  <div class="mcc-message" data-role="enabled-message"></div>
+</section>
+
+<section class="srv-card" id="levels">
+  <h2>Stufen</h2>
+  <p class="mcc-hint">Eine Stufe ist erreicht, sobald <b>eine</b> ihrer Bedingungen erfüllt ist. Was eine Stufe freischaltet, kommt zu den
+    Stufen darunter dazu. Die erste Stufe hat jeder. Die oberste sollte lange dauern – zum Beispiel eine Serie von 365 Tagen.</p>
+  <div data-role="levels"></div>
+  <div class="mcc-actions">
+    <button class="mcc-btn mcc-btn-secondary" type="button" data-role="add-level">+ Stufe</button>
+    <button class="mcc-btn" type="button" data-role="save">Stufen speichern</button>
+    <button class="mcc-btn mcc-btn-secondary" type="button" data-role="reset">Auf Standard zurücksetzen</button>
+  </div>
+  <div class="mcc-message" data-role="levels-message"></div>
+</section>
+<script id="rewards-editor" type="application/json">{{ editor | tojson }}</script>
+{% endblock %}
+
+{% block mod_scripts %}
+<script nonce="{{ csp_nonce() }}">
+  (() => {
+    const data = JSON.parse(document.getElementById("rewards-editor").textContent);
+    const root = document.querySelector('[data-role="levels"]');
+    const KINDS = [["colors", "Farben"], ["symbols", "Symbole"], ["styles", "Stile"], ["join_texts", "Join-Texte"],
+                   ["leave_texts", "Leave-Texte"], ["sounds", "Sounds"]];
+    let levels = data.levels;
+
+    const el = (tag, props = {}, ...children) => {
+      const node = Object.assign(document.createElement(tag), props);
+      node.append(...children.filter((c) => c !== null && c !== undefined));
+      return node;
+    };
+
+    function conditionRow(level, condition) {
+      const type = el("select", { className: "mcc-select" },
+        ...Object.entries(data.conditions).map(([key, c]) => el("option", { value: key, textContent: c.label, selected: key === condition.type })));
+      const metric = el("select", { className: "mcc-select" },
+        ...data.metrics.map((m) => el("option", { value: m.key, textContent: m.label, selected: m.key === condition.metric })));
+      const value = el("input", { className: "mcc-input", type: "number", min: "0", step: "any", value: condition.value ?? "" });
+      const unit = el("span", { className: "mcc-hint" });
+      const remove = el("button", { type: "button", className: "nt-delete", textContent: "Entfernen" });
+      const row = el("div", { className: "rw-condition" }, type, metric, value, unit, remove);
+      const sync = () => {
+        condition.type = type.value;
+        metric.hidden = type.value !== "metric";
+        if (type.value === "metric") condition.metric = metric.value; else delete condition.metric;
+        condition.value = value.value === "" ? null : Number(value.value);
+        const m = data.metrics.find((x) => x.key === metric.value);
+        unit.textContent = type.value === "metric" ? (m && m.unit) || "" : data.conditions[type.value].unit;
+      };
+      [type, metric, value].forEach((input) => input.addEventListener("input", sync));
+      remove.addEventListener("click", () => {
+        level.conditions.splice(level.conditions.indexOf(condition), 1);
+        render();
+      });
+      sync();
+      return row;
+    }
+
+    function unlockGroup(level, kind, title) {
+      const chosen = level.unlocks[kind] = level.unlocks[kind] || [];
+      return el("fieldset", { className: "rw-unlocks" }, el("legend", { textContent: title }),
+        ...data.options[kind].map((option) => {
+          const box = el("input", { type: "checkbox", checked: chosen.includes(option.value) });
+          box.addEventListener("change", () => {
+            if (box.checked) chosen.push(option.value); else chosen.splice(chosen.indexOf(option.value), 1);
+          });
+          const swatch = option.web ? el("span", { className: "jm-swatch" }) : null;
+          if (swatch) swatch.style.background = option.web;
+          return el("label", { className: "rw-option" }, box, swatch, option.label);
+        }));
+    }
+
+    function render() {
+      root.replaceChildren(...levels.map((level, index) => {
+        const name = el("input", { className: "mcc-input rw-name", value: level.name, maxLength: 24 });
+        name.addEventListener("input", () => (level.name = name.value));
+        const remove = index ? el("button", { type: "button", className: "nt-delete", textContent: "Stufe entfernen" }) : null;
+        if (remove) remove.addEventListener("click", () => { levels.splice(index, 1); render(); });
+        const add = el("button", { type: "button", className: "mcc-btn mcc-btn-secondary mcc-btn-small", textContent: "+ Bedingung" });
+        add.addEventListener("click", () => { level.conditions.push({ type: "streak", value: 30 }); render(); });
+        return el("details", { className: "rw-level", open: index === levels.length - 1 && levels.length > data.levels.length },
+          el("summary", {}, el("b", { textContent: `Stufe ${index + 1}` }), " ", level.name),
+          el("div", { className: "rw-head" }, el("label", { textContent: "Name" }), name, remove),
+          index === 0 ? el("p", { className: "mcc-hint", textContent: "Die erste Stufe hat jeder von Anfang an." })
+            : el("div", {}, el("p", { className: "mcc-hint", textContent: "Erreicht, wenn eine dieser Bedingungen erfüllt ist:" }),
+                ...level.conditions.map((c) => conditionRow(level, c)), add),
+          ...KINDS.map(([kind, title]) => unlockGroup(level, kind, title)));
+      }));
+    }
+
+    const message = document.querySelector('[data-role="levels-message"]');
+    async function save(body, done) {
+      const result = await postJson("/api/mod/rewards", body);
+      if (!result.ok) return showMessage(message, result.data.error || "Speichern fehlgeschlagen.", "error");
+      levels = result.data.levels;
+      data.levels = JSON.parse(JSON.stringify(levels));
+      render();
+      showMessage(message, done, "success");
+    }
+    document.querySelector('[data-role="add-level"]').addEventListener("click", () => {
+      levels.push({ name: "Neue Stufe", conditions: [{ type: "streak", value: 400 }], unlocks: {} });
+      render();
+      root.lastElementChild.open = true;
+    });
+    document.querySelector('[data-role="save"]').addEventListener("click", () => save({ levels }, "Gespeichert. Die Spieler sehen die Stufen sofort."));
+    document.querySelector('[data-role="reset"]').addEventListener("click", () => {
+      if (confirm("Alle Stufen auf den Standard zurücksetzen?")) save({ levels: "default" }, "Die Standard-Stufen gelten wieder.");
+    });
+    document.querySelector('[data-role="enabled"]').addEventListener("change", async (event) => {
+      const result = await postJson("/api/mod/rewards", { enabled: event.target.checked });
+      showMessage(document.querySelector('[data-role="enabled-message"]'),
+        result.ok ? (event.target.checked ? "Eigene Join-Nachrichten sind an." : "Alle haben wieder die normale Nachricht.") : (result.data.error || "Fehler."),
+        result.ok ? "success" : "error");
+      if (!result.ok) event.target.checked = !event.target.checked;
+    });
+    render();
+  })();
+</script>
+{% endblock %}

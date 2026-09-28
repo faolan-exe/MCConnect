@@ -81,6 +81,7 @@ def test_migration_marks_old_catch_up_achievements_silent(db, server):
 
 
 def test_many_achievements_at_once_are_not_announced(db, server, plugin):
+    db.set_reward_settings(server["id"], enabled=False)  # the new reward level would be told to the player
     client = plugin().auth(server["key"])
     stats = custom(deaths=600, jump=200_000, fish_caught=2_000)
     assert client.request(f"!STATS~{PLAYER_UUID}|{json.dumps(stats)}") == "success|102"

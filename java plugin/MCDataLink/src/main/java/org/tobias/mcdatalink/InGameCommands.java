@@ -21,7 +21,7 @@ import java.util.List;
  */
 final class InGameCommands implements CommandExecutor, TabCompleter {
     static final String[] COMMANDS = {"stats", "top", "wettbewerb", "duell", "report", "seitenleiste", "vote", "events",
-            "verwarnen", "stumm", "entstummen"};
+            "verwarnen", "stumm", "entstummen", "joinmessage"};
     private static final List<String> PERIODS = Arrays.asList("7", "30");
     private static final List<String> DAYS = Arrays.asList("1", "2", "3", "4", "5", "6", "7");
     private static final List<String> DUEL_ACTIONS = Arrays.asList("annehmen", "ablehnen");
@@ -29,6 +29,7 @@ final class InGameCommands implements CommandExecutor, TabCompleter {
     private static final List<String> NUMBERS = Arrays.asList("1", "2", "3", "4", "5", "6", "7", "8");
     private static final List<String> EVENT_ACTIONS = Arrays.asList("anmelden", "abmelden");
     private static final List<String> MUTE_MINUTES = Arrays.asList("10", "60", "360", "1440");
+    private static final List<String> JOIN_FIELDS = Arrays.asList("text", "leave", "farbe", "symbol", "stil", "sound", "aus");
 
     private final MCDataLink plugin;
     /** Metric names for the tab completion, sent by MCConnect after connecting (!metrics). */
@@ -84,6 +85,8 @@ final class InGameCommands implements CommandExecutor, TabCompleter {
             options = MUTE_MINUTES;
         } else if (name.equals("vote") && index <= 1) {
             options = NUMBERS;
+        } else if (name.equals("joinmessage") && index == 0) {
+            options = JOIN_FIELDS;
         } else if (name.equals("events")) {
             options = index == 0 ? EVENT_ACTIONS : index == 1 ? NUMBERS : options;
         }

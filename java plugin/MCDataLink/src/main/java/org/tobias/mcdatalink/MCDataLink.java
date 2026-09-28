@@ -71,6 +71,7 @@ public final class MCDataLink extends JavaPlugin {
     private InGameCommands commands;
     private Sidebar sidebar;
     private Moderation moderation;
+    private JoinMessages joinMessages;
 
     @Override
     public void onEnable() {
@@ -100,6 +101,8 @@ public final class MCDataLink extends JavaPlugin {
         sidebar = new Sidebar(this);
         moderation = new Moderation(this);
         getServer().getPluginManager().registerEvents(moderation, this);
+        joinMessages = new JoinMessages(this);
+        getServer().getPluginManager().registerEvents(joinMessages, this);
         commands = new InGameCommands(this);
         for (String name : InGameCommands.COMMANDS) {
             org.bukkit.command.PluginCommand command = getCommand(name);
@@ -299,6 +302,19 @@ public final class MCDataLink extends JavaPlugin {
                         fields.length > 3 ? fields[3] : "");
                 break;
             }
+            case "!joinstyle": {  // uuid|join line|leave line|sound|volume (empty lines: the game's message)
+                UUID uuid = fields.length >= 5 ? parseUuid(fields[0]) : null;
+                if (uuid != null) joinMessages.setStyle(uuid, fields[1], fields[2], fields[3], fields[4]);
+                break;
+            }
+            case "!joinmutes": {  // uuid|sounds off 0/1|uuid,uuid,...
+                UUID uuid = fields.length >= 3 ? parseUuid(fields[0]) : null;
+                if (uuid != null) joinMessages.setMutes(uuid, "1".equals(fields[1]), JoinMessages.parseUuids(fields[2]));
+                break;
+            }
+            case "!joinreset":
+                joinMessages.reset();
+                break;
             case "!whitelist":  // add|name
                 if (fields.length >= 2 && fields[0].equals("add")) runOnMainThread(() -> moderation.whitelist(fields[1]));
                 break;

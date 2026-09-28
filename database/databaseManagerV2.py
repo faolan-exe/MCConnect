@@ -398,6 +398,19 @@ MIGRATIONS = {
         """ALTER TABLE duels ADD CONSTRAINT duels_status_check
              CHECK (status IN ('pending', 'running', 'finished', 'declined', 'expired', 'cancelled'))""",
     ],
+    20: [
+        # join/leave messages and reward levels (database/rewards.py): levels of the server (NULL = default),
+        # the player's choice, the highest level reached (never lowered) and whose messages a player mutes
+        "ALTER TABLE servers ADD COLUMN rewards_enabled boolean NOT NULL DEFAULT true",
+        "ALTER TABLE servers ADD COLUMN reward_levels jsonb",
+        "ALTER TABLE player_server_info ADD COLUMN join_style jsonb",
+        "ALTER TABLE player_server_info ADD COLUMN reward_level smallint NOT NULL DEFAULT 0",
+        "ALTER TABLE player_server_info ADD COLUMN join_sounds_off boolean NOT NULL DEFAULT false",
+        """CREATE TABLE join_mutes(
+             player_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             muted_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             PRIMARY KEY (player_id, muted_id))""",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -2959,6 +2972,87 @@ class DatabaseManager:
     def mark_alert_sent(self, server_id, kind):
         column = "alert_offline_at" if kind == "offline" else "alert_tps_at"
         self._execute(f"UPDATE servers SET {column} = now() WHERE id = %s", (server_id,))
+
+    ###----------------------------- Join messages and rewards ------------------------------------###
+
+    def get_reward_settings(self, server_id):
+        """(enabled, levels or None for the default levels)."""
+        row = self._fetchone("SELECT rewards_enabled, reward_levels FROM servers WHERE id = %s", (server_id,))
+        return (row[0], row[1]) if row else (False, None)
+
+    def set_reward_settings(self, server_id, enabled=None, levels=False):
+        """enabled: True/False or None (unchanged); levels: a list, None (back to the default) or False (unchanged)."""
+        if enabled is not None:
+            self._execute("UPDATE servers SET rewards_enabled = %s WHERE id = %s", (bool(enabled), server_id))
+        if levels is not False:
+            self._execute("UPDATE servers SET reward_levels = %s WHERE id = %s",
+                          (json.dumps(levels) if levels is not None else None, server_id))
+
+    def get_reward_facts(self, player_id):
+        """What the reward conditions look at: {"streak" (best), "tiers", "play_hours", "days", "trophies", "metrics"}."""
+        values = self.get_player_metrics(player_id)
+        first_seen = self._fetchvalue("SELECT first_seen FROM player_server_info WHERE player_id = %s", (player_id,))
+        return {
+            "streak": self.get_player_streak(player_id)["best"],
+            "tiers": len(self.get_player_achievements(player_id)),
+            "play_hours": values.get("play_time", 0) / 20 / 3600,
+            "days": (datetime.now(timezone.utc) - first_seen).days if first_seen else 0,
+            "trophies": len(self.get_player_trophies(player_id)),
+            "metrics": values,
+        }
+
+    def get_join_settings(self, player_id):
+        """{"style" (dict or None: the vanilla message), "level", "sounds_off"} of a player."""
+        row = self._fetchone("SELECT join_style, reward_level, join_sounds_off FROM player_server_info WHERE player_id = %s",
+                             (player_id,))
+        return {"style": row[0], "level": row[1], "sounds_off": row[2]} if row else None
+
+    def set_join_style(self, player_id, style):
+        """style: dict or None (back to the normal message of the game)."""
+        self._execute("UPDATE player_server_info SET join_style = %s WHERE player_id = %s",
+                      (json.dumps(style) if style is not None else None, player_id))
+
+    def raise_reward_level(self, player_id, level):
+        """Store a newly reached level. True if it is higher than the stored one (levels are never lowered)."""
+        return self._execute("UPDATE player_server_info SET reward_level = %s WHERE player_id = %s AND reward_level < %s",
+                             (level, player_id, level)) > 0
+
+    def set_join_sounds_off(self, player_id, off):
+        self._execute("UPDATE player_server_info SET join_sounds_off = %s WHERE player_id = %s", (bool(off), player_id))
+
+    def get_join_mutes(self, player_id):
+        """[{"name", "uuid"}] of the players whose join/leave messages the player does not want to see."""
+        return [{"name": n, "uuid": str(u)} for n, u in self._fetchall("""
+            SELECT p.name, psi.mojang_uuid FROM join_mutes m JOIN player_server_info psi ON psi.player_id = m.muted_id
+            JOIN player p ON p.uuid = psi.mojang_uuid WHERE m.player_id = %s ORDER BY lower(p.name)""", (player_id,))]
+
+    def set_join_mute(self, player_id, muted_name, muted=True):
+        """Mute (or unmute) the messages of a player of the same server. Returns the name, or None if unknown."""
+        server_id = self.get_server_id_from_player_id(player_id)
+        muted_id = self.get_player_id_from_player_name_and_server_id(muted_name, server_id)
+        if muted_id is None or str(muted_id) == str(player_id):
+            return None
+        if muted:
+            self._execute("INSERT INTO join_mutes (player_id, muted_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                          (player_id, muted_id))
+        else:
+            self._execute("DELETE FROM join_mutes WHERE player_id = %s AND muted_id = %s", (player_id, muted_id))
+        return self.get_player_name_from_player_id(muted_id)
+
+    def get_join_sync(self, server_id):
+        """For the plugin: ([player_id of players with an own message], {uuid: (sounds_off, [muted uuids])})."""
+        styled = [str(row[0]) for row in self._fetchall(
+            "SELECT player_id FROM player_server_info WHERE server_id = %s AND join_style IS NOT NULL", (server_id,))]
+        mutes = {}
+        for uuid, sounds_off, muted in self._fetchall("""
+                SELECT psi.mojang_uuid, psi.join_sounds_off,
+                       COALESCE(array_agg(m.mojang_uuid::text) FILTER (WHERE m.mojang_uuid IS NOT NULL), '{}')
+                FROM player_server_info psi LEFT JOIN join_mutes j ON j.player_id = psi.player_id
+                LEFT JOIN player_server_info m ON m.player_id = j.muted_id
+                WHERE psi.server_id = %s GROUP BY psi.mojang_uuid, psi.join_sounds_off
+                HAVING psi.join_sounds_off OR count(j.muted_id) > 0""", (server_id,)):
+            mutes[str(uuid)] = (sounds_off, [str(u) for u in muted])
+        return styled, mutes
 
     ###----------------------------- Year in review ------------------------------------###
 

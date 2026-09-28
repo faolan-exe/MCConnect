@@ -6,7 +6,7 @@ codes, which the plugin turns into chat colors; dynamic text is passed through c
 import re
 from datetime import timedelta
 
-from database import achievements, config, metrics, motivation
+from database import achievements, config, metrics, motivation, rewards
 
 # Names for /top and /duell (what players type), in the order of the tab completion.
 METRIC_NAMES = {
@@ -78,8 +78,10 @@ def page_url(db, server_id, path):
 class CommandContext:
     """One command of a player. tell(uuid, text) and broadcast(color, text) send to the game."""
 
-    def __init__(self, db, server_id, uuid, location, tell, broadcast, update_sidebar=None, ban=None, mute=None):
+    def __init__(self, db, server_id, uuid, location, tell, broadcast, update_sidebar=None, ban=None, mute=None,
+                 send=None):
         self.db = db
+        self.send = send or (lambda message: None)  # a raw protocol message to the plugin (e.g. !joinstyle)
         self.ban = ban or (lambda result: None)  # kick/ban in the game after ban_player
         self.mute = mute or (lambda uuid, until, reason: None)
         self.server_id = server_id
@@ -614,6 +616,89 @@ def unmute_player(db, server_id, player_id, actor, mute, tell):
     db.add_mod_log(server_id, actor, "unmute", db.get_player_name_from_player_id(player_id))
 
 
+# ------------------------------------------------------------------ /joinmessage
+
+# what players type -> field of the style
+JOIN_FIELDS = {"text": "join_text", "leave": "leave_text", "farbe": "color", "symbol": "symbol", "stil": "style",
+               "sound": "sound"}
+
+
+def _options(state, field, kind, labels):
+    """Buttons of one setting: unlocked options (the chosen one marked), those of the next level gray."""
+    style, first = state["style"], rewards.unlocked_at(state["levels"])
+    parts = []
+    for value in rewards.UNLOCK_KINDS[kind] + (rewards.MOD_COLORS if kind == "colors" and state["moderator"] else ()):
+        label = clean(labels(value))
+        argument = str(rewards.SYMBOLS.index(value)) if field == "symbol" else value
+        command = next(k for k, v in JOIN_FIELDS.items() if v == field)
+        if value in state["available"][kind]:
+            color = f"&{rewards.COLOR_CODES[value][0]}" if kind == "colors" else "&f"
+            mark = "&a✔" if style[field] == value else ""
+            parts.append(button(f"{mark}{color}[{label}]", f"/joinmessage {command} {argument}"))
+        elif first.get((kind, value)) == state["level"] + 1:  # a taste of the next level, not everything locked
+            parts.append(f"&8[{label}]")
+    if field == "sound":
+        parts.insert(0, button(f"{'&a✔' if not style['sound'] else ''}&f[Aus]", "/joinmessage sound aus"))
+    return " ".join(parts)
+
+
+def cmd_joinmessage(ctx, args):
+    db = ctx.db
+    state = rewards.player_state(db, ctx.player_id)
+    if not state["enabled"]:
+        return ["&7Eigene Join-Nachrichten sind auf diesem Server ausgeschaltet."]
+    if args:
+        return set_join_style(ctx, state, args[0].lower(), args[1] if len(args) > 1 else "")
+    style, available = state["style"], state["available"]
+    levels, level = state["levels"], state["level"]
+    lines = [f"&6--- Deine Join-Nachricht · Stufe {clean(levels[level]['name'])} ({level + 1}/{len(levels)}) ---"]
+    if state["custom"]:
+        lines += [f"&7Join: {rewards.render(ctx.name, style, available, 'join')}",
+                  f"&7Leave: {rewards.render(ctx.name, style, available, 'leave')}"]
+    else:
+        lines.append("&7Gerade zeigt das Spiel seine normale Nachricht. Wähl etwas aus, um deine eigene zu nutzen.")
+    lines += [
+        "&7Text: " + _options(state, "join_text", "join_texts", lambda v: rewards.JOIN_TEXTS[v].replace("{name}", "…")),
+        "&7Leave: " + _options(state, "leave_text", "leave_texts", lambda v: rewards.LEAVE_TEXTS[v].replace("{name}", "…")),
+        "&7Farbe: " + _options(state, "color", "colors", lambda v: rewards.COLOR_LABELS[v]),
+        "&7Symbol: " + _options(state, "symbol", "symbols", lambda v: v or "keins"),
+        "&7Stil: " + _options(state, "style", "styles", lambda v: rewards.STYLES[v].split(" (")[0]),
+        "&7Sound: " + _options(state, "sound", "sounds", lambda v: rewards.SOUNDS[v][0].split(" (")[0]),
+    ]
+    if level + 1 < len(levels):
+        following = levels[level + 1]
+        lines.append(f"&7Nächste Stufe »{clean(following['name'])}«: {clean(rewards.level_hint(following))}")
+    if state["custom"]:
+        lines.append(button("&7[Normale Nachricht des Spiels]", "/joinmessage aus"))
+    lines.append(f"&7Vorschau und Stummschalten: &b{page_url(db, ctx.server_id, '/profil')}")
+    return lines
+
+
+def set_join_style(ctx, state, what, value):
+    db = ctx.db
+    if what == "aus":
+        db.set_join_style(ctx.player_id, None)
+        ctx.send(rewards.join_style_message(db, ctx.player_id))
+        return ["&7Du hast wieder die normale Join-Nachricht des Spiels."]
+    field = JOIN_FIELDS.get(what)
+    if field is None:
+        return ["&7Benutzung: &f/joinmessage [text|leave|farbe|symbol|stil|sound|aus] [wert]"]
+    if field == "symbol":
+        try:
+            value = rewards.SYMBOLS[int(value)]
+        except (ValueError, IndexError):
+            return ["&cDieses Symbol gibt es nicht."]
+    if field == "sound" and value == "aus":
+        value = ""
+    error = rewards.check_choice(field, value, state["available"])
+    if error:
+        return [f"&c{error}"]
+    style = dict(state["style"], **{field: value})
+    db.set_join_style(ctx.player_id, style)
+    ctx.send(rewards.join_style_message(db, ctx.player_id))
+    return [f"&aGespeichert: {rewards.render(ctx.name, style, state['available'], 'join')}"]
+
+
 COMMANDS = {"stats": cmd_stats, "top": cmd_top, "wettbewerb": cmd_competition, "duell": cmd_duel,
             "report": cmd_report, "seitenleiste": cmd_sidebar, "vote": cmd_vote, "events": cmd_events,
-            "verwarnen": cmd_warn, "stumm": cmd_mute, "entstummen": cmd_unmute}
+            "verwarnen": cmd_warn, "stumm": cmd_mute, "entstummen": cmd_unmute, "joinmessage": cmd_joinmessage}

@@ -1297,3 +1297,33 @@ details.md-create > summary { display: inline-block; cursor: pointer; padding: 7
 details.md-create > summary::-webkit-details-marker { display: none; }
 details.md-create[open] > summary { background: var(--srv-night); color: #fff; }
 details.md-create[open] > .mcc-form { margin-top: 12px; padding: 14px; border: 1px solid var(--srv-border); border-radius: 10px; }
+
+/* /profil: join message */
+.jm-levels { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.jm-level { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--srv-border); color: var(--srv-muted); font-size: 14px; font-weight: 700; }
+.jm-reached { color: var(--srv-text); border-color: var(--srv-green); }
+.jm-current { background: var(--srv-green); color: #0b1a10; }
+.jm-preview { margin: 12px 0; padding: 12px 14px; border-radius: 8px; background: #1d1f1e; font-family: ui-monospace, Menlo, monospace;
+  font-size: 15px; line-height: 1.7; }
+.jm-title { margin: 16px 0 6px; font-size: 15px; }
+.jm-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.jm-options button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--srv-border);
+  border-radius: 8px; background: var(--srv-card); color: var(--srv-text); font: inherit; font-size: 14px; cursor: pointer; }
+.jm-options button[aria-pressed="true"] { border-color: var(--srv-green); box-shadow: inset 0 0 0 1px var(--srv-green); font-weight: 700; }
+.jm-options button:disabled { opacity: 0.45; cursor: not-allowed; }
+.jm-swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0, 0, 0, 0.3); }
+.jm-mutes { margin-top: 18px; }
+.jm-mutes summary { cursor: pointer; color: var(--srv-muted); font-size: 14px; }
+.jm-muted { list-style: none; padding: 0; margin: 6px 0; display: grid; gap: 4px; }
+
+/* moderation: reward level editor */
+.rw-level { margin: 0 0 10px; padding: 10px 14px; border: 1px solid var(--srv-border); border-radius: 10px; }
+.rw-level > summary { cursor: pointer; font-size: 16px; }
+.rw-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0; }
+.rw-name { max-width: 260px; }
+.rw-condition { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; }
+.rw-condition .mcc-select { width: auto; max-width: 320px; }
+.rw-condition .mcc-input { width: 120px; }
+.rw-unlocks { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 10px 0 0; padding: 8px 10px; border: 1px solid var(--srv-border); border-radius: 8px; }
+.rw-unlocks legend { padding: 0 4px; font-weight: 700; font-size: 14px; }
+.rw-option { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; font-weight: 400; }

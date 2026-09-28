@@ -28,12 +28,14 @@ import psycopg2.errors
 from colorlogx import get_logger
 from flask import (Blueprint, Flask, Response, abort, current_app, g, redirect, render_template,
                    request, send_file, send_from_directory, session, url_for)
+from markupsafe import Markup, escape
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from database import achievements as achievements_mod
 from database import config
 from database import metrics as metrics_mod
 from database import motivation
+from database import rewards
 from mc_socket import commands as game_commands
 from database.databaseManagerV2 import MAX_GALLERY_IMAGES, MODERATOR_LEVEL, DatabaseManager
 from database import stats as stats_mod
@@ -1264,7 +1266,93 @@ def profile_page():
     if not player_id:
         return redirect("/login?next=/profil")
     return render_template("profil.html", profile=db().get_profile(player_id), bio_max=BIO_MAX_LENGTH,
-                           favorites=db().get_favorites(player_id), sidebar=db().get_sidebar(player_id))
+                           favorites=db().get_favorites(player_id), sidebar=db().get_sidebar(player_id),
+                           join=join_view(player_id))
+
+
+MC_CODE_COLORS = {code: web for code, web in rewards.COLOR_CODES.values()}
+
+
+def mc_html(line):
+    """A chat line with "&" codes as HTML (escaped) for the preview."""
+    html, color, bold = [], "#FFFFFF", False
+    for part in re.split(r"(&[0-9a-fk-or])", line):
+        if re.fullmatch(r"&[0-9a-fk-or]", part):
+            code = part[1]
+            if code in MC_CODE_COLORS or code == "r":
+                color, bold = MC_CODE_COLORS.get(code, "#AAAAAA" if code == "7" else "#FFFFFF"), False
+            elif code == "l":
+                bold = True
+        elif part:
+            weight = ";font-weight:700" if bold else ""
+            html.append(f'<span style="color:{color}{weight}">{escape(part)}</span>')
+    return Markup("".join(html))
+
+
+def join_view(player_id, state=None):
+    """Everything the join message part of /profil shows."""
+    state = state or rewards.player_state(db(), player_id)
+    name = db().get_player_name_from_player_id(player_id)
+    style, available, levels = state["style"], state["available"], state["levels"]
+    first = rewards.unlocked_at(levels)
+    options = {}
+    for field, kind, labels in (("join_text", "join_texts", lambda v: rewards.JOIN_TEXTS[v].replace("{name}", name)),
+                                ("leave_text", "leave_texts", lambda v: rewards.LEAVE_TEXTS[v].replace("{name}", name)),
+                                ("color", "colors", lambda v: rewards.COLOR_LABELS[v]),
+                                ("symbol", "symbols", lambda v: v or "keins"),
+                                ("style", "styles", lambda v: rewards.STYLES[v]),
+                                ("sound", "sounds", lambda v: rewards.SOUNDS[v][0])):
+        values = rewards.UNLOCK_KINDS[kind] + (rewards.MOD_COLORS if kind == "colors" and state["moderator"] else ())
+        options[field] = [{"value": v, "label": labels(v), "chosen": style[field] == v and (field != "sound" or bool(v)),
+                           "locked": v not in available[kind],
+                           "hint": f"ab Stufe {first[(kind, v)] + 1} »{levels[first[(kind, v)]]['name']}«: "
+                                   f"{rewards.level_hint(levels[first[(kind, v)]])}" if v not in available[kind] and (kind, v) in first else None,
+                           "web": rewards.COLOR_CODES[v][1] if kind == "colors" else None}
+                          for v in values if v in available[kind] or (kind, v) in first]
+    return {"enabled": state["enabled"], "custom": state["custom"], "level": state["level"],
+            "levels": [dict(level, hint=rewards.level_hint(level), reached=i <= state["level"]) for i, level in enumerate(levels)],
+            "preview_join": mc_html(rewards.render(name, style, available, "join")),
+            "preview_leave": mc_html(rewards.render(name, style, available, "leave")),
+            "options": options, "sound_off": not style["sound"], "sounds_off": state["sounds_off"],
+            "mutes": db().get_join_mutes(player_id)}
+
+
+@server_bp.route("/api/joinstyle", methods=["POST"])
+@player_required
+def join_style_api():
+    """{"field", "value"} changes one part of the own message, {"custom": false} goes back to the game's message."""
+    player_id = logged_in_player_id()
+    state = rewards.player_state(db(), player_id)
+    if not state["enabled"]:
+        return {"error": "Eigene Join-Nachrichten sind auf diesem Server ausgeschaltet."}, 409
+    data = request.get_json(silent=True) or {}
+    if data.get("custom") is False:
+        db().set_join_style(player_id, None)
+    else:
+        field, value = str(data.get("field") or ""), str(data.get("value") if data.get("value") is not None else "")
+        error = rewards.check_choice(field, value, state["available"])
+        if error:
+            return {"error": error}, 400
+        db().set_join_style(player_id, dict(state["style"], **{field: value}))
+    db().notify_server_event(g.server["id"], "joinstyle", player_id=str(player_id))
+    view = join_view(player_id)
+    return {"custom": view["custom"], "join": str(view["preview_join"]), "leave": str(view["preview_leave"])}
+
+
+@server_bp.route("/api/joinmutes", methods=["POST"])
+@player_required
+def join_mutes_api():
+    """{"name", "muted"} mutes/unmutes a player's messages, {"sounds_off"} switches all join sounds."""
+    player_id = logged_in_player_id()
+    data = request.get_json(silent=True) or {}
+    if "sounds_off" in data:
+        db().set_join_sounds_off(player_id, bool(data["sounds_off"]))
+    else:
+        name = db().set_join_mute(player_id, str(data.get("name") or ""), bool(data.get("muted", True)))
+        if name is None:
+            return {"error": "Unbekannter Spieler."}, 404
+    db().notify_server_event(g.server["id"], "joinmutes", player_id=str(player_id))
+    return {"mutes": db().get_join_mutes(player_id)}
 
 
 @server_bp.route("/spieler/<path:player_name>/karte.png")
@@ -1382,7 +1470,7 @@ def prefix_join_page():
 
 # Moderation pages: (path below /users, tab label). Every page shows the tabs with the open tasks.
 MOD_PAGES = (("", "Übersicht"), ("spieler", "Spieler"), ("inhalte", "Inhalte"), ("zugang", "Zugang & Regeln"),
-             ("protokoll", "Protokoll"))
+             ("belohnungen", "Belohnungen"), ("protokoll", "Protokoll"))
 
 
 def mod_tasks(server_id):
@@ -1459,6 +1547,54 @@ def moderation_access_page():
                                     for c in db().list_invite_codes(g.server["id"])])
 
 
+@server_bp.route("/users/belohnungen")
+@moderator_required
+def moderation_rewards_page():
+    enabled, stored = db().get_reward_settings(g.server["id"])
+    editor = {
+        "levels": rewards.levels_of(stored), "custom": stored is not None,
+        "conditions": {k: {"label": label, "unit": unit} for k, (label, unit) in rewards.CONDITIONS.items()},
+        "metrics": [{"key": m.key, "label": m.label, "unit": motivation.goal_unit(m)} for m in metrics_mod.METRICS],
+        "options": {
+            "colors": [{"value": c, "label": rewards.COLOR_LABELS[c], "web": rewards.COLOR_CODES[c][1]} for c in rewards.COLORS],
+            "symbols": [{"value": v, "label": v or "keins"} for v in rewards.SYMBOLS],
+            "styles": [{"value": k, "label": v.split(" (")[0]} for k, v in rewards.STYLES.items()],
+            "join_texts": [{"value": k, "label": v.replace("{name}", "…")} for k, v in rewards.JOIN_TEXTS.items()],
+            "leave_texts": [{"value": k, "label": v.replace("{name}", "…")} for k, v in rewards.LEAVE_TEXTS.items()],
+            "sounds": [{"value": k, "label": v[0]} for k, v in rewards.SOUNDS.items()],
+        },
+    }
+    return render_mod("belohnungen", "mod/rewards.html", rewards_enabled=enabled, editor=editor,
+                      mod_colors=[rewards.COLOR_LABELS[c] for c in rewards.MOD_COLORS])
+
+
+@server_bp.route("/api/mod/rewards", methods=["POST"])
+@moderator_required
+def mod_rewards_api():
+    """{"enabled": bool} switches the join messages, {"levels": [...]} stores own levels, {"levels": "default"} resets them."""
+    data = request.get_json(silent=True) or {}
+    changed = []
+    if "enabled" in data:
+        db().set_reward_settings(g.server["id"], enabled=bool(data["enabled"]))
+        changed.append("an" if data["enabled"] else "aus")
+    if "levels" in data:
+        if data["levels"] == "default":
+            db().set_reward_settings(g.server["id"], levels=None)
+            changed.append("Stufen auf Standard")
+        else:
+            levels, error = rewards.validate_levels(data["levels"])
+            if error:
+                return {"error": error}, 400
+            db().set_reward_settings(g.server["id"], levels=levels)
+            changed.append(f"{len(levels)} Stufen")
+    if not changed:
+        return {"error": "Nichts zu speichern."}, 400
+    db().add_mod_log(g.server["id"], mod_name(), "rewards", None, ", ".join(changed))
+    db().notify_server_event(g.server["id"], "joinsync")  # the messages of everyone may look different now
+    enabled, stored = db().get_reward_settings(g.server["id"])
+    return {"enabled": enabled, "levels": rewards.levels_of(stored), "custom": stored is not None}
+
+
 @server_bp.route("/users/protokoll")
 @moderator_required
 def moderation_log_page():
@@ -1480,6 +1616,7 @@ MOD_LOG_ACTIONS = {
     "warn": "verwarnt", "warning_delete": "Verwarnung gelöscht", "mute": "stummgeschaltet", "unmute": "Stummschaltung aufgehoben",
     "application_accept": "Bewerbung angenommen", "application_reject": "Bewerbung abgelehnt",
     "code_create": "Einladungscode angelegt", "code_delete": "Einladungscode gelöscht", "settings": "Einstellungen geändert",
+    "rewards": "Belohnungen geändert",
 }
 
 

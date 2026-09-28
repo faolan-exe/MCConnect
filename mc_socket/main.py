@@ -43,6 +43,10 @@ Server -> plugin:
     !joininfo~<url>              where players who are not on the whitelist can apply (kick message; empty = none)
     !mute~<uuid>|<until ms, 0 = unmuted>|<reason>[|<until text>]   block the chat of a player (plugin 3.6);
                                  the until text is in the local time zone (the server's JVM may run in UTC)
+    !joinstyle~<uuid>|<join line>|<leave line>|<sound>|<volume>   own join/leave message of a player
+                                 ("&" colors; empty lines: the game's own message; plugin 3.14)
+    !joinmutes~<uuid>|<sounds off 0/1>|<uuid>,<uuid>   whose join/leave messages a player does not see
+    !joinreset~                  forget all join styles and mutes (sent before a full sync)
     success|<code> / error|<code>
 
 Error codes:
@@ -82,7 +86,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from colorlogx import get_logger
-from database import achievements, config, metrics, motivation
+from database import achievements, config, metrics, motivation, rewards
 from mc_socket import commands, devcert
 from database.databaseManagerV2 import DatabaseManager
 
@@ -384,10 +388,34 @@ class SocketServer:
             self.broadcast(server_id, *motivation.record_announcement(name, metric, previous, value))
 
     def after_stats(self, server_id, player_id):
-        """Achievements, records and milestones after new stats of a player."""
+        """Achievements, records, milestones and reward levels after new stats of a player."""
         self.announce_achievements(server_id, player_id, self.db.award_achievements(player_id))
         self.announce_records(server_id, player_id, self.db.update_records(player_id))
         self.announce_milestones(server_id, player_id, self.db.check_milestones(player_id))
+        self.check_reward_level(server_id, player_id)
+
+    def check_reward_level(self, server_id, player_id):
+        """Tell a player who reached a new reward level what it unlocks (and update the message, e.g. rainbow)."""
+        state = rewards.player_state(self.db, player_id)
+        if state["new_level"] is None or not state["enabled"]:
+            return
+        level = state["levels"][state["new_level"]]
+        uuid = str(self.db.get_mojang_uuid_from_player_id(player_id))
+        self.tell(server_id, uuid, f"&6★ Neue Stufe »{commands.clean(level['name'])}«! &7Neue Farben, Symbole und mehr für "
+                                   "deine Join-Nachricht: " + commands.button("&a[/joinmessage]", "/joinmessage"))
+        if state["custom"]:
+            self._send_to_server(server_id, rewards.join_style_message(self.db, player_id, state))
+
+    def sync_join_messages(self, server_id):
+        """All join styles and mutes of a server to its plugin (after the auth or when the feature is switched)."""
+        self._send_to_server(server_id, "!joinreset~")
+        if not self.db.get_reward_settings(server_id)[0]:
+            return
+        styled, mutes = self.db.get_join_sync(server_id)
+        for player_id in styled:
+            self._send_to_server(server_id, rewards.join_style_message(self.db, player_id))
+        for uuid, (sounds_off, muted) in mutes.items():
+            self._send_to_server(server_id, rewards.join_mutes_message(uuid, sounds_off, muted))
 
     def periodic_checks(self):
         """
@@ -527,7 +555,8 @@ class SocketServer:
             broadcast=lambda color, text: self.broadcast(server_id, color, text),
             update_sidebar=lambda player_id: self.update_sidebar(server_id, player_id),
             ban=lambda result: self.send_ban(server_id, result),
-            mute=lambda uuid, until, reason: self.send_mute(server_id, uuid, until, reason))
+            mute=lambda uuid, until, reason: self.send_mute(server_id, uuid, until, reason),
+            send=lambda message: self._send_to_server(server_id, message))
         try:
             lines = commands.handle(ctx, parts[5], parts[6] if len(parts) > 6 else "")
         except Exception:
@@ -632,6 +661,16 @@ class SocketServer:
             self.send_mute(server_id, event["uuid"], until, event.get("reason"))
         elif kind == "joininfo":
             self.send_joininfo(server_id)
+        elif kind == "joinstyle":
+            self._send_to_server(server_id, rewards.join_style_message(self.db, event["player_id"]))
+        elif kind == "joinmutes":
+            player_id = event["player_id"]
+            settings = self.db.get_join_settings(player_id)
+            self._send_to_server(server_id, rewards.join_mutes_message(
+                self.db.get_mojang_uuid_from_player_id(player_id), settings["sounds_off"],
+                [m["uuid"] for m in self.db.get_join_mutes(player_id)]))
+        elif kind == "joinsync":
+            self.sync_join_messages(server_id)
         else:
             logger.warning(f"Unknown server event {kind}")
 
@@ -712,6 +751,7 @@ class SocketServer:
         for mojang_uuid, (until, reason) in self.db.get_mutes(server_id).items():
             client.send(self.mute_message(mojang_uuid, until, reason))
         self.send_joininfo(server_id, only_if_set=True)
+        self.sync_join_messages(server_id)
         self.sync_whitelist(server_id)
         for ban in self.db.get_undelivered_web_bans(server_id):  # banned on the website while offline
             self.send_ban(server_id, ban)

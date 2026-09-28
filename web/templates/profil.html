@@ -34,6 +34,64 @@
   <div class="mcc-message" id="sidebar-message"></div>
 </section>
 
+{% if join.enabled %}
+<section class="srv-card" id="join">
+  <h2>Join-Nachricht</h2>
+  <p class="mcc-hint">So kündigt der Chat an, dass du kommst und gehst (ab Plugin-Version 3.14). Mehr Farben, Symbole, Texte und
+    Sounds schaltest du mit Stufen frei – einmal erreicht, bleiben sie dir, auch wenn eine Serie reißt. Im Spiel: <code>/joinmessage</code>.</p>
+  <div class="jm-levels">
+    {% for level in join.levels %}
+    <span class="jm-level{% if level.reached %} jm-reached{% endif %}{% if loop.index0 == join.level %} jm-current{% endif %}"
+          title="{{ level.hint }}">{{ loop.index }}. {{ level.name }}</span>
+    {% endfor %}
+  </div>
+  {% if join.level + 1 < join.levels | length %}
+  <p class="mcc-hint">Nächste Stufe »{{ join.levels[join.level + 1].name }}«: {{ join.levels[join.level + 1].hint }}</p>
+  {% endif %}
+
+  <div class="jm-preview" aria-live="polite">
+    <div data-role="join-preview">{{ join.preview_join }}</div>
+    <div data-role="leave-preview">{{ join.preview_leave }}</div>
+  </div>
+  <label class="pf-check">
+    <input type="checkbox" data-role="custom"{% if join.custom %} checked{% endif %}/>
+    <span><b>Eigene Nachricht verwenden</b> <span class="mcc-hint">(sonst die normale des Spiels)</span></span>
+  </label>
+
+  {% for field, title in (("join_text", "Text beim Kommen"), ("leave_text", "Text beim Gehen"), ("color", "Farbe deines Namens"),
+                          ("symbol", "Symbol"), ("style", "Stil"), ("sound", "Sound (hören alle, die ihn nicht abgeschaltet haben)")) %}
+  <h3 class="jm-title">{{ title }}</h3>
+  <div class="jm-options" data-field="{{ field }}">
+    {% if field == "sound" %}
+    <button type="button" data-value="" aria-pressed="{{ 'true' if join.sound_off else 'false' }}">Kein Sound</button>
+    {% endif %}
+    {% for o in join.options[field] %}
+    <button type="button" data-value="{{ o.value }}" aria-pressed="{{ 'true' if o.chosen else 'false' }}"
+            {% if o.locked %}disabled title="{{ o.hint }}"{% endif %}>
+      {% if o.web %}<span class="jm-swatch" style="background: {{ o.web }}"></span>{% endif %}{{ o.label }}{% if o.locked %} 🔒{% endif %}</button>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  <div class="mcc-message" id="join-message"></div>
+
+  <details class="jm-mutes">
+    <summary>Join-Nachrichten anderer ausblenden</summary>
+    <label class="pf-check"><input type="checkbox" data-role="sounds-off"{% if join.sounds_off %} checked{% endif %}/>
+      <span>Keine Join-Sounds abspielen</span></label>
+    <p class="mcc-hint">Nachrichten dieser Spieler siehst du nicht:</p>
+    <ul class="jm-muted" data-role="muted">
+      {% for m in join.mutes %}<li>{{ m.name }} <button type="button" class="nt-delete" data-unmute="{{ m.name }}">Wieder zeigen</button></li>{% endfor %}
+    </ul>
+    <form class="gb-form" data-role="mute-form">
+      <label class="st-sr" for="mute-name">Spielername</label>
+      <input class="mcc-input" id="mute-name" name="name" required placeholder="Spielername" autocomplete="off"/>
+      <button class="mcc-btn mcc-btn-small mcc-btn-secondary" type="submit">Ausblenden</button>
+    </form>
+    <div class="mcc-message" id="mute-message"></div>
+  </details>
+</section>
+{% endif %}
+
 <section class="srv-card">
   <h2>Meine Favoriten</h2>
   {% if favorites %}
@@ -48,6 +106,62 @@
 </section>
 {% endblock %}
 {% block scripts %}
+<script nonce="{{ csp_nonce() }}">
+  (() => {
+    const root = document.getElementById("join");
+    if (!root) return;
+    const message = document.getElementById("join-message");
+    const custom = root.querySelector('[data-role="custom"]');
+    function show(result) {
+      if (!result.ok) return showMessage(message, result.data.error || "Speichern fehlgeschlagen.", "error");
+      root.querySelector('[data-role="join-preview"]').innerHTML = result.data.join;  // rendered and escaped on the server
+      root.querySelector('[data-role="leave-preview"]').innerHTML = result.data.leave;
+      custom.checked = result.data.custom;
+      showMessage(message, result.data.custom ? "Gespeichert – im Spiel ab dem nächsten Join." : "Du hast wieder die normale Nachricht des Spiels.", "success");
+    }
+    root.querySelectorAll(".jm-options").forEach((group) => group.addEventListener("click", async (event) => {
+      const button = event.target.closest("button[data-value]");
+      if (!button || button.disabled) return;
+      const result = await postJson("/api/joinstyle", { field: group.dataset.field, value: button.dataset.value });
+      if (result.ok) group.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
+      show(result);
+    }));
+    custom.addEventListener("change", async () => {
+      // switching on saves the current choice (every field sends the whole normalized style)
+      const chosen = root.querySelector('[data-field="join_text"] [aria-pressed="true"]');
+      show(await postJson("/api/joinstyle", custom.checked ? { field: "join_text", value: chosen.dataset.value } : { custom: false }));
+    });
+
+    const muteMessage = document.getElementById("mute-message");
+    const list = root.querySelector('[data-role="muted"]');
+    function showMutes(result) {
+      if (!result.ok) return showMessage(muteMessage, result.data.error || "Das hat nicht geklappt.", "error");
+      list.replaceChildren(...result.data.mutes.map((m) => {
+        const li = document.createElement("li");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "nt-delete";
+        button.dataset.unmute = m.name;
+        button.textContent = "Wieder zeigen";
+        li.append(m.name + " ", button);
+        return li;
+      }));
+      showMessage(muteMessage, "Gespeichert.", "success");
+    }
+    root.querySelector('[data-role="sounds-off"]').addEventListener("change", async (event) =>
+      showMutes(await postJson("/api/joinmutes", { sounds_off: event.target.checked })));
+    root.querySelector('[data-role="mute-form"]').addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const result = await postJson("/api/joinmutes", { name: event.target.elements.name.value, muted: true });
+      if (result.ok) event.target.reset();
+      showMutes(result);
+    });
+    list.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-unmute]");
+      if (button) showMutes(await postJson("/api/joinmutes", { name: button.dataset.unmute, muted: false }));
+    });
+  })();
+</script>
 <script nonce="{{ csp_nonce() }}">
   document.querySelectorAll("[data-sidebar]").forEach((button) => button.addEventListener("click", async () => {
     const result = await postJson("/api/sidebar", { mode: button.dataset.sidebar });

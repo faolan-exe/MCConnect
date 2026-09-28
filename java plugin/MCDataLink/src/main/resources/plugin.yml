@@ -40,3 +40,6 @@ commands:
   entstummen:
     description: Stummschaltung aufheben (nur Moderatoren)
     usage: /entstummen <spieler>
+  joinmessage:
+    description: Deine Join- und Leave-Nachricht gestalten
+    usage: /joinmessage [text|leave|farbe|symbol|stil|sound|aus] [wert]
