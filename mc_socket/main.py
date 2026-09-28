@@ -100,6 +100,11 @@ MAX_UNAUTHORIZED_MESSAGES = 5
 PLUGIN_TOUCH_INTERVAL = 30
 # How often started/ended competitions, reached community goals and the player of the week are checked.
 COMPETITION_CHECK_INTERVAL = 60
+# Plugin 3.13 sends the stats of online players every few seconds. Achievements, records and streaks of a
+# player are checked at most this often (later updates wait in _pending_stats), sidebars follow every
+# LIVE_INTERVAL seconds after new stats.
+AFTER_STATS_INTERVAL = 15
+LIVE_INTERVAL = 5
 # More new achievement tiers at once are not announced (first sync of an old player).
 MAX_ANNOUNCED_ACHIEVEMENTS = 2
 # More records taken with one stats update are not announced.
@@ -204,6 +209,10 @@ class SocketServer:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._sock = None
+        self._live_lock = threading.Lock()
+        self._pending_stats = {}  # player_id -> server_id: new stats not checked yet (throttled)
+        self._last_checked = {}  # player_id -> monotonic time of the last after_stats
+        self._changed_servers = set()  # servers with new stats since the last sidebar update
         self._threads = []
 
     # ------------------------------------------------------------------ lifecycle
@@ -224,6 +233,7 @@ class SocketServer:
         self._spawn(self._accept_loop, self._sock, name="socket-accept")
         self._spawn(self._login_pin_loop, name="login-pins")
         self._spawn(self._competition_loop, name="competitions")
+        self._spawn(self._live_loop, name="live")
 
     def _spawn(self, target, *args, name=None):
         thread = threading.Thread(target=target, args=args, name=name, daemon=True)
@@ -299,6 +309,46 @@ class SocketServer:
             except Exception:
                 logger.exception("Login pin listener failed, restarting in 5 seconds")
                 self._stop.wait(5)
+
+    def _live_loop(self):
+        while not self._stop.is_set():
+            self._stop.wait(LIVE_INTERVAL)
+            try:
+                self.live_checks()
+            except Exception:
+                logger.exception("Live check failed")
+
+    def stats_received(self, server_id, player_id):
+        """New stats of a player: check achievements & co. now, or later if they were checked just before."""
+        player_id = str(player_id)
+        now = time.monotonic()
+        with self._live_lock:
+            self._changed_servers.add(server_id)
+            due = now - self._last_checked.get(player_id, float("-inf")) >= AFTER_STATS_INTERVAL
+            if due:
+                self._last_checked[player_id] = now
+                self._pending_stats.pop(player_id, None)
+            else:
+                self._pending_stats[player_id] = server_id
+        if due:
+            self.after_stats(server_id, player_id)
+
+    def live_checks(self):
+        """Every LIVE_INTERVAL seconds: the throttled after_stats that are due, sidebars of servers with new stats."""
+        now = time.monotonic()
+        with self._live_lock:
+            due = [(player_id, server_id) for player_id, server_id in self._pending_stats.items()
+                   if now - self._last_checked.get(player_id, float("-inf")) >= AFTER_STATS_INTERVAL]
+            for player_id, _ in due:
+                del self._pending_stats[player_id]
+                self._last_checked[player_id] = now
+            changed, self._changed_servers = self._changed_servers, set()
+        for player_id, server_id in due:
+            self._step(f"stats of {player_id}", self.after_stats, server_id, player_id)
+        with self._lock:
+            connected = [server_id for server_id in changed if server_id in self.active_connections]
+        if connected:
+            self._step("live sidebars", self.update_sidebars, connected)
 
     def _competition_loop(self):
         while not self._stop.is_set():
@@ -717,7 +767,7 @@ class SocketServer:
                 player_id = self.db.ensure_player_on_server(client.server_id, parse_uuid(player_uuid))
                 self.db.update_player_stats(player_id, stats)
                 client.send("success|102")
-                self.after_stats(client.server_id, player_id)
+                self.stats_received(client.server_id, player_id)
             elif command == "!FEATURES":
                 client.features = {f.strip() for f in value.split(",") if f.strip()}
                 client.send("success|106")

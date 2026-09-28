@@ -31,6 +31,19 @@ bot.once("spawn", async () => {
       bot.physicsEnabled = false;
       continue;
     }
+    if (command.startsWith("dig:")) {  // break up to 4 blocks next to the feet (block stats)
+      const offsets = [[1, -1, 0], [-1, -1, 0], [0, -1, 1], [0, -1, -1]].slice(0, Number(command.slice(4)));
+      for (const [x, y, z] of offsets) {
+        const block = bot.blockAt(bot.entity.position.offset(x, y, z));
+        try {
+          await bot.dig(block, true);
+          console.log(`[${name}] DUG ${block.name}`);
+        } catch (e) {
+          console.log(`[${name}] DIG FAILED ${block && block.name}: ${e.message}`);
+        }
+      }
+      continue;
+    }
     if (command === "sidebar") {
       const board = bot.scoreboard.sidebar;
       const title = board ? (typeof board.title === "string" ? board.title : JSON.stringify(board.title)) : "none";

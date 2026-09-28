@@ -8,14 +8,15 @@ A real Paper server in Docker with the plugin, the local socket server against t
 KEY=$(.venv/bin/python -c "import sys; sys.path.insert(0, '.'); from database.databaseManagerV2 import DatabaseManager; \
   print(DatabaseManager()._fetchvalue(\"SELECT server_key FROM servers WHERE subdomain = 'testdomain'\"))" | tail -1)
 mkdir -p /tmp/mc/plugins/MCDataLink && cp "java plugin/MCDataLink/target/MCDataLink-*.jar" /tmp/mc/plugins/
-printf 'key: %s\nhost: host.docker.internal\nport: 9991\n' "$KEY" > /tmp/mc/plugins/MCDataLink/config.yml
+FP=$(.venv/bin/python -m mc_socket.devcert | tail -1 | cut -d' ' -f2)  # the local socket server uses this certificate
+printf 'key: %s\nhost: host.docker.internal\nport: 9991\ntls-fingerprint: "%s"\n' "$KEY" "$FP" > /tmp/mc/plugins/MCDataLink/config.yml
 
 # 2. socket server and Paper (offline mode, so bots can join)
 MCC_BASE_DOMAIN=mc.t-auer.local:5050 .venv/bin/python mc_socket/main.py &
 docker run -d --name mcc-paper -e EULA=TRUE -e TYPE=PAPER -e VERSION=1.21.4 -e ONLINE_MODE=FALSE \
   -e ENABLE_RCON=true -e RCON_PASSWORD=test -e LEVEL_TYPE=flat -p 25565:25565 -v /tmp/mc:/data itzg/minecraft-server
 
-# 3. bots: node bot.js <name> <chat line | wait:<ms> | sidebar> ...
+# 3. bots: node bot.js <name> <chat line | wait:<ms> | dig:<1-4> | sidebar> ...
 docker run --rm -v "$PWD/tools/e2e":/bot -w /bot node:20-alpine sh -c "npm i --silent mineflayer@4 && node bot.js TestBot /stats '/top abgebaut'"
 docker exec mcc-paper rcon-cli whitelist on   # console commands
 ```

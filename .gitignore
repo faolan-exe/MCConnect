@@ -29,3 +29,7 @@ docs/
 deploy/tls/
 # self-signed development certificate (mc_socket/devcert.py)
 certs/
+# npm packages of the e2e bot (installed by the node container)
+tools/e2e/node_modules/
+tools/e2e/package.json
+tools/e2e/package-lock.json

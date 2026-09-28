@@ -79,7 +79,7 @@
 <section class="st-group">
   <h2>Aktuell</h2>
   {% if open %}
-  <div class="st-boards">{% for d in open %}{{ duel_card(d) }}{% endfor %}</div>
+  <div class="st-boards" data-live="duels">{% for d in open %}{{ duel_card(d) }}{% endfor %}</div>
   {% else %}
   <p class="st-empty">Gerade läuft kein Duell.</p>
   {% endif %}
@@ -94,7 +94,9 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='poll.js') }}"></script>
 <script>
+  liveParts(10000);  // running duels count up while the page is open
   const form = document.getElementById("duel-form");
   if (form) {
     form.addEventListener("submit", async (event) => {
@@ -104,16 +106,16 @@
       else showMessage(form.querySelector('[data-role="message"]'), result.data.error || "Das hat nicht geklappt.", "error");
     });
   }
-  document.querySelectorAll("[data-cancel]").forEach((button) => button.addEventListener("click", async () => {
-    if (!confirm("Herausforderung zurückziehen?")) return;
-    const result = await postJson("/api/duels/cancel", { id: Number(button.dataset.cancel) });
+  // delegated: the duel cards are replaced by liveParts
+  document.addEventListener("click", async (event) => {
+    const cancel = event.target.closest("[data-cancel]");
+    const respond = event.target.closest("[data-respond]");
+    if (!cancel && !respond) return;
+    if (cancel && !confirm("Herausforderung zurückziehen?")) return;
+    const result = cancel ? await postJson("/api/duels/cancel", { id: Number(cancel.dataset.cancel) })
+      : await postJson("/api/duels/respond", { id: Number(respond.dataset.respond), accept: respond.dataset.accept === "1" });
     if (result.ok) location.reload();
     else alert(result.data.error || "Das hat nicht geklappt.");
-  }));
-  document.querySelectorAll("[data-respond]").forEach((button) => button.addEventListener("click", async () => {
-    const result = await postJson("/api/duels/respond", { id: Number(button.dataset.respond), accept: button.dataset.accept === "1" });
-    if (result.ok) location.reload();
-    else alert(result.data.error || "Das hat nicht geklappt.");
-  }));
+  });
 </script>
 {% endblock %}

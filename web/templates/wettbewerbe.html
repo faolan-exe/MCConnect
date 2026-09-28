@@ -35,7 +35,7 @@
 <section class="st-group" id="ziele">
   <h2>Gemeinschaftsziele</h2>
   {% if active_goals %}
-  <div class="gl-list">{% for goal in active_goals %}{{ goal_card(goal) }}{% endfor %}</div>
+  <div class="gl-list" data-live="goals">{% for goal in active_goals %}{{ goal_card(goal) }}{% endfor %}</div>
   {% else %}
   <p class="st-empty">Gerade gibt es kein Gemeinschaftsziel. Die Moderatoren können eins anlegen – dann zählt, was alle zusammen schaffen.</p>
   {% endif %}
@@ -49,7 +49,7 @@
 {% if running %}
 <section class="st-group">
   <h2>Läuft gerade</h2>
-  <div class="st-boards cp-boards">
+  <div class="st-boards cp-boards" data-live="running">
     {% for c in running %}
     <article class="st-board cp-board cp-running">
       <span class="cp-badge">Noch {{ c.days_left }} {{ "Tag" if c.days_left == 1 else "Tage" }}</span>
@@ -98,4 +98,9 @@
   <p>Sobald die Moderatoren einen Wettbewerb starten, siehst du ihn hier mit Live-Rangliste.</p>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='poll.js') }}"></script>
+<script>liveParts(10000);  // standings and goals follow the live stats while the page is open</script>
 {% endblock %}

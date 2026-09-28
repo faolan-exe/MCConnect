@@ -96,7 +96,7 @@ public final class MCDataLink extends JavaPlugin {
         getServer().getScheduler().runTaskTimer(this, this::sendBanList, BAN_SYNC_INTERVAL_TICKS, BAN_SYNC_INTERVAL_TICKS);
         healthReporter = new HealthReporter(this);
         healthReporter.start();
-        if (getConfig().getBoolean("live-stats", true)) new LiveStats(this).start();
+        if (getConfig().getBoolean("live-stats", true)) new LiveStats(this, getConfig().getInt("live-stats-interval", 5)).start();
         sidebar = new Sidebar(this);
         moderation = new Moderation(this);
         getServer().getPluginManager().registerEvents(moderation, this);

@@ -246,5 +246,5 @@ docker compose --profile traefik up -d --build
 - Wer den Server-Key kennt, kann falsche Statistiken für den Server senden (die Verbindung ist verschlüsselt,
   der Key steht aber in der `config.yml` des Minecraft-Servers). In dem Fall auf der Verwaltungsseite einen neuen
   Key erzeugen.
-- Die Statistiken von Spielern, die online sind, kommen ab Plugin 3.3 jede Minute, sonst beim Autosave der Welt
-  (standardmäßig alle 5 Minuten) und beim Verlassen des Servers.
+- Die Statistiken von Spielern, die online sind, kommen ab Plugin 3.13 alle 5 Sekunden (`live-stats-interval`),
+  sonst beim Autosave der Welt (standardmäßig alle 5 Minuten) und beim Verlassen des Servers.

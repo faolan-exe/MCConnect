@@ -16,6 +16,8 @@ prefix:
   tablist: true
   nametag: true
 
-# Send the stats of online players every minute (read live from the game), so achievements and
-# rankings update within a minute instead of waiting for the next world save.
+# Send the stats of online players while they play (read live from the game), so achievements, rankings,
+# competitions and the sidebar follow within seconds instead of waiting for the next world save.
 live-stats: true
+# Seconds between two updates (only what changed is read; the blocks are sent completely once a minute).
+live-stats-interval: 5
