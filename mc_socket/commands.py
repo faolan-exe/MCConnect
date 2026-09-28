@@ -499,7 +499,10 @@ def by_reference(items, reference):
     """The item for "#<id>" (from a button, stays right when the list changes) or a 1-based number."""
     if reference.startswith("#"):
         wanted = int(reference[1:])
-        return next(item for item in items if item["id"] == wanted)
+        item = next((item for item in items if item["id"] == wanted), None)
+        if item is None:  # e.g. a button of a poll that has ended since
+            raise IndexError(reference)
+        return item
     number = int(reference)
     if number < 1:
         raise IndexError(reference)

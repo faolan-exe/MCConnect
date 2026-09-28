@@ -6,6 +6,7 @@ Every (stat type, object) pair is mapped to one numeric category that is
 stored in actions.category. See sampleData/layout.txt.
 """
 import json
+import re
 
 # --- category ids (stored in the database, do not renumber) ---
 TOOL_CRAFTED, ARMOR_CRAFTED, BLOCK_CRAFTED, BLOCK_PICKED_UP = 0, 1, 2, 3
@@ -27,6 +28,10 @@ STAT_TYPES = (
     "minecraft:killed", "minecraft:crafted", "minecraft:killed_by",
     "minecraft:custom", "minecraft:picked_up",
 )
+
+# Minecraft resource locations ("minecraft:stone"); anything else is not stored (the names end up in the web pages).
+OBJECT_NAME_RE = re.compile(r"^(?:[a-z0-9_.-]{1,64}:)?[a-z0-9_./-]{1,128}$")
+MAX_VALUE = 2 ** 63 - 1  # bigint
 
 TOOL_SUFFIXES = ("_axe", "_pickaxe", "_shovel", "_hoe", "_sword")
 TOOL_NAMES = {
@@ -103,15 +108,22 @@ def categorize(name, stat_type, blocks, items):
 def split_stats(stats, blocks, items):
     """Parse a stats file (json string or dict) into [(object, category, value), ...].
 
-    Zero values and objects without a category are skipped.
+    Zero values and objects without a category are skipped, so are invalid names and values.
+    Raises ValueError if the file is not a stats object.
     """
     if isinstance(stats, str):
         stats = json.loads(stats)
-    all_stats = stats.get("stats", {})
+    all_stats = stats.get("stats", {}) if isinstance(stats, dict) else None
+    if not isinstance(all_stats, dict):
+        raise ValueError("stats must be an object with a \"stats\" object")
     result = []
     for stat_type in STAT_TYPES:
-        for name, value in all_stats.get(stat_type, {}).items():
-            if not value:
+        values = all_stats.get(stat_type, {})
+        if not isinstance(values, dict):
+            continue
+        for name, value in values.items():
+            if not value or not isinstance(value, (int, float)) or isinstance(value, bool) \
+                    or not OBJECT_NAME_RE.match(name) or not 0 < value <= MAX_VALUE:
                 continue
             category = categorize(name, stat_type, blocks, items)
             if category is not None:

@@ -978,18 +978,18 @@
 
         console.info("MASTERDATA: " + master_data);
 
-        // Generate HTML from master_data
+        // Generate HTML from master_data (the names come from the plugin: escaped)
         for (let i = 0; i < master_data.length; i++) {
           htmlString += "<tr>";
-          htmlString += `<td class="firstColumn"><i class="icon-minecraft icon-minecraft-${master_data[
+          htmlString += `<td class="firstColumn"><i class="icon-minecraft icon-minecraft-${escapeHtml(master_data[
             i
           ][0]
             .replaceAll("_", "-")
-            .replace("minecraft:", "")}"></i>  ${transformToTitleCase(
+            .replace("minecraft:", ""))}"></i>  ${escapeHtml(transformToTitleCase(
             master_data[i][0]
-          )}</td>`;
+          ))}</td>`;
           for (let j = 1; j < master_data[i].length; j++) {
-            htmlString += "<td>" + master_data[i][j] + "</td>";
+            htmlString += "<td>" + escapeHtml(master_data[i][j]) + "</td>";
           }
           htmlString += "</tr>";
         }
@@ -1005,6 +1005,9 @@
         } else {
           document.getElementById(current_sort).innerHTML = "&#9660";
         }
+      }
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
       }
       function transformToTitleCase(inputString) {
         if (typeof inputString != typeof "") {

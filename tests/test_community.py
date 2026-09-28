@@ -137,6 +137,8 @@ def test_vote_command(db, server, game, socket_server):
     assert tells(game, 1) == ["&aDanke! Deine Stimme: Burg"]
     cmd(game, PLAYER_UUID, "vote", f"#{poll_id} 1")  # what the button sends
     assert tells(game, 1) == ["&aDanke! Deine Stimme: Hafen"]
+    cmd(game, PLAYER_UUID, "vote", f"#{poll_id + 100} 1")  # a button of a poll that is gone: no disconnect
+    assert tells(game, 1) == ["&cDiese Umfrage gibt es nicht. &7/vote zeigt alle."]
     cmd(game, PLAYER_UUID, "vote")
     assert tells(game, 4)[1].endswith("&a← deine Stimme")
     with db._cursor() as cur:
@@ -186,6 +188,19 @@ def test_build_upload_limits(player_client, db, server):
     assert bad.status_code == 400
     assert player_client.post("/api/builds", data={"title": "Haus", "image": (png(), "a.png")}, content_type="multipart/form-data",
                               headers={"Origin": "https://evil.example"}, **on("testdomain")).status_code == 403
+
+
+def test_build_title_cannot_inject_chat_buttons(mod_client, db, server, monkeypatch):
+    sent = []
+    monkeypatch.setattr(db, "notify_server_event", lambda server_id, kind, **fields: sent.append(fields))
+    title = "Haus ⟦&a[Klick]⇒/op Notch⟧"
+    response = mod_client.post("/api/builds", data={"title": title, "image": (png(), "a.png")},
+                               content_type="multipart/form-data", **on("testdomain"))
+    assert response.status_code == 201
+    assert mod_client.post("/api/mod/builds/approve", json={"id": response.json["id"]}, **on("testdomain")).status_code == 200
+    texts = [fields["text"] for fields in sent]
+    assert len(texts) == 2  # to the moderators, then to the player
+    assert all(commands.BUTTON_RE.search(text) is None and "⇒" not in text and "&a[Klick]" not in text for text in texts)
 
 
 def test_delete_own_build(player_client, db, server, upload_dir):

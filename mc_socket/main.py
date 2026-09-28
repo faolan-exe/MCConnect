@@ -61,6 +61,7 @@ Success codes:
 105: website bans synced
 106: features noted
 """
+import html
 import json
 import os
 import re
@@ -87,6 +88,9 @@ logger = get_logger("socket")
 
 HEADER = 10
 MAX_MESSAGE_SIZE = 16 * 1024 * 1024
+# Before the authentication only small messages are accepted (!AUTH, !BEAT), so a stranger cannot make
+# the server allocate MAX_MESSAGE_SIZE per connection.
+MAX_UNAUTHENTICATED_MESSAGE_SIZE = 1024
 HEARTBEAT_SEND_INTERVAL = 5
 HEARTBEAT_TIMEOUT = 20
 MAX_UNAUTHORIZED_MESSAGES = 5
@@ -120,14 +124,14 @@ def _recv_exactly(conn, length):
     return bytes(data)
 
 
-def recv_msg(conn):
+def recv_msg(conn, max_size=MAX_MESSAGE_SIZE):
     """Read one framed message. Raises ConnectionError / ProtocolError."""
     header = _recv_exactly(conn, HEADER).decode("utf-8", errors="replace").strip()
     try:
         length = int(header)
     except ValueError:
         raise ProtocolError(f"invalid header {header!r}")
-    if length < 0 or length > MAX_MESSAGE_SIZE:
+    if length < 0 or length > max_size:
         raise ProtocolError(f"invalid message length {length}")
     return _recv_exactly(conn, length).decode("utf-8")
 
@@ -391,18 +395,19 @@ class SocketServer:
         for alert in self.db.get_alert_candidates():
             url = f"{config.PUBLIC_SCHEME}://{alert['subdomain']}.{config.BASE_DOMAIN}/users#health"
             since = alert["since"].strftime("%d.%m.%Y, %H:%M Uhr")
+            name = " ".join(alert["server_name"].split())  # one line for the subject
             if alert["kind"] == "offline":
-                subject = f"MCConnect: {alert['server_name']} ist nicht erreichbar"
-                text = (f"das Plugin von <b>{alert['server_name']}</b> ist seit {since} nicht mehr mit MCConnect verbunden. "
+                subject = f"MCConnect: {name} ist nicht erreichbar"
+                text = (f"das Plugin von <b>{html.escape(name)}</b> ist seit {since} nicht mehr mit MCConnect verbunden. "
                         "Läuft der Server noch?")
             else:
-                subject = f"MCConnect: {alert['server_name']} laggt"
-                text = (f"<b>{alert['server_name']}</b> hat seit {since} weniger als {self.db_alert_tps()} TPS. "
+                subject = f"MCConnect: {name} laggt"
+                text = (f"<b>{html.escape(name)}</b> hat seit {since} weniger als {self.db_alert_tps()} TPS. "
                         "Die Spieler merken das als Ruckeln.")
-            html = (f"<p>Hallo,</p><p>{text}</p><p>Serverzustand: <a href=\"{url}\">{url}</a></p>"
+            body = (f"<p>Hallo,</p><p>{text}</p><p>Serverzustand: <a href=\"{url}\">{url}</a></p>"
                     "<p>Diese E-Mails kannst du auf der Verwaltungsseite von MCConnect abschalten.</p>")
             if self.mailer:
-                self.mailer.send_email(alert["email"], subject, html)
+                self.mailer.send_email(alert["email"], subject, body)
             else:
                 logger.warning(f"No SMTP configured, alert not sent: {subject}")
             self.db.mark_alert_sent(alert["server_id"], alert["kind"])
@@ -473,7 +478,13 @@ class SocketServer:
             update_sidebar=lambda player_id: self.update_sidebar(server_id, player_id),
             ban=lambda result: self.send_ban(server_id, result),
             mute=lambda uuid, until, reason: self.send_mute(server_id, uuid, until, reason))
-        for line in commands.handle(ctx, parts[5], parts[6] if len(parts) > 6 else ""):
+        try:
+            lines = commands.handle(ctx, parts[5], parts[6] if len(parts) > 6 else "")
+        except Exception:
+            # a failing command must not end the connection of the whole server
+            logger.exception(f"Command {parts[5]!r} of {uuid} on server {server_id} failed")
+            lines = ["&cDabei ist etwas schiefgelaufen. Versuche es später noch einmal."]
+        for line in lines:
             self.tell(server_id, uuid, line)
 
     def announce_competitions(self, connected=None):
@@ -595,7 +606,7 @@ class SocketServer:
                 ready = pending or select.select([conn], [], [], self.poll_interval)[0]
                 if not ready:
                     continue
-                data = recv_msg(conn)
+                data = recv_msg(conn, MAX_MESSAGE_SIZE if client.server_id is not None else MAX_UNAUTHENTICATED_MESSAGE_SIZE)
                 last_received = time.monotonic()
                 if client.server_id is not None and last_received - last_touch >= PLUGIN_TOUCH_INTERVAL:
                     self.db.touch_plugin(client.server_id)
@@ -732,6 +743,12 @@ class SocketServer:
                 client.send("error|004")
         except ValueError as e:  # bad uuid or json
             logger.warning(f"{client.addr} invalid request {data[:200]!r}: {e}")
+            client.send("error|005")
+        except (ConnectionError, OSError):
+            raise  # the connection itself is broken
+        except Exception:
+            # e.g. a database error: answer this message with an error, but keep the connection
+            logger.exception(f"{client.addr} request failed: {data[:200]!r}")
             client.send("error|005")
 
 

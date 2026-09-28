@@ -1,3 +1,4 @@
+import functools
 import hashlib
 from datetime import datetime, timedelta, timezone
 import json
@@ -457,6 +458,11 @@ BLOCKS_FILE = os.path.join(BASE_DIR, "blocks.json")
 ITEMS_FILE = os.path.join(BASE_DIR, "itemlist.json")
 
 ph = argon2.PasswordHasher()
+
+
+@functools.lru_cache(maxsize=1)
+def _dummy_hash():
+    return ph.hash(secrets.token_hex(16))
 logger = get_logger("databaseManager")
 
 
@@ -3081,6 +3087,12 @@ class DatabaseManager:
         column = "lower(email) = lower(%s)" if "@" in login else "username = %s"
         rows = self._fetchall(f"SELECT id, username, password FROM server_admins WHERE {column} AND email_verified",
                               (login,))
+        if not rows:  # hash anyway, so the response time does not tell whether the account exists
+            try:
+                ph.verify(_dummy_hash(), password)
+            except argon2.exceptions.VerificationError:
+                pass
+            return None
         for admin_id, username, stored_hash in rows:
             try:
                 if ph.verify(stored_hash, password):

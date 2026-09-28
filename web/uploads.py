@@ -29,6 +29,9 @@ def save_image(file, kind, upload_dir):
         with Image.open(file) as image:
             if image.format not in ALLOWED_FORMATS:
                 raise InvalidImage("Erlaubt sind JPG, PNG, WebP und GIF.")
+            # Pillow only raises above twice MAX_IMAGE_PIXELS (below it just warns), so check before decoding
+            if image.width * image.height > Image.MAX_IMAGE_PIXELS:
+                raise InvalidImage("Das Bild ist zu groß (zu viele Pixel).")
             image.load()
             image = ImageOps.exif_transpose(image)  # keep the orientation, EXIF itself is dropped
             image = image.convert("RGBA" if image.mode in ("RGBA", "LA", "P") else "RGB")

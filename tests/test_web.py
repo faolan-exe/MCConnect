@@ -150,7 +150,7 @@ def test_login_page_rejects_foreign_next(client, server):
 
 @pytest.mark.parametrize("path, expected", [
     ("/spieler", "/spieler"), ("//evil.com", "/"), ("https://evil.com", "/"), ("", "/"), (None, "/"),
-    ("/\\evil.com", "/"),
+    ("/\\evil.com", "/"), ("/\t/evil.com", "/"), ("/\n/evil.com", "/"), ("/ /evil.com", "/"),
 ])
 def test_safe_next_path(path, expected):
     assert safe_next_path(path) == expected
@@ -330,7 +330,7 @@ def test_create_server(admin_client, db, admin_id):
     {"subdomain": "ab"}, {"subdomain": "-bad-"}, {"subdomain": "www"}, {"subdomain": "a.b.c"},
     {"server_name": ""}, {"mc_server_domain": "has space"},
     {"discord_url": "javascript:alert(1)"}, {"discord_url": "https://evil.com/x"},
-    {"server_description_short": "x" * 201},
+    {"server_description_short": "x" * 201}, {"server_name": "Name\r\nBcc: x@example.com"},
 ])
 def test_create_server_validation(admin_client, changes):
     assert admin_client.post("/api/servers", json=dict(NEW_SERVER, **changes), **on(None)).status_code == 400
@@ -477,6 +477,24 @@ def test_session_without_login_time_is_invalid(client, admin_id):
         sess["admin_id"] = admin_id
         sess["admin_username"] = "tobi"
     assert client.get("/manage", **on(None)).status_code == 302
+
+
+def test_admin_login_is_rate_limited(client, admin_id):
+    wrong = lambda: client.post("/api/login", json={"username": "tobi", "password": "wrong"}, **on(None)).status_code
+    assert [wrong() for _ in range(11)] == [400] * 10 + [429]
+    # the right password does not help while the account is locked
+    assert client.post("/api/login", json={"username": "tobi", "password": "testPassword"}, **on(None)).status_code == 429
+
+
+def test_login_pins_are_rate_limited(client, db, online_player):
+    request_pin = lambda: client.post("/api/login", json={"username": "_Tobias4444", "pin": None},
+                                      **on("testdomain")).json["status"]
+    assert [request_pin() for _ in range(6)] == ["success"] * 5 + ["error"]
+
+
+def test_security_headers(client):
+    headers = client.get("/", **on(None)).headers
+    assert headers["X-Frame-Options"] == "SAMEORIGIN" and headers["X-Content-Type-Options"] == "nosniff"
 
 
 def test_admin_login_with_email(client, admin_id):

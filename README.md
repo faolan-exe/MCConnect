@@ -45,7 +45,7 @@ docker compose -f docker/db/docker-compose.yml -p mcconnect up -d   # local post
 
 ## Status and next steps
 
-State of 2026-09-28 (schema version 19, plugin 3.10). Written as a handoff for the next development
+State of 2026-09-28 (schema version 19, plugin 3.11). Written as a handoff for the next development
 session; `docs/HANDOFF_spielervergleich.md` is the older handoff for the rankings feature (data model,
 stat units, screenshot workflow) and still useful as background.
 
@@ -70,10 +70,25 @@ stat units, screenshot workflow) and still useful as background.
 | Community (phase 7) | `/events`, `/umfragen`, `/galerie`, player page | event calendar with sign up and chat reminder (`events`, `event_signups`, `/events` in game), polls (`polls`, `poll_votes`, `/vote`, result in chat), build gallery with approval and likes (`builds`, `build_likes`, uploads like the server images), guestbook on the player page (`guestbook`, report/delete); created and moderated on `/users` (jump links at the top) |
 | Moderation & access (phase 8) | `/mitmachen`, `/regeln`, `/users`, `/manage` | whitelist access per server by application and/or invite code (`access_requests`, `invite_codes`; the plugin runs `whitelist add`, also after a reconnect; the kick message links to `/mitmachen`) – codes can only be entered on the website, a player who is not on the whitelist cannot run commands; warnings with automatic ban after X (`warnings`), mutes (chat and `/msg`), also `/verwarnen`, `/stumm`, `/entstummen` in the game; X-ray hints; e-mail alerts to the owner (offline > 5 min, TPS < 15, sent by the socket server); rules & FAQ page, link on the first join; server health on the admin page |
 | Reach & design (phase 9) | `/rueckblick/<name>`, main page, `web/static/css/dark.css` | year in review to click through and share (year gains from the first/last snapshot of the year – both are now kept forever, sessions, achievements, trophies, records); public server directory on the main domain (`servers.listed`, opt out on `/manage`); dark mode for all server pages incl. the old ones: `_theme.html` sets `<html data-dark>` from the system setting or the switch in the header (Auto/Dunkel/Hell, localStorage), `dark.css` redefines the `--srv-*` tokens and overrides the hard-coded colors |
-| Plugin | `java plugin/MCDataLink` | 3.1 `!broadcast` (chat), 3.2 `!HEALTH` every minute, 3.3 live stats of online players every minute (`live-stats` in config.yml), 3.4 in-game commands and sidebar (`InGameCommands`, `Sidebar`), 3.5 `/vote` and `/events`, 3.6 mutes, whitelist sync, join link, moderator commands (`Moderation`), 3.7 `!WEBBANS`: `/pardon` in the game lifts a website ban, website bans made while the plugin was offline are sent on the next connect (`banned_players.delivered_at`), 3.8 optional TLS (`tls: true`, port 9992 when the socket server has `MCC_SOCKET_TLS_CERT/KEY`), 3.9 mute/ban times in the local time zone (sent by MCConnect), sidebar without score numbers on Paper 1.20.3+, 3.10 clickable chat: buttons `⟦label⇒/command⟧` (see `commands.button`; `clean()` strips the markers from player text) and links, announced with `!FEATURES~click`, older plugins get the command as text |
+| Plugin | `java plugin/MCDataLink` | 3.1 `!broadcast` (chat), 3.2 `!HEALTH` every minute, 3.3 live stats of online players every minute (`live-stats` in config.yml), 3.4 in-game commands and sidebar (`InGameCommands`, `Sidebar`), 3.5 `/vote` and `/events`, 3.6 mutes, whitelist sync, join link, moderator commands (`Moderation`), 3.7 `!WEBBANS`: `/pardon` in the game lifts a website ban, website bans made while the plugin was offline are sent on the next connect (`banned_players.delivered_at`), 3.8 optional TLS (`tls: true`, port 9992 when the socket server has `MCC_SOCKET_TLS_CERT/KEY`), 3.9 mute/ban times in the local time zone (sent by MCConnect), sidebar without score numbers on Paper 1.20.3+, 3.10 clickable chat: buttons `⟦label⇒/command⟧` (see `commands.button`; `clean()` strips the markers from player text) and links, announced with `!FEATURES~click`, older plugins get the command as text, 3.11 buttons only run the plugin's own commands (`ChatMarkup.isOwnCommand`), any other button is shown as text |
 
 Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all of the above in
 `web/static/css/stats.css`.
+
+### Security (review of 2026-09-28)
+
+- Free text in chat messages always goes through `commands.clean()` (no `&` codes, no button markers); the plugin
+  additionally only lets buttons run its own commands.
+- A failing `!CMD` answers the player with an error and a failing request gets `error|005`; neither ends the
+  plugin connection. Before `!AUTH` messages are limited to 1 KB.
+- Rate limits (`RateLimiter` in `web/main.py`, in memory per worker): admin login per address and per account,
+  login pins per player and per address, invite codes and applications per address. Behind a proxy
+  `FLASK_PROXY_FIX` must be on and port 8000 must not be reachable directly, otherwise the client address can
+  be forged with `X-Forwarded-For`.
+- Stats from the plugin are only stored for valid resource locations (`stats.OBJECT_NAME_RE`) and bigint values.
+- Every response has `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff` and a referrer policy;
+  there is no CSP yet (the templates use inline scripts).
+- The SSE endpoints keep a worker thread for up to 5 minutes each; many open streams can exhaust the workers.
 
 ### Open
 

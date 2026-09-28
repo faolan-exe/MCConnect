@@ -83,3 +83,13 @@ def test_split_stats_sample_file_has_valid_categories():
 ])
 def test_format_time(seconds, text):
     assert format_time(seconds) == text
+
+
+def test_split_stats_skips_invalid_names_and_values():
+    result = split_stats({"stats": {"minecraft:mined": {
+        "minecraft:stone": 3, "<img src=x onerror=alert(1)>": 1, "minecraft:dirt": "5", "minecraft:sand": 2 ** 64,
+        "minecraft:gravel": True, "minecraft:clay": -4,
+    }}}, {"stone"}, set())
+    assert result == [("minecraft:stone", stats.BLOCK_MINED, 3)]
+    with pytest.raises(ValueError):
+        split_stats("[1, 2]", set(), set())

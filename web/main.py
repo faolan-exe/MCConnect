@@ -13,11 +13,12 @@ import os
 import re
 import secrets
 import sys
+import threading
 import time
 import uuid as uuid_mod
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
@@ -91,10 +92,41 @@ def sse_response(generate_data, interval=SSE_INTERVAL_SECONDS, lifetime=SSE_MAX_
 
 
 def safe_next_path(path):
-    """Only allow local absolute paths as redirect target."""
-    if not path or not path.startswith("/") or path.startswith("//") or "\\" in path:
+    """
+    Only allow local absolute paths as redirect target. Whitespace and control characters are refused:
+    browsers drop tabs and newlines from URLs, so "/\\t/evil.example" would turn into "//evil.example".
+    """
+    if not path or not path.startswith("/") or path.startswith("//") or "\\" in path \
+            or any(c.isspace() or ord(c) < 0x20 or ord(c) == 0x7f for c in path):
         return "/"
     return path
+
+
+class RateLimiter:
+    """At most `limit` hits per key within `window` seconds (in memory, per worker process)."""
+
+    def __init__(self, limit, window):
+        self.limit, self.window = limit, window
+        self._hits = {}
+        self._lock = threading.Lock()
+
+    def allow(self, key):
+        """Count a hit; False if the key already reached the limit."""
+        now = time.monotonic()
+        with self._lock:
+            hits = [t for t in self._hits.get(key, []) if now - t < self.window]
+            if len(hits) >= self.limit:
+                self._hits[key] = hits
+                return False
+            self._hits[key] = hits + [now]
+            if len(self._hits) > 10_000:  # forget old clients
+                self._hits = {k: v for k, v in self._hits.items() if v and now - v[-1] < self.window}
+            return True
+
+
+def rate_limit(name, key):
+    """Count a hit of the named limit (see create_app) for the key; False if it is exhausted."""
+    return current_app.extensions["mcconnect_limits"][name].allow(key)
 
 
 ################################ SERVER PAGES (subdomain) #################################
@@ -187,7 +219,7 @@ def player_login():
     next_path = request.args.get("next")
     if next_path is None or safe_next_path(next_path) != next_path:
         referrer_path = safe_next_path(urlparse(request.referrer).path) if request.referrer else "/"
-        return redirect(f"/login?next={referrer_path}")
+        return redirect(f"/login?next={quote(referrer_path, safe='/')}")
     pending_name = session.get("login_name") if session.get("login_server_id") == g.server["id"] else None
     return render_template("login.html", uuid=pending_name or "")
 
@@ -264,7 +296,7 @@ def player_required(view=None, *, allow_upload=False):
     def wrapper(*args, **kwargs):
         is_api = request.path.startswith("/api/")
         if not logged_in_player_id():
-            return ({"error": "Bitte zuerst einloggen."}, 401) if is_api else redirect(f"/login?next={request.path}")
+            return ({"error": "Bitte zuerst einloggen."}, 401) if is_api else redirect(f"/login?next={quote(request.path, safe='/')}")
         if is_api and request.method == "POST":
             if allow_upload and request.mimetype == "multipart/form-data":
                 origin = request.headers.get("Origin")
@@ -928,22 +960,6 @@ def year_review_page(player_name):
 
 MC_NAME_RE = re.compile(r"^[A-Za-z0-9_]{3,16}$")
 APPLICATION_MAX_LENGTH = 500
-# Invite code attempts per client address and 10 minutes (against guessing).
-CODE_ATTEMPTS = 10
-_code_attempts = {}
-
-
-def code_attempt_allowed():
-    now = time.monotonic()
-    key = request.remote_addr or "?"
-    attempts = [t for t in _code_attempts.get(key, []) if now - t < 600]
-    if len(attempts) >= CODE_ATTEMPTS:
-        _code_attempts[key] = attempts
-        return False
-    _code_attempts[key] = attempts + [now]
-    if len(_code_attempts) > 10_000:  # forget old clients
-        _code_attempts.clear()
-    return True
 
 
 @server_bp.route("/mitmachen")
@@ -967,6 +983,9 @@ def access_apply_api():
         return {"error": "Bitte deinen Minecraft-Namen angeben (3-16 Zeichen, Buchstaben, Zahlen und _)."}, 400
     if not 10 <= len(message) <= APPLICATION_MAX_LENGTH:
         return {"error": f"Erzähl kurz etwas über dich (10-{APPLICATION_MAX_LENGTH} Zeichen)."}, 400
+    # the number of open applications is capped, so one client must not be able to fill them all
+    if not rate_limit("application", request.remote_addr):
+        return {"error": "Zu viele Bewerbungen von deinem Anschluss. Versuche es später noch einmal."}, 429
     request_id, error = db().add_application(g.server["id"], name, message)
     if error == "pending":
         return {"error": "Für diesen Namen gibt es schon eine offene Bewerbung."}, 409
@@ -992,7 +1011,7 @@ def access_redeem_api():
     code = str(data.get("code") or "").strip()
     if not MC_NAME_RE.match(name):
         return {"error": "Bitte deinen Minecraft-Namen angeben (3-16 Zeichen, Buchstaben, Zahlen und _)."}, 400
-    if not code_attempt_allowed():
+    if not rate_limit("invite_code", request.remote_addr):
         return {"error": "Zu viele Versuche. Warte ein paar Minuten."}, 429
     result = db().redeem_invite_code(g.server["id"], name, code[:40])
     if result == "invalid":
@@ -1140,7 +1159,7 @@ def build_upload_api():
     moderators = db().get_online_moderator_uuids(g.server["id"])
     if moderators:
         db().notify_server_event(g.server["id"], "tell", uuids=moderators,
-                                 text=f"&7[Galerie] &f{db().get_player_name_from_player_id(player_id)} &7hat »{title}« "
+                                 text=f"&7[Galerie] &f{db().get_player_name_from_player_id(player_id)} &7hat »{game_commands.clean(title)}« "
                                       "hochgeladen – bitte in der Verwaltung freigeben.")
     return {"id": build_id}, 201
 
@@ -1858,7 +1877,7 @@ def mod_build_approve_api():
         return {"error": "Unbekanntes Bild."}, 404
     db().add_mod_log(g.server["id"], mod_name(), "build_approve", build["name"], build["title"])
     db().notify_server_event(g.server["id"], "tell", uuids=[build["uuid"]],
-                             text=f"&a[Galerie] Dein Bild »{build['title']}« ist jetzt in der Galerie zu sehen!")
+                             text=f"&a[Galerie] Dein Bild »{game_commands.clean(build['title'])}« ist jetzt in der Galerie zu sehen!")
     return ("", 200)
 
 
@@ -1997,7 +2016,6 @@ def web_mute(server_id):
 @server_bp.route("/api/mod/warn", methods=["POST"])
 @moderator_required
 def mod_warn_api():
-    from mc_socket import commands as game_commands
     data = request.get_json(silent=True) or {}
     reason = " ".join(str(data.get("reason") or "").split())[:game_commands.WARN_REASON_MAX]
     player_id = db().get_player_id_from_player_name_and_server_id(str(data.get("name") or ""), g.server["id"])
@@ -2026,7 +2044,6 @@ def mod_warning_delete_api():
 @server_bp.route("/api/mod/mute", methods=["POST"])
 @moderator_required
 def mod_mute_api():
-    from mc_socket import commands as game_commands
     data = request.get_json(silent=True) or {}
     player_id = db().get_player_id_from_player_name_and_server_id(str(data.get("name") or ""), g.server["id"])
     if player_id is None:
@@ -2206,6 +2223,9 @@ def minecraft_login_api():
         if not db().is_plugin_online(g.server["id"]):
             return _login_error("Server not connected",
                                 "Der Minecraft-Server ist gerade nicht mit MCConnect verbunden. Versuche es später erneut.")
+        # every request is a new pin with new attempts: limit them against guessing (and chat spam)
+        if not rate_limit("login_pin", str(player_id)) or not rate_limit("login_pin_client", request.remote_addr):
+            return _login_error("Too many requests", "Zu viele Anfragen. Warte ein paar Minuten und versuche es erneut.")
         db().add_login_entry_from_player_id(player_id, secrets.randbelow(900000) + 100000)
         session["login_player_id"] = str(player_id)
         session["login_server_id"] = g.server["id"]
@@ -2503,7 +2523,10 @@ def send_verification_email(username, email, token):
 @main_bp.route("/api/login", methods=["POST"])
 def server_login_api():
     data = request.get_json(silent=True) or {}
-    admin = db().authenticate_admin(str(data.get("username") or "").strip(), str(data.get("password") or ""))
+    login = str(data.get("username") or "").strip()
+    if not rate_limit("admin_login", request.remote_addr) or not rate_limit("admin_login_name", login.lower()):
+        return {"error": "Zu viele Versuche. Warte ein paar Minuten."}, 429
+    admin = db().authenticate_admin(login, str(data.get("password") or ""))
     if admin:
         session.clear()
         session["admin_id"], session["admin_username"] = admin
@@ -2587,6 +2610,9 @@ def _validate_server_fields(data, current=None):
         value = str(data.get(key) or "").strip()
         if not min_len <= len(value) <= max_len:
             return None, f"Feld '{key}' muss {min_len}-{max_len} Zeichen lang sein."
+        # only the long description may have line breaks (the name ends up in e-mail subjects, for example)
+        if any(ord(c) < 0x20 and not (key == "server_description_long" and c in "\r\n\t") for c in value):
+            return None, f"Feld '{key}' enthält ungültige Zeichen."
         optional = key in ("mc_server_domain", "discord_url")
         fields[key] = (value or None) if optional else value
     for flag in ("whitelist", "auto_mod_ops", "alerts_enabled", "listed"):
@@ -2782,6 +2808,14 @@ def create_app(db_manager=None, config_overrides=None):
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
     app.extensions["mcconnect_db"] = db_manager or DatabaseManager()
+    app.extensions["mcconnect_limits"] = {
+        "invite_code": RateLimiter(10, 600),       # per client address, against guessing codes
+        "application": RateLimiter(5, 3600),       # per client address, the open applications are capped
+        "admin_login": RateLimiter(20, 600),       # per client address
+        "admin_login_name": RateLimiter(10, 600),  # per account, against guessing passwords from many addresses
+        "login_pin": RateLimiter(5, 900),          # new pins per player
+        "login_pin_client": RateLimiter(20, 900),  # new pins per client address
+    }
     if config.SMTP_HOST:
         from database.SMTPMailer import SMTPMailer
         app.extensions["mcconnect_mailer"] = SMTPMailer(config.SMTP_HOST, config.SMTP_PORT,
@@ -2792,11 +2826,15 @@ def create_app(db_manager=None, config_overrides=None):
         return {"error": f"Die Datei ist zu groß (maximal {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)."}, 413
 
     @app.after_request
-    def allow_font_embedding(response):
+    def add_headers(response):
         # Static files are served from the main domain; server subdomains load the
         # fonts cross-origin, which browsers only allow with a CORS header.
         if request.path.startswith("/static/fonts/"):
             response.headers["Access-Control-Allow-Origin"] = "*"
+        # no framing by other sites (clickjacking of the moderation and admin pages)
+        response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         return response
 
     app.register_blueprint(main_bp)

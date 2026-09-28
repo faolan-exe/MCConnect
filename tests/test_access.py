@@ -52,7 +52,7 @@ def test_application_flow(client, mod_client, db, server, plugin):
     connection.send(f"!AUTH~{server['key']}")
     messages = until(connection, "!whitelist~")
     assert "!joininfo~http" in "\n".join(messages) and messages[-1] == "!whitelist~add|Neuling_1"
-    assert db.get_unsynced_whitelist(server["id"]) == []
+    wait_for(lambda: db.get_unsynced_whitelist(server["id"]) == [])  # marked after sending, in the socket thread
 
 
 def test_invite_codes(client, mod_client, db, server):
@@ -66,6 +66,13 @@ def test_invite_codes(client, mod_client, db, server):
     assert redeem("Neuling_2", "SOMMER-26").status_code == 400  # used up
     assert db.list_invite_codes(server["id"])[0]["uses"] == 1
     assert db.get_unsynced_whitelist(server["id"]) == ["Neuling_1"]
+
+
+def test_applications_per_client_are_limited(client, db, server):
+    db.update_server_settings(server["id"], access_mode="application")
+    apply = lambda i: client.post("/api/access/apply", json={"name": f"Neuling_{i}", "message": "Ich baue gern Häfen."},
+                                  **on("testdomain")).status_code
+    assert [apply(i) for i in range(6)] == [200] * 5 + [429]
 
 
 def test_code_guessing_is_limited(client, db, server):

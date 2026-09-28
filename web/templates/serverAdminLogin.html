@@ -53,6 +53,8 @@
     });
     if (result.ok) {
       window.location.href = "/manage";
+    } else if (result.data.error) {
+      showMessage(message, result.data.error, "error");
     } else {
       showMessage(message, "Login fehlgeschlagen. Prüfe Benutzername bzw. E-Mail und Passwort und ob du deine E-Mail-Adresse bestätigt hast.", "error");
     }

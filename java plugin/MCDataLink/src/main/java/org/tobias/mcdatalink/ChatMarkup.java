@@ -7,14 +7,17 @@ import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.ChatColor;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * Chat lines from MCConnect with "&" color codes, buttons written as ⟦label⇒/command⟧ (clicking runs the
  * command as the player) and links (clicking opens them). MCConnect removes the button markers from
- * everything players type, so a button always comes from MCConnect itself.
+ * everything players type, so a button always comes from MCConnect itself. As a second line of defense a
+ * button may only run MCDataLink's own commands; any other button is shown as plain text.
  */
 final class ChatMarkup {
     private static final Pattern PART = Pattern.compile("⟦([^⇒⟧]*)⇒([^⟧]*)⟧|(https?://[^\\s⟦]+)");
@@ -38,7 +41,9 @@ final class ChatMarkup {
             String before = line.substring(position, matcher.start());
             add(parts, color + before, null, null);
             color = lastColors(color + before);
-            if (matcher.group(1) != null) {
+            if (matcher.group(1) != null && !isOwnCommand(matcher.group(2).trim())) {
+                add(parts, color + matcher.group(1), null, null);
+            } else if (matcher.group(1) != null) {
                 String command = matcher.group(2).trim();
                 add(parts, color + matcher.group(1), new ClickEvent(ClickEvent.Action.RUN_COMMAND, command),
                         ChatColor.GRAY + "Klicken: " + ChatColor.WHITE + command);
@@ -50,6 +55,13 @@ final class ChatMarkup {
         }
         add(parts, color + line.substring(position), null, null);
         return parts.toArray(new BaseComponent[0]);
+    }
+
+    /** True for "/<one of InGameCommands.COMMANDS> ...": the only commands a button may run. */
+    static boolean isOwnCommand(String command) {
+        if (!command.startsWith("/")) return false;
+        String name = command.substring(1).split(" ", 2)[0].toLowerCase(Locale.ROOT);
+        return Arrays.asList(InGameCommands.COMMANDS).contains(name);
     }
 
     /** The line without buttons and colors, e.g. for the console. */
