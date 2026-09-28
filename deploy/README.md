@@ -168,6 +168,11 @@ Verbindungen weist der Socket-Server mit `error|006` ab. Dafür braucht er ein Z
    scp -L /pfad/zum/npm/letsencrypt/live/npm-3/{fullchain,privkey}.pem root@192.168.1.50:/opt/mcconnect/deploy/tls/
    ```
    Der Socket-Server lädt ein erneuertes Zertifikat bei der nächsten Verbindung selbst neu.
+   **Lesbar machen:** Der Socket-Container läuft als Benutzer mit UID 1000, der private Schlüssel von Let's
+   Encrypt gehört aber root (Rechte 600). Nach jedem Kopieren im LXC:
+   ```bash
+   chown 1000:1000 /opt/mcconnect/deploy/tls/*.pem && chmod 600 /opt/mcconnect/deploy/tls/privkey.pem
+   ```
 2. In `.env`:
    ```
    MCC_SOCKET_TLS_CERT=/tls/fullchain.pem
@@ -189,8 +194,8 @@ cd deploy && docker compose up -d --build
 
 Wenn sich das Plugin geändert hat (Version in `java plugin/MCDataLink/pom.xml`), danach auf der
 Verwaltungsseite **MCDataLink.jar** neu herunterladen, im `plugins`-Ordner des Minecraft-Servers
-ersetzen und den Server neu starten. Ältere Plugins laufen weiter, ihnen fehlen nur die neuen
-Funktionen (ab 3.1: Erfolge und Wettbewerbe im Chat, ab 3.2: Serverzustand).
+ersetzen und den Server neu starten. Plugins ab 3.12 laufen weiter, ihnen fehlen nur die neuen
+Funktionen; **ältere Plugins (vor 3.12, ohne TLS) werden abgewiesen** und müssen ersetzt werden.
 
 ## 9. Backups
 
