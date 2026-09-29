@@ -88,7 +88,7 @@ Charts are plain SVG without libraries (`web/static/*-chart.js`), styles in `web
 3.13 live stats every 5 s (`live-stats-interval`; events mark what changed) · 3.14 join/leave messages
 (`JoinMessages`, `!joinstyle`, `!joinmutes`, `!joinreset`), `/joinmessage` · 3.15 `!JOIN` sends the game's first
 join, the first live update after a join is complete · 3.16 default join lines for everyone (`!joindefault`) ·
-3.17 icons (`!FEATURES~…,glyphs`, `!pack`, fallbacks per viewer) and the line under the names (`!badge`, Paper 1.20.3+ by
+3.17 icons (`!FEATURES~…,glyphs`, `!pack`, fallbacks per viewer, hint with `/icons` after every decline) and the line under the names (`!badge`, Paper 1.20.3+ by
 reflection; players with the pack get a copy of the main scoreboard with MCConnect's teams).
 
 Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss the newer features.

@@ -29,6 +29,13 @@ final class Glyphs implements Listener {
     private static final String PROMPT = "§7Icons von MCConnect für Join-Nachrichten und die Abzeichen unter den Namen."
             + " §8(freiwillig – ohne siehst du einfache Symbole)";
     private static final long OFFER_DELAY_TICKS = 20L;
+    /**
+     * After a "No" the client sets the server to "Server Resource Packs: Disabled" and from then on declines every offer
+     * without asking; no server can change that. So every decline is answered with this hint (on every join).
+     */
+    private static final String DECLINED_HINT = "&7Ohne die MCConnect-Icons siehst du einfache Symbole. "
+            + "⟦&a[Icons laden]⇒/icons⟧ &8(Kommt keine Frage? Serverliste → Server auswählen → Bearbeiten → "
+            + "Server-Ressourcenpakete: Aktiviert, dann neu verbinden.)";
 
     private final MCDataLink plugin;
     private final boolean offer;
@@ -113,6 +120,13 @@ final class Glyphs implements Listener {
         }
     }
 
+    /** Main thread: /icons, offer the pack once more. False if there is none to offer. */
+    boolean offerAgain(Player player) {
+        if (!offer || url == null) return false;
+        offer(player);
+        return true;
+    }
+
     /** Main thread: offer the pack (1.20.3+: next to the server's own pack; older: instead of it). */
     private void offer(Player player) {
         String currentUrl = url;
@@ -151,6 +165,7 @@ final class Glyphs implements Listener {
             return;  // still loading
         } else {  // DECLINED, FAILED_DOWNLOAD, DISCARDED, INVALID_URL, FAILED_RELOAD
             changed = loaded.remove(player.getUniqueId());
+            if (status.equals("DECLINED")) player.spigot().sendMessage(ChatMarkup.parse(DECLINED_HINT));
         }
         if (changed) plugin.nameBadges().viewerChanged(player);
     }

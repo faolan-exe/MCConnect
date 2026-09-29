@@ -17,11 +17,11 @@ import java.util.List;
  * /stats, /top, /wettbewerb, /duell, /report, /seitenleiste, /vote, /events and the moderator commands
  * /verwarnen, /stumm and /entstummen (MCConnect checks the rights). The commands are answered by
  * MCConnect: the plugin only forwards them with the player's position (!CMD) and shows the
- * answer lines (!tell).
+ * answer lines (!tell). /icons is answered by the plugin itself (offers the resource pack again).
  */
 final class InGameCommands implements CommandExecutor, TabCompleter {
     static final String[] COMMANDS = {"stats", "top", "wettbewerb", "duell", "report", "seitenleiste", "vote", "events",
-            "verwarnen", "stumm", "entstummen", "joinmessage"};
+            "verwarnen", "stumm", "entstummen", "joinmessage", "icons"};
     private static final List<String> PERIODS = Arrays.asList("7", "30");
     private static final List<String> DAYS = Arrays.asList("1", "2", "3", "4", "5", "6", "7");
     private static final List<String> DUEL_ACTIONS = Arrays.asList("annehmen", "ablehnen");
@@ -50,6 +50,10 @@ final class InGameCommands implements CommandExecutor, TabCompleter {
             return true;
         }
         Player player = (Player) sender;
+        if (command.getName().equals("icons")) {
+            if (!plugin.glyphs().offerAgain(player)) player.sendMessage(ChatColor.GRAY + "Auf diesem Server gibt es keine Icons zum Laden.");
+            return true;
+        }
         Location at = player.getLocation();
         String world = at.getWorld() == null ? "" : clean(at.getWorld().getName());
         String message = "!CMD~" + player.getUniqueId() + "|" + world + "|" + at.getBlockX() + "|" + at.getBlockY() + "|"

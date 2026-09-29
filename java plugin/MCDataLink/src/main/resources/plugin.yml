@@ -43,3 +43,6 @@ commands:
   joinmessage:
     description: Deine Join- und Leave-Nachricht gestalten
     usage: /joinmessage [text|leave|farbe|symbol|stil|sound] [wert]
+  icons:
+    description: Das Ressourcenpaket mit den MCConnect-Icons laden
+    usage: /icons
