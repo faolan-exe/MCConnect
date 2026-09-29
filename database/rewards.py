@@ -62,15 +62,17 @@ CUSTOM_TEXT_RE = re.compile(r"^[^&§|~\u27e6\u21d2\u27e7\x00-\x1f]{1,80}$")
 
 
 class Catalog:
-    """The options of a server: the fixed palettes plus its own join and leave texts."""
+    """The options of a server: the fixed palettes plus its own join and leave texts and icons (glyphs.IconSet)."""
 
-    def __init__(self, custom=None):
+    def __init__(self, custom=None, icons=None):
         custom = custom or {}
+        self.icons = icons or glyphs.BUILTIN
         self.custom = {"join": dict(custom.get("join") or {}), "leave": dict(custom.get("leave") or {})}
         self.texts = {"join_texts": dict(JOIN_TEXTS, **self.custom["join"]),
                       "leave_texts": dict(LEAVE_TEXTS, **self.custom["leave"])}
         self.kinds = dict(UNLOCK_KINDS, join_texts=tuple(self.texts["join_texts"]),
-                          leave_texts=tuple(self.texts["leave_texts"]))
+                          leave_texts=tuple(self.texts["leave_texts"]),
+                          symbols=SYMBOLS + tuple(icon["char"] for icon in self.icons.custom))
 
     def text(self, kind, key):
         """The template of a join ("join_texts") or leave ("leave_texts") text, None if unknown."""
@@ -339,7 +341,7 @@ def player_state(db, player_id):
     A level reached for the first time is stored here."""
     server_id = db.get_server_id_from_player_id(player_id)
     enabled, stored, texts = db.get_reward_settings(server_id)
-    catalog = Catalog(texts)
+    catalog = Catalog(texts, glyphs.icon_set(db, server_id))
     levels = levels_of(stored)
     settings = db.get_join_settings(player_id)
     level = min(max(settings["level"], reached_level(levels, db.get_reward_facts(player_id))), len(levels) - 1)
@@ -366,10 +368,10 @@ def join_style_message(db, player_id, state=None):
                                      sound[0] if sound else "", str(sound[1]) if sound else ""))
 
 
-def join_default_message(stored_levels, texts):
+def join_default_message(stored_levels, texts, icons=None):
     """!joindefault for the plugin: the lines of a player who chose nothing (and of a brand-new one the plugin
     does not know yet), with "{name}" for the plugin to fill in. The default choice of the first level."""
-    catalog = Catalog(texts)
+    catalog = Catalog(texts, icons)
     levels = levels_of(stored_levels)
     available = unlocked(levels, 0, catalog=catalog)
     style = normalized_style(None, available)

@@ -229,6 +229,7 @@ class SocketServer:
         self._last_checked = {}  # player_id -> monotonic time of the last after_stats
         self._changed_servers = set()  # servers with new stats since the last sidebar update
         self._badge_lines = {}  # (server_id, uuid) -> the last !badge line sent (only changes are sent)
+        self._icons = {}  # server_id -> glyphs.IconSet (built-in and own icons; dropped on the "icons" event)
         self._threads = []
 
     # ------------------------------------------------------------------ lifecycle
@@ -417,9 +418,17 @@ class SocketServer:
         if self._send_to_server(server_id, badges.message(uuid, line)):
             self._badge_lines[key] = line
 
-    def pack_message(self):
-        data, sha1 = glyphs.build_pack()
-        return f"!pack~{config.PUBLIC_SCHEME}://{config.BASE_DOMAIN}/resourcepack/{sha1}.zip|{sha1}|{glyphs.glyph_map()}"
+    def icons(self, server_id):
+        icons = self._icons.get(server_id)
+        if icons is None:
+            icons = self._icons[server_id] = glyphs.icon_set(self.db, server_id)
+        return icons
+
+    def pack_message(self, server_id):
+        icons = self.icons(server_id)
+        _, sha1 = icons.pack()
+        return (f"!pack~{config.PUBLIC_SCHEME}://{config.BASE_DOMAIN}/resourcepack/{server_id}/{sha1}.zip|{sha1}|"
+                f"{icons.glyph_map()}")
 
     def check_reward_level(self, server_id, player_id):
         """Tell a player who reached a new reward level what it unlocks (and update the message, e.g. rainbow)."""
@@ -438,7 +447,7 @@ class SocketServer:
         enabled, stored, texts = self.db.get_reward_settings(server_id)
         if not enabled:
             return
-        self._send_to_server(server_id, rewards.join_default_message(stored, texts))
+        self._send_to_server(server_id, rewards.join_default_message(stored, texts, self.icons(server_id)))
         styled, mutes = self.db.get_join_sync(server_id)
         for player_id in styled:
             self._send_to_server(server_id, rewards.join_style_message(self.db, player_id))
@@ -647,7 +656,7 @@ class SocketServer:
         if client is None:
             return False
         if "glyphs" not in client.features and glyphs.ICON_RE.search(msg):
-            msg = glyphs.fallback_text(msg)  # the plugin cannot show the icons (before 3.17 or before !FEATURES)
+            msg = self.icons(server_id).fallback_text(msg)  # the plugin cannot show icons (before 3.17 or !FEATURES)
         if chat and "click" not in client.features:
             msg = commands.without_buttons(msg)
             if msg.startswith("!broadcast~"):  # older plugins show broadcasts without "&" color codes
@@ -699,6 +708,15 @@ class SocketServer:
             self._send_to_server(server_id, rewards.join_mutes_message(
                 self.db.get_mojang_uuid_from_player_id(player_id), settings["sounds_off"],
                 [m["uuid"] for m in self.db.get_join_mutes(player_id)]))
+        elif kind == "icons":  # own icons changed: new pack, fallbacks and prefixes (see /users/icons)
+            self._icons.pop(server_id, None)
+            with self._lock:
+                client = self.active_connections.get(server_id)
+            if client is not None and "glyphs" in client.features:
+                self._send_to_server(server_id, self.pack_message(server_id))
+            for mojang_uuid in event.get("uuids", []):
+                self._send_to_server(server_id, self.prefix_message(server_id, mojang_uuid))
+            self.sync_join_messages(server_id)
         elif kind == "badge":
             self.update_badge(server_id, event["player_id"])
         elif kind == "joinsync":
@@ -778,8 +796,9 @@ class SocketServer:
         logger.info(f"{client.addr} authenticated as server {server_id}")
         client.send("success|100")
         client.send("!sendAllPlayerStats")
-        for mojang_uuid, (text, color) in self.db.get_all_worn_prefixes(server_id).items():
-            client.send(f"!prefix~{mojang_uuid}|{color}|{self._clean(text)}")
+        icons = self.icons(server_id)
+        for mojang_uuid, (text, color) in self.db.get_all_worn_prefixes(server_id).items():  # features unknown yet
+            client.send(f"!prefix~{mojang_uuid}|{color}|{self._clean(icons.fallback_text(text))}")
         client.send("!metrics~" + "|".join(commands.METRIC_NAMES))
         for mojang_uuid, (until, reason) in self.db.get_mutes(server_id).items():
             client.send(self.mute_message(mojang_uuid, until, reason))
@@ -828,7 +847,7 @@ class SocketServer:
                 if is_op.strip() in ("0", "1"):
                     self.db.set_player_op(client.server_id, player_uuid, is_op.strip() == "1")
                 client.send("success|101")
-                client.send(self.prefix_message(client.server_id, player_uuid))
+                self._send_to_server(client.server_id, self.prefix_message(client.server_id, player_uuid))
                 self.announce_milestones(client.server_id, player_id, self.db.check_milestones(player_id))
                 if self.db.get_sidebar(player_id) != "off":
                     self.update_sidebar(client.server_id, player_id)
@@ -859,8 +878,10 @@ class SocketServer:
                         client.send(message)
                 if "glyphs" in client.features:
                     # the join lines of the auth were sent with fallbacks: once more with the icons
-                    client.send(self.pack_message())
+                    client.send(self.pack_message(client.server_id))
                     self.sync_join_messages(client.server_id)
+                    for mojang_uuid, (text, color) in self.db.get_all_worn_prefixes(client.server_id).items():
+                        client.send(f"!prefix~{mojang_uuid}|{color}|{self._clean(text)}")  # now with the icons
             elif command == "!CMD":
                 self.run_command(client.server_id, value)
             elif command == "!HEALTH":

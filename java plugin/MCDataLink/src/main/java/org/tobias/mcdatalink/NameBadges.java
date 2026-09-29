@@ -26,7 +26,10 @@ final class NameBadges {
     private static final String OBJECTIVE = "mccbadge";
 
     private final MCDataLink plugin;
+    /** The line under the names works on this server (Paper 1.20.3+) and is wanted. */
     private final boolean enabled;
+    /** Players with the resource pack get the icon board (for the line and/or the prefixes above the heads). */
+    private final boolean usePackBoard;
     /** uuid -> line with § color codes and icons */
     private final Map<UUID, String> lines = new ConcurrentHashMap<>();
     private Scoreboard packBoard;
@@ -59,6 +62,7 @@ final class NameBadges {
             }
         }
         enabled = supported;
+        usePackBoard = enabled || plugin.prefixDisplay().nametag();
         if (enabled) {  // a leftover of a crash would show old lines until the first update
             Objective old = main().getObjective(OBJECTIVE);
             if (old != null) old.unregister();
@@ -83,15 +87,17 @@ final class NameBadges {
 
     /** The scoreboard of a player without a sidebar: the icon board if their client loaded the pack. */
     Scoreboard baseBoard(Player player) {
-        return enabled && plugin.glyphs().hasPack(player.getUniqueId()) ? packBoard() : main();
+        return usePackBoard && plugin.glyphs().hasPack(player.getUniqueId()) ? packBoard() : main();
     }
 
     /** After the player's client loaded (or dropped) the pack: switch to the board with the matching variant. */
     void viewerChanged(Player player) {
-        if (!enabled) return;
+        if (!usePackBoard) return;
         Scoreboard sidebarBoard = plugin.sidebar().boardOf(player.getUniqueId());
         if (sidebarBoard != null) {
-            apply(sidebarBoard, plugin.glyphs().hasPack(player.getUniqueId()));
+            boolean icons = plugin.glyphs().hasPack(player.getUniqueId());
+            plugin.prefixDisplay().copyTeams(sidebarBoard, icons);
+            apply(sidebarBoard, icons);
             return;
         }
         Scoreboard current = player.getScoreboard();
@@ -108,8 +114,7 @@ final class NameBadges {
 
     /** Main thread: a player joined. */
     void joined(Player player) {
-        if (!enabled) return;
-        forEachBoard((board, icons) -> show(board, icons, player));
+        if (enabled) forEachBoard((board, icons) -> show(board, icons, player));
         viewerChanged(player);
     }
 
@@ -131,7 +136,7 @@ final class NameBadges {
 
     /** After a prefix changed: the name tag teams of the icon board. */
     void syncTeams() {
-        if (packBoard != null) Sidebar.copyTeams(main(), packBoard);
+        if (packBoard != null) plugin.prefixDisplay().copyTeams(packBoard, true);
     }
 
     void disable() {
@@ -153,7 +158,7 @@ final class NameBadges {
     private Scoreboard packBoard() {
         if (packBoard == null) {
             packBoard = plugin.getServer().getScoreboardManager().getNewScoreboard();
-            Sidebar.copyTeams(main(), packBoard);
+            plugin.prefixDisplay().copyTeams(packBoard, true);
             apply(packBoard, true);
         }
         return packBoard;

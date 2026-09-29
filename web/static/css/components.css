@@ -97,3 +97,8 @@
   font-family: var(--font-mono);
   font-size: 15px;
 }
+
+/* drawn icons (database/glyphs.py) in text, e.g. prefixes and join messages */
+.mc-glyph { width: 18px; height: 18px; image-rendering: pixelated; vertical-align: -3px; }
+.pf-icons { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 4px; }
+.pf-icon { display: inline-flex; padding: 4px; border: 1px solid var(--srv-border, #ccc); border-radius: 6px; background: var(--srv-card, #fff); cursor: pointer; }

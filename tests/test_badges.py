@@ -135,7 +135,7 @@ def test_plugins_with_glyphs_get_the_pack_and_the_icons(db, server, plugin, two_
     assert f"&f{CROWN} " in until(connection, f"!joinstyle~{PLAYER_UUID}")[-1]  # sent again with the icon
     _, sha1 = glyphs.build_pack()
     assert connection.pack.startswith("!pack~http") and connection.pack.endswith(
-        f"/resourcepack/{sha1}.zip|{sha1}|{glyphs.glyph_map()}")
+        f"/resourcepack/{server['id']}/{sha1}.zip|{sha1}|{glyphs.glyph_map()}")  # the server's pack
     assert connection.request(f"!JOIN~{PLAYER_UUID}|_Tobias4444") == "success|101"
     assert badge_of(connection, PLAYER_UUID) == (f"!badge~{PLAYER_UUID}|&f{glyphs.char('trophy')}&f0 "
                                                  f"&f{glyphs.char('flame')}&f1 &f{glyphs.char('level')}&f6")

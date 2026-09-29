@@ -18,8 +18,17 @@
 <form class="srv-card mcc-form" id="prefix-form">
   <h2 data-live="heading">{{ "Prefix bearbeiten" if own_prefix else "Prefix erstellen" }}</h2>
 
-  <label for="text">Text <span class="mcc-hint">(1–16 Zeichen)</span></label>
-  <input class="mcc-input" id="text" maxlength="16" required value="{{ own_prefix.text if own_prefix else '' }}" />
+  <label for="text">Text <span class="mcc-hint">(1–16 Zeichen{% if icons %}, ein Icon zählt als eins{% endif %})</span></label>
+  <input class="mcc-input" id="text" maxlength="60" required value="{{ own_text }}" />
+  {% if icons %}
+  <div class="pf-icons" aria-label="Icons einfügen">
+    <span class="mcc-hint">Icons des Servers:</span>
+    {% for icon in icons %}
+    <button type="button" class="pf-icon" data-token=":{{ icon.name }}:" title=":{{ icon.name }}:">
+      <img class="mc-glyph" src="{{ icon.url }}" alt="{{ icon.name }}" width="18" height="18"/></button>
+    {% endfor %}
+  </div>
+  {% endif %}
 
   <label>Farbe {% if not is_moderator %}<span class="mcc-hint">(Gold ist Moderatoren vorbehalten)</span>{% endif %}</label>
   <div class="mcc-colors">
@@ -58,16 +67,30 @@
 <script src="{{ url_for('static', filename='poll.js') }}"></script>
 <script nonce="{{ csp_nonce() }}">
   const COLORS = {{ prefix_colors | tojson }};
+  const ICONS = Object.fromEntries({{ icons | tojson }}.map((icon) => [icon.name, icon.url]));
   const form = document.getElementById("prefix-form");
   const message = document.getElementById("prefix-message");
   const preview = document.getElementById("preview-prefix");
 
   function updatePreview() {
     const color = form.querySelector('input[name="color"]:checked').value;
-    preview.textContent = "[" + (document.getElementById("text").value || "Prefix") + "]";
+    // ":name:" of the server's icons as images, everything else as text
+    const parts = ("[" + (document.getElementById("text").value || "Prefix") + "]").split(/(:[a-z0-9_]{2,16}:)/);
+    preview.replaceChildren(...parts.map((part) => {
+      const url = ICONS[part.slice(1, -1)];
+      if (!url || part[0] !== ":") return document.createTextNode(part);
+      return Object.assign(document.createElement("img"), { className: "mc-glyph", src: url, alt: part, width: 18, height: 18 });
+    }));
     preview.style.color = COLORS[color];
   }
   form.addEventListener("input", updatePreview);
+  form.querySelectorAll("[data-token]").forEach((button) => button.addEventListener("click", () => {
+    const input = document.getElementById("text");
+    const at = input.selectionStart ?? input.value.length;
+    input.value = input.value.slice(0, at) + button.dataset.token + input.value.slice(input.selectionEnd ?? at);
+    input.focus();
+    updatePreview();
+  }));
   updatePreview();
 
   form.addEventListener("submit", async (event) => {

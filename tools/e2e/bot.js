@@ -12,7 +12,7 @@ if (process.env.RAW) {
     if (/click/i.test(json)) console.log(`[${name}] RAW clickable: ${(json.match(/"(value|command|url)":\{"type":"string","value":"(\/[^"]*|https?:[^"]*)"/g) || []).join(" ")}`);
   });
   for (const packet of ["scoreboard_objective", "scoreboard_score", "scoreboard_display_objective", "teams"]) {
-    bot._client.on(packet, (data) => console.log(`[${name}] RAW ${packet}: ${JSON.stringify(data).slice(0, 160)}`));
+    bot._client.on(packet, (data) => console.log(`[${name}] RAW ${packet}: ${JSON.stringify(data).slice(0, process.env.RAWLEN ? Number(process.env.RAWLEN) : 160)}`));
   }
 }
 // PACK=accept|decline: answer the resource pack offer (the plugin's icons, 3.17). Answered by hand: mineflayer 4

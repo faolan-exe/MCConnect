@@ -56,7 +56,10 @@ class FakePlugin:
         """Next prefix message; fails if another message arrives first."""
         while not self.prefixes:
             msg = recv_msg(self.sock)
-            if msg in ("!heartbeat", "!joinreset~") or msg.startswith(("!metrics~", "!joindefault~", "!pack~")):
+            if msg in ("!heartbeat", "!joinreset~") or msg.startswith(("!metrics~", "!joindefault~")):
+                continue
+            if msg.startswith("!pack~"):
+                self.pack = msg
                 continue
             if msg.startswith("!badge~"):
                 self.badges.append(msg)

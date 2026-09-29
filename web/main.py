@@ -1275,14 +1275,29 @@ def profile_page():
 MC_CODE_COLORS = {code: web for code, web in rewards.COLOR_CODES.values()}
 
 
+def server_icons():
+    """The IconSet of the current server (built-in and own icons), once per request."""
+    if "icons" not in g:
+        g.icons = glyphs.icon_set(db(), g.server["id"]) if getattr(g, "server", None) else glyphs.BUILTIN
+    return g.icons
+
+
 def glyph_url(char_or_key):
-    """The SVG of a drawn icon (database/glyphs.py)."""
+    """The SVG of a drawn icon: a built-in one (database/glyphs.py) or an own one of the server (/icons/<codepoint>.svg)."""
+    if len(char_or_key) == 1 and char_or_key not in glyphs.BY_CHAR:
+        return f"/icons/{ord(char_or_key)}.svg"
     return url_for("static", filename=f"glyphs/{glyphs.BY_CHAR.get(char_or_key, char_or_key)}.svg")
 
 
 def glyph_html(char):
     return Markup('<img class="mc-glyph" src="{}" alt="{}" width="18" height="18"/>').format(
-        glyph_url(char), glyphs.label(char))
+        glyph_url(char), glyphs.label(char) if char in glyphs.BY_CHAR else "Icon")
+
+
+def icons_html(text):
+    """Escaped text with the icons in it as images (Jinja filter "icons", e.g. for prefixes)."""
+    return Markup("".join(glyph_html(piece) if glyphs.is_icon(piece) else str(escape(piece))
+                          for piece in re.split(f"({glyphs.ICON_RE.pattern})", str(text or "")) if piece))
 
 
 def mc_html(line):
@@ -1297,14 +1312,12 @@ def mc_html(line):
                 bold = True
         elif part:
             weight = ";font-weight:700" if bold else ""
-            pieces = [glyph_html(piece) if glyphs.is_icon(piece) else str(escape(piece))
-                      for piece in re.split(f"({glyphs.ICON_RE.pattern})", part) if piece]
-            html.append(f'<span style="color:{color}{weight}">{"".join(pieces)}</span>')
+            html.append(f'<span style="color:{color}{weight}">{icons_html(part)}</span>')
     return Markup("".join(html))
 
 
-def symbol_label(value):
-    return glyphs.label(value) if glyphs.is_icon(value) else (value or "keins")
+def symbol_label(value, icons=None):
+    return (icons or glyphs.BUILTIN).label(value) if glyphs.is_icon(value) else (value or "keins")
 
 
 def badges_view(player_id):
@@ -1329,7 +1342,7 @@ def join_view(player_id, state=None):
     for field, kind, labels in (("join_text", "join_texts", lambda v: catalog.text("join_texts", v).replace("{name}", name)),
                                 ("leave_text", "leave_texts", lambda v: catalog.text("leave_texts", v).replace("{name}", name)),
                                 ("color", "colors", lambda v: rewards.COLOR_LABELS[v]),
-                                ("symbol", "symbols", symbol_label),
+                                ("symbol", "symbols", lambda v: symbol_label(v, catalog.icons)),
                                 ("style", "styles", lambda v: rewards.STYLES[v]),
                                 ("sound", "sounds", lambda v: rewards.SOUNDS[v][0])):
         values = catalog.kinds[kind] + (rewards.MOD_COLORS if kind == "colors" and state["moderator"] else ())
@@ -1398,8 +1411,11 @@ def player_card(player_name):
     ranks = [f"#{rank} {metric.label}" for rank, metric, _ in places if rank <= 3][:3]
     achieved = sum(1 for a in achievements_mod.ACHIEVEMENTS
                    if achievements_mod.tier_of(a, values[a.metric]) >= 0)
+    prefix = db().get_player_prefix(player_id)
+    if prefix:  # the image font has no icons: their fallback characters instead
+        prefix = dict(prefix, text=server_icons().fallback_text(prefix["text"]))
     png = render_card(name=info["name"], uuid=str(info["mojang_uuid"]), server_name=g.server["server_name"],
-                      prefix=db().get_player_prefix(player_id), prefix_colors=PREFIX_COLORS, tiles=tiles,
+                      prefix=prefix, prefix_colors=PREFIX_COLORS, tiles=tiles,
                       ranks=ranks, achievements=f"{achieved} von {len(achievements_mod.ACHIEVEMENTS)} Erfolgen")
     response = Response(png, mimetype="image/png")
     response.headers["Cache-Control"] = "public, max-age=1800"
@@ -1483,9 +1499,12 @@ def prefix_edit_page():
     is_moderator = db().is_moderator(player_id)
     colors = {name: hex_color for name, hex_color in PREFIX_COLORS.items()
               if is_moderator or name not in MODERATOR_PREFIX_COLORS}
-    return render_template("prefix_edit.html", own_prefix=db().get_owned_prefix(player_id),
+    icons = server_icons()
+    own = db().get_owned_prefix(player_id)
+    return render_template("prefix_edit.html", own_prefix=own, own_text=icons.to_tokens(own["text"]) if own else "",
                            current_prefix=db().get_player_prefix(player_id), selectable_colors=colors,
-                           is_moderator=is_moderator)
+                           is_moderator=is_moderator,
+                           icons=[{"name": i["name"], "url": glyph_url(i["char"])} for i in icons.custom])
 
 
 @server_bp.route("/join_pref")
@@ -1498,7 +1517,7 @@ def prefix_join_page():
 
 # Moderation pages: (path below /users, tab label). Every page shows the tabs with the open tasks.
 MOD_PAGES = (("", "Übersicht"), ("spieler", "Spieler"), ("inhalte", "Inhalte"), ("zugang", "Zugang & Regeln"),
-             ("belohnungen", "Belohnungen"), ("protokoll", "Protokoll"))
+             ("belohnungen", "Belohnungen"), ("icons", "Icons"), ("protokoll", "Protokoll"))
 
 
 def mod_tasks(server_id):
@@ -1575,18 +1594,78 @@ def moderation_access_page():
                                     for c in db().list_invite_codes(g.server["id"])])
 
 
+@server_bp.route("/users/icons")
+@moderator_required
+def moderation_icons_page():
+    return render_mod("icons", "mod/icons.html", icons=icons_view(), max_icons=glyphs.MAX_CUSTOM,
+                      default_fallback=glyphs.DEFAULT_FALLBACK)
+
+
+def icons_view():
+    return [{"id": i["id"], "name": i["name"], "fallback": i["fallback"], "pixels": i["pixels"],
+             "url": glyph_url(i["char"])} for i in glyphs.icon_set(db(), g.server["id"]).custom]
+
+
+@server_bp.route("/api/mod/icons", methods=["POST"])
+@moderator_required
+def mod_icons_api():
+    """{"id"?, "name", "fallback", "pixels": [81 colors]} saves an own icon (new without id), {"delete": id} removes one."""
+    data = request.get_json(silent=True) or {}
+    server_id = g.server["id"]
+    uuids = []
+    if "delete" in data:
+        try:
+            uuids = db().delete_server_icon(server_id, int(data["delete"]))
+        except (TypeError, ValueError):
+            uuids = None
+        if uuids is None:
+            return {"error": "Unbekanntes Icon."}, 404
+        db().add_mod_log(server_id, mod_name(), "icons", None, "Icon gelöscht")
+    else:
+        name, fallback, error = glyphs.check_icon(data.get("name"), data.get("fallback"))
+        pixels, pixel_error = glyphs.check_pixels(data.get("pixels"))
+        if error or pixel_error:
+            return {"error": error or pixel_error}, 400
+        try:
+            if data.get("id") is not None:
+                if not db().update_server_icon(server_id, int(data["id"]), name, fallback, pixels):
+                    return {"error": "Unbekanntes Icon."}, 404
+            elif len(db().get_server_icons(server_id)) >= glyphs.MAX_CUSTOM:
+                return {"error": f"Höchstens {glyphs.MAX_CUSTOM} eigene Icons."}, 400
+            else:
+                db().add_server_icon(server_id, name, fallback, pixels, glyphs.CUSTOM_FIRST)
+        except psycopg2.errors.UniqueViolation:
+            return {"error": "Ein Icon mit diesem Namen gibt es schon."}, 409
+        except (TypeError, ValueError):
+            return {"error": "Unbekanntes Icon."}, 400
+        db().add_mod_log(server_id, mod_name(), "icons", None, f"Icon :{name}: gespeichert")
+    db().notify_server_event(server_id, "icons", uuids=uuids)
+    return {"icons": icons_view()}
+
+
+@server_bp.route("/icons/<int:codepoint>.svg")
+def own_icon(codepoint):
+    """An own icon of the server as SVG (previews, prefixes, join messages on the website)."""
+    icon = glyphs.icon_set(db(), g.server["id"]).by_char.get(chr(codepoint)) if 0 <= codepoint < 0x110000 else None
+    if icon is None:
+        abort(404)
+    response = Response(glyphs.pixel_svg(icon["pixels"], icon["name"]), mimetype="image/svg+xml")
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return response
+
+
 @server_bp.route("/users/belohnungen")
 @moderator_required
 def moderation_rewards_page():
     enabled, stored, texts = db().get_reward_settings(g.server["id"])
-    return render_mod("belohnungen", "mod/rewards.html", rewards_enabled=enabled, editor=reward_editor(stored, texts),
+    return render_mod("belohnungen", "mod/rewards.html", rewards_enabled=enabled, editor=reward_editor(stored, texts, server_icons()),
                       mod_colors=[rewards.COLOR_LABELS[c] for c in rewards.MOD_COLORS],
                       custom_text_max=rewards.CUSTOM_TEXT_MAX)
 
 
-def reward_editor(stored, texts):
-    """The data of the level editor: levels, options (with the server's own texts), conditions, metrics."""
-    catalog = rewards.Catalog(texts)
+def reward_editor(stored, texts, icons):
+    """The data of the level editor: levels, options (with the server's own texts and icons), conditions, metrics."""
+    catalog = rewards.Catalog(texts, icons)
     levels = rewards.levels_of(stored)
     first = rewards.unlocked_at(levels, catalog)
     own = lambda kind: [{"key": k, "text": v, "level": first.get((kind + "_texts", k))} for k, v in catalog.custom[kind].items()]
@@ -1596,8 +1675,8 @@ def reward_editor(stored, texts):
         "metrics": [{"key": m.key, "label": m.label, "unit": motivation.goal_unit(m)} for m in metrics_mod.METRICS],
         "options": {
             "colors": [{"value": c, "label": rewards.COLOR_LABELS[c], "web": rewards.COLOR_CODES[c][1]} for c in rewards.COLORS],
-            "symbols": [{"value": v, "label": symbol_label(v), "icon": glyph_url(v) if glyphs.is_icon(v) else None}
-                        for v in rewards.SYMBOLS],
+            "symbols": [{"value": v, "label": symbol_label(v, icons), "icon": glyph_url(v) if glyphs.is_icon(v) else None}
+                        for v in catalog.kinds["symbols"]],
             "styles": [{"value": k, "label": v.split(" (")[0]} for k, v in rewards.STYLES.items()],
             "join_texts": [{"value": k, "label": v.replace("{name}", "…")} for k, v in catalog.texts["join_texts"].items()],
             "leave_texts": [{"value": k, "label": v.replace("{name}", "…")} for k, v in catalog.texts["leave_texts"].items()],
@@ -1656,7 +1735,7 @@ def mod_rewards_api():
             db().set_reward_settings(g.server["id"], levels=None)
             changed.append("Stufen auf Standard")
         else:
-            levels, error = rewards.validate_levels(data["levels"], rewards.Catalog(texts))
+            levels, error = rewards.validate_levels(data["levels"], rewards.Catalog(texts, server_icons()))
             if error:
                 return {"error": error}, 400
             db().set_reward_settings(g.server["id"], levels=levels)
@@ -1666,7 +1745,7 @@ def mod_rewards_api():
     db().add_mod_log(g.server["id"], mod_name(), "rewards", None, ", ".join(changed)[:300])
     db().notify_server_event(g.server["id"], "joinsync")  # the messages of everyone may look different now
     enabled, stored, texts = db().get_reward_settings(g.server["id"])
-    return dict(reward_editor(stored, texts), enabled=enabled)
+    return dict(reward_editor(stored, texts, server_icons()), enabled=enabled)
 
 
 @server_bp.route("/users/protokoll")
@@ -1690,7 +1769,7 @@ MOD_LOG_ACTIONS = {
     "warn": "verwarnt", "warning_delete": "Verwarnung gelöscht", "mute": "stummgeschaltet", "unmute": "Stummschaltung aufgehoben",
     "application_accept": "Bewerbung angenommen", "application_reject": "Bewerbung abgelehnt",
     "code_create": "Einladungscode angelegt", "code_delete": "Einladungscode gelöscht", "settings": "Einstellungen geändert",
-    "rewards": "Belohnungen geändert",
+    "rewards": "Belohnungen geändert", "icons": "Icons geändert",
 }
 
 
@@ -1947,11 +2026,13 @@ def favorite_toggle_api():
 @player_required
 def prefix_save_api():
     data = request.get_json(silent=True) or {}
-    text = str(data.get("text") or "").strip()
+    icons = server_icons()
+    text = icons.from_tokens(str(data.get("text") or "").strip())  # ":name:" -> the server's own icon
     color = str(data.get("color") or "")
     password = str(data.get("password") or "")
-    if not PREFIX_TEXT_RE.match(text):
-        return {"error": "Der Prefix muss 1-16 Zeichen lang sein (Buchstaben, Zahlen, Leerzeichen und _ . ! ? + * # -)."}, 400
+    if not PREFIX_TEXT_RE.match("".join("x" if c in icons.by_char else c for c in text)):
+        return {"error": "Der Prefix muss 1-16 Zeichen lang sein (Buchstaben, Zahlen, Leerzeichen, _ . ! ? + * # - und "
+                         "Icons des Servers als :name:, ein Icon zählt als ein Zeichen)."}, 400
     if color not in PREFIX_COLORS:
         return {"error": "Unbekannte Farbe."}, 400
     if color in MODERATOR_PREFIX_COLORS and not db().is_moderator(logged_in_player_id()):
@@ -2617,9 +2698,12 @@ def render_legal(page):
 
 
 @main_bp.route("/resourcepack/<sha1>.zip")
-def resource_pack(sha1):
-    """The icon resource pack (database/glyphs.py); the plugin offers this URL to the players."""
-    data, current = glyphs.build_pack()
+@main_bp.route("/resourcepack/<int:server_id>/<sha1>.zip")
+def resource_pack(sha1, server_id=None):
+    """The icon resource pack of a server (built-in and own icons, database/glyphs.py); the plugin offers this URL
+    to the players. Without a server (plugin 3.17 before own icons): only the built-in icons."""
+    icons = glyphs.icon_set(db(), server_id) if server_id is not None else glyphs.BUILTIN
+    data, current = icons.pack()
     if sha1 != current:
         abort(404)
     response = Response(data, mimetype="application/zip")
@@ -3183,6 +3267,7 @@ def create_app(db_manager=None, config_overrides=None):
         return response
 
     app.jinja_env.globals["csp_nonce"] = csp_nonce
+    app.jinja_env.filters["icons"] = icons_html
     app.register_blueprint(main_bp)
     app.register_blueprint(server_bp)
     logger.info(f"Application started for {app.config['SERVER_NAME']}")

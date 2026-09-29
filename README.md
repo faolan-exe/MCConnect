@@ -51,7 +51,7 @@ fingerprint of the local socket certificate (`certs/`) for a test plugin's `tls-
 
 ## Status
 
-State of 2026-09-29: schema version 25, plugin 3.18. Written as a handoff for the next development session.
+State of 2026-09-29: schema version 26, plugin 3.19. Written as a handoff for the next development session.
 
 ### Features
 
@@ -75,6 +75,7 @@ State of 2026-09-29: schema version 25, plugin 3.18. Written as a handoff for th
 | Year in review | `/rueckblick/<name>` | year gains from the first/last snapshot of the year (both kept forever), sessions, achievements, trophies |
 | Reach & design | main page, `web/static/css/dark.css` | public server directory (`servers.listed`), dark mode for all server pages (`_theme.html`, `--srv-*` tokens) |
 | Icons & name line | `database/glyphs.py`, `database/badges.py`, `web/static/glyphs/` | 13 drawn 9×9 pixel icons (SVG → PNG without extra libraries) in a resource pack (`/resourcepack/<sha1>.zip`, private use area U+E000…); 8 of them are join symbols unlocked by the default levels (servers with own levels tick them in the editor); under the name up to 4 values (default trophies, streak, level; `player_server_info.name_badges`), nothing for `hide_stats`. The plugin offers the pack and shows Unicode fallbacks to players without it (per viewer; icon codepoints are stored – only append) |
+| Own icons | `/users/icons`, `server_icons`, `glyphs.IconSet` | moderators draw up to 32 own 9×9 icons (pixel editor, an image is shrunk to 9×9 in the browser) with a fallback character; usable as join symbols (tick them at the levels) and by everyone in prefixes as `:name:`; codepoints from U+E100, never given out twice (`servers.icons_next`); a deleted icon becomes its fallback in prefixes; the pack is per server (`/resourcepack/<server id>/<sha1>.zip`) |
 | Profile & privacy | `/profil` | bio, "hide my stats" (`hide_stats`: left out of every public view except server totals), favourites, sidebar, join message |
 
 Charts are plain SVG without libraries (`web/static/*-chart.js`), styles in `web/static/css/stats.css`.
@@ -91,7 +92,9 @@ join, the first live update after a join is complete · 3.16 default join lines 
 3.17 icons (`!FEATURES~…,glyphs`, `!pack`, fallbacks per viewer, hint with `/icons` after every decline) and the line under the names (`!badge`, Paper 1.20.3+ by
 reflection; players with the pack get a copy of the main scoreboard with MCConnect's teams). · 3.18 automatic updates
 (`!update`, `database/plugin_jar.py`: version and SHA-256 of the offered jar over the pinned connection, a newer jar
-goes into `plugins/update/` under the running jar's name and is active after the next restart; `auto-update: false`).
+goes into `plugins/update/` under the running jar's name and is active after the next restart; `auto-update: false`) ·
+3.19 own icons in prefixes: above the heads and in the chat per viewer (players with the pack get the chat line with icons
+as a message of their own), the tab list always with fallbacks (it is the same for everyone).
 
 Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss the newer features.
 

@@ -91,7 +91,7 @@ final class Glyphs implements Listener {
             }
             if (result == null) result = new StringBuilder(text.length()).append(text, 0, i);
             String replacement = map.get(c);
-            result.append(replacement != null ? replacement : "?");
+            result.append(replacement != null ? replacement : "■");
         }
         return result == null ? text : result.toString();
     }

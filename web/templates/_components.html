@@ -1,7 +1,7 @@
 {# Macros shared by the server pages and the admin area. #}
 
 {% macro prefix_chip(text, color, colors) -%}
-<span class="mcc-prefix" style="--mcc-prefix-color: {{ colors.get(color, '#AAAAAA') }}">[{{ text }}]</span>
+<span class="mcc-prefix" style="--mcc-prefix-color: {{ colors.get(color, '#AAAAAA') }}">[{{ text | icons }}]</span>
 {%- endmacro %}
 
 

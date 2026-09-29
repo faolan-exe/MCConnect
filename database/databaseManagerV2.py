@@ -448,6 +448,21 @@ MIGRATIONS = {
         # what a player shows under their name in the game (list of database/badges.py keys; NULL = the default)
         "ALTER TABLE player_server_info ADD COLUMN name_badges jsonb",
     ],
+    26: [
+        # own 9x9 icons of a server (database/glyphs.py): join symbols and prefixes. The codepoint is stored in join
+        # styles, reward levels and prefix texts, so it is never given out twice (servers.icons_next counts up).
+        """CREATE TABLE server_icons (
+             id serial PRIMARY KEY,
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             codepoint integer NOT NULL,
+             name text NOT NULL,
+             fallback text NOT NULL,
+             pixels jsonb NOT NULL,
+             created_at timestamptz NOT NULL DEFAULT now(),
+             UNIQUE (server_id, codepoint),
+             UNIQUE (server_id, name))""",
+        "ALTER TABLE servers ADD COLUMN icons_next integer NOT NULL DEFAULT 0",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -3090,6 +3105,49 @@ class DatabaseManager:
         if levels is not False:
             self._execute("UPDATE servers SET reward_levels = %s WHERE id = %s",
                           (json.dumps(levels) if levels is not None else None, server_id))
+
+    ###----------------------------- Own icons ------------------------------------###
+
+    def get_server_icons(self, server_id):
+        """[{"id", "codepoint", "name", "fallback", "pixels"}] of a server, oldest first."""
+        return [{"id": i, "codepoint": c, "name": n, "fallback": f, "pixels": p} for i, c, n, f, p in self._fetchall(
+            "SELECT id, codepoint, name, fallback, pixels FROM server_icons WHERE server_id = %s ORDER BY codepoint",
+            (server_id,))]
+
+    def add_server_icon(self, server_id, name, fallback, pixels, first_codepoint):
+        """A new icon with the server's next unused codepoint. Returns its id.
+        Raises psycopg2.errors.UniqueViolation for a name that exists."""
+        with self._cursor() as cur:
+            cur.execute("UPDATE servers SET icons_next = icons_next + 1 WHERE id = %s RETURNING icons_next - 1", (server_id,))
+            codepoint = first_codepoint + cur.fetchone()[0]
+            cur.execute("""INSERT INTO server_icons (server_id, codepoint, name, fallback, pixels)
+                           VALUES (%s, %s, %s, %s, %s) RETURNING id""",
+                        (server_id, codepoint, name, fallback, json.dumps(pixels)))
+            return cur.fetchone()[0]
+
+    def update_server_icon(self, server_id, icon_id, name, fallback, pixels):
+        """True if the icon exists. Raises psycopg2.errors.UniqueViolation for a name that exists."""
+        return self._execute("UPDATE server_icons SET name = %s, fallback = %s, pixels = %s WHERE id = %s AND server_id = %s",
+                             (name, fallback, json.dumps(pixels), icon_id, server_id)) > 0
+
+    def delete_server_icon(self, server_id, icon_id):
+        """Delete an icon; prefixes with it get its fallback character instead. Returns the uuids of the players
+        whose prefix changed, or None if the icon does not exist."""
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM server_icons WHERE id = %s AND server_id = %s RETURNING codepoint, fallback",
+                        (icon_id, server_id))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            char, fallback = chr(row[0]), row[1]
+            cur.execute("""UPDATE prefixes SET prefix_text = replace(prefix_text, %s, %s)
+                           WHERE server_id = %s AND strpos(prefix_text, %s) > 0 RETURNING prefix_id""",
+                        (char, fallback, server_id, char))
+            changed = [r[0] for r in cur.fetchall()]
+            if not changed:
+                return []
+            cur.execute("SELECT mojang_uuid FROM player_server_info WHERE prefix_id = ANY(%s)", (changed,))
+            return [str(r[0]) for r in cur.fetchall()]
 
     def get_first_join(self, player_id):
         """The player's first join: the game's one if known, otherwise when MCConnect first saw them."""

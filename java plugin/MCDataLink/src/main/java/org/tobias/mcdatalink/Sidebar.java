@@ -5,7 +5,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
-import org.bukkit.scoreboard.Team;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -23,7 +22,6 @@ import java.util.function.BiConsumer;
  */
 final class Sidebar {
     private static final String OBJECTIVE = "mccside";
-    private static final String TEAM_PREFIX = "mcc";
     private static final int MAX_TITLE = 32;
     private static final int MAX_LINE = 40;
 
@@ -56,7 +54,7 @@ final class Sidebar {
             while (!used.add(entry)) entry += ChatColor.RESET;  // entries must be unique
             objective.getScore(entry).setScore(score--);
         }
-        copyTeams(plugin.getServer().getScoreboardManager().getMainScoreboard(), board);
+        plugin.prefixDisplay().copyTeams(board, plugin.glyphs().hasPack(uuid));
         plugin.nameBadges().apply(board, plugin.glyphs().hasPack(uuid));
         if (player.getScoreboard() != board) player.setScoreboard(board);
     }
@@ -82,31 +80,9 @@ final class Sidebar {
         boards.forEach(action);
     }
 
-    /** After a prefix changed: update the name tag teams in every sidebar scoreboard. */
+    /** After a prefix changed: update the name tag teams in every sidebar scoreboard (in its owner's variant). */
     void syncTeams() {
-        Scoreboard main = plugin.getServer().getScoreboardManager().getMainScoreboard();
-        for (Scoreboard board : boards.values()) copyTeams(main, board);
-    }
-
-    /** MCConnect's name tag teams of the main scoreboard into another board. */
-    static void copyTeams(Scoreboard main, Scoreboard board) {
-        for (Team team : board.getTeams()) {
-            if (team.getName().startsWith(TEAM_PREFIX) && main.getTeam(team.getName()) == null) team.unregister();
-        }
-        for (Team source : main.getTeams()) {
-            if (!source.getName().startsWith(TEAM_PREFIX)) continue;
-            Team copy = board.getTeam(source.getName());
-            if (copy == null) {
-                copy = board.registerNewTeam(source.getName());
-                copy.setPrefix(source.getPrefix());
-            }
-            for (String entry : copy.getEntries()) {
-                if (!source.hasEntry(entry)) copy.removeEntry(entry);
-            }
-            for (String entry : source.getEntries()) {
-                if (!copy.hasEntry(entry)) copy.addEntry(entry);
-            }
-        }
+        boards.forEach((owner, board) -> plugin.prefixDisplay().copyTeams(board, plugin.glyphs().hasPack(owner)));
     }
 
     /** Paper 1.20.3+ can hide the red score numbers on the right; older servers keep them. */

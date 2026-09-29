@@ -1,0 +1,211 @@
+{% extends "mod/_layout.html" %}
+{% block mod_content %}
+<section class="srv-card" id="icons">
+  <h2>Eigene Icons</h2>
+  <p class="mcc-hint">Bis zu {{ max_icons }} Icons mit 9 × 9 Pixeln – so groß wie ein Buchstabe im Spiel. Du kannst sie
+    <b>bei den Stufen als Join-Symbol freischalten</b> (<a href="/users/belohnungen">Belohnungen</a>), und alle Spieler können sie
+    <b>in ihrem Prefix</b> als <code>:name:</code> nutzen. Im Spiel kommen sie über das MCConnect-Ressourcenpaket (ab Plugin-Version 3.19);
+    wer es ablehnt, sieht stattdessen das Ersatzzeichen.</p>
+  <ul class="ic-list" data-role="list"></ul>
+  <p class="mcc-hint" data-role="empty" hidden>Noch keine eigenen Icons.</p>
+</section>
+
+<section class="srv-card" id="icon-editor">
+  <h2 data-role="editor-title">Neues Icon</h2>
+  <div class="ic-editor">
+    <div>
+      <div class="ic-grid" data-role="grid" role="grid" aria-label="9 × 9 Pixel, klicken oder ziehen zum Malen"></div>
+      <div class="ic-tools">
+        <label class="ic-color">Farbe <input type="color" data-role="color" value="#3d7be0"/></label>
+        <div class="ic-palette" data-role="palette"></div>
+      </div>
+      <div class="ic-tools">
+        <div class="st-periods" role="group" aria-label="Werkzeug">
+          <button type="button" data-tool="pen" aria-pressed="true">Stift</button>
+          <button type="button" data-tool="eraser" aria-pressed="false">Radierer</button>
+          <button type="button" data-tool="picker" aria-pressed="false">Pipette</button>
+        </div>
+        <button class="mcc-btn mcc-btn-small mcc-btn-secondary" type="button" data-role="clear">Leeren</button>
+        <label class="mcc-btn mcc-btn-small mcc-btn-secondary ic-upload">Bild laden
+          <input type="file" accept="image/png,image/gif,image/webp,image/jpeg" data-role="file"/></label>
+      </div>
+      <p class="mcc-hint">Ein geladenes Bild wird auf 9 × 9 verkleinert – danach mit Stift und Radierer nacharbeiten.
+        Halbtransparente Pixel werden durchsichtig.</p>
+    </div>
+    <form class="mcc-form ic-form" data-role="form">
+      <label for="icon-name">Name <span class="mcc-hint">(a-z, 0-9, _; im Prefix als <code>:name:</code>)</span></label>
+      <input class="mcc-input" id="icon-name" name="name" maxlength="16" required pattern="[a-z0-9_]{2,16}" placeholder="z. B. logo"/>
+      <label for="icon-fallback">Ersatzzeichen <span class="mcc-hint">(für Spieler ohne Ressourcenpaket)</span></label>
+      <input class="mcc-input ic-fallback" id="icon-fallback" name="fallback" maxlength="2" placeholder="{{ default_fallback }}"/>
+      <label>Vorschau</label>
+      <div class="ic-preview">
+        <div class="ic-chat"><img class="ic-live" alt="" width="18" height="18"/> <span style="color:#55FFFF">Steve</span> <span style="color:#AAAAAA">ist da.</span></div>
+        <div class="ic-chat"><span style="color:#FFAA00">[<img class="ic-live" alt="" width="18" height="18"/> Bauteam]</span> <span style="color:#fff">Steve: Hallo!</span></div>
+        <div class="ic-big"><img class="ic-live" alt="" width="72" height="72"/></div>
+      </div>
+      <div class="mcc-actions">
+        <button class="mcc-btn" type="submit" data-role="save">Icon speichern</button>
+        <button class="mcc-btn mcc-btn-secondary" type="button" data-role="new" hidden>Neues Icon</button>
+      </div>
+      <div class="mcc-message" data-role="message"></div>
+    </form>
+  </div>
+</section>
+{% endblock %}
+{% block mod_scripts %}
+<script nonce="{{ csp_nonce() }}">
+  (() => {
+    const SIZE = 9;
+    const PALETTE = ["#1a1a1a", "#5a5a5a", "#aaaaaa", "#ffffff", "#e8453c", "#ff8a1f", "#ffd23f", "#a8661b",
+                     "#5bc24a", "#23964f", "#5decf5", "#3d7be0", "#2a54a8", "#aa00aa", "#ff55ff", "#8b5a2b"];
+    let icons = {{ icons | tojson }};
+    let pixels = Array(SIZE * SIZE).fill("");
+    let editing = null;  // id of the icon being edited, null: a new one
+    let tool = "pen";
+    let painting = false;
+
+    const root = document.getElementById("icon-editor");
+    const grid = root.querySelector('[data-role="grid"]');
+    const colorInput = root.querySelector('[data-role="color"]');
+    const form = root.querySelector('[data-role="form"]');
+    const message = root.querySelector('[data-role="message"]');
+    const list = document.querySelector('#icons [data-role="list"]');
+
+    const cells = pixels.map((_, index) => {
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = "ic-cell";
+      cell.setAttribute("aria-label", `Pixel ${index % SIZE + 1}, ${Math.floor(index / SIZE) + 1}`);
+      cell.addEventListener("pointerdown", (event) => { event.preventDefault(); painting = true; paint(index); });
+      cell.addEventListener("pointerenter", () => { if (painting) paint(index); });
+      cell.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); paint(index); } });
+      grid.append(cell);
+      return cell;
+    });
+    document.addEventListener("pointerup", () => { painting = false; });
+
+    function paint(index) {
+      if (tool === "picker") {
+        if (pixels[index]) colorInput.value = pixels[index];
+        return setTool("pen");
+      }
+      pixels[index] = tool === "eraser" ? "" : colorInput.value.toLowerCase();
+      draw();
+    }
+
+    function svgUrl(values) {
+      let rects = "";
+      values.forEach((color, index) => {
+        if (color) rects += `<rect x="${index % SIZE}" y="${Math.floor(index / SIZE)}" width="1" height="1" fill="${color}"/>`;
+      });
+      return "data:image/svg+xml," + encodeURIComponent(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 9 9" shape-rendering="crispEdges">${rects}</svg>`);
+    }
+
+    function draw() {
+      cells.forEach((cell, index) => {
+        cell.style.background = pixels[index] || "";
+        cell.classList.toggle("ic-empty", !pixels[index]);
+      });
+      const url = svgUrl(pixels);
+      root.querySelectorAll(".ic-live").forEach((img) => { img.src = url; });
+    }
+
+    function setTool(name) {
+      tool = name;
+      root.querySelectorAll("[data-tool]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.tool === name)));
+    }
+    root.querySelectorAll("[data-tool]").forEach((b) => b.addEventListener("click", () => setTool(b.dataset.tool)));
+
+    const palette = root.querySelector('[data-role="palette"]');
+    PALETTE.forEach((color) => {
+      const swatch = document.createElement("button");
+      swatch.type = "button";
+      swatch.className = "ic-swatch";
+      swatch.style.background = color;
+      swatch.title = color;
+      swatch.addEventListener("click", () => { colorInput.value = color; setTool("pen"); });
+      palette.append(swatch);
+    });
+
+    root.querySelector('[data-role="clear"]').addEventListener("click", () => { pixels.fill(""); draw(); });
+
+    // an image, shrunk to 9x9 in the browser (the server only ever gets 81 colors)
+    root.querySelector('[data-role="file"]').addEventListener("change", (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      const image = new Image();
+      image.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = canvas.height = SIZE;
+        const context = canvas.getContext("2d");
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = "high";
+        const side = Math.max(image.width, image.height);  // keep the aspect ratio, centered
+        const width = image.width / side * SIZE, height = image.height / side * SIZE;
+        context.drawImage(image, (SIZE - width) / 2, (SIZE - height) / 2, width, height);
+        const data = context.getImageData(0, 0, SIZE, SIZE).data;
+        pixels = pixels.map((_, i) => data[i * 4 + 3] < 128 ? "" :
+          "#" + [0, 1, 2].map((c) => data[i * 4 + c].toString(16).padStart(2, "0")).join(""));
+        URL.revokeObjectURL(image.src);
+        draw();
+      };
+      image.src = URL.createObjectURL(file);
+      event.target.value = "";
+    });
+
+    function edit(icon) {
+      editing = icon ? icon.id : null;
+      pixels = icon ? [...icon.pixels] : Array(SIZE * SIZE).fill("");
+      form.elements.name.value = icon ? icon.name : "";
+      form.elements.fallback.value = icon ? icon.fallback : "";
+      root.querySelector('[data-role="editor-title"]').textContent = icon ? `Icon :${icon.name}: bearbeiten` : "Neues Icon";
+      root.querySelector('[data-role="new"]').hidden = !icon;
+      draw();
+    }
+    root.querySelector('[data-role="new"]').addEventListener("click", () => edit(null));
+
+    function renderList() {
+      document.querySelector('#icons [data-role="empty"]').hidden = icons.length > 0;
+      list.replaceChildren(...icons.map((icon) => {
+        const li = document.createElement("li");
+        li.className = "ic-item";
+        const img = Object.assign(document.createElement("img"), { src: icon.url + "?v=" + Date.now(),
+                                                                   alt: "", width: 36, height: 36 });
+        img.className = "mc-glyph ic-thumb";
+        const name = Object.assign(document.createElement("code"), { textContent: `:${icon.name}:` });
+        const fallback = Object.assign(document.createElement("span"), { className: "mcc-hint", textContent: `ohne Paket: ${icon.fallback}` });
+        const editButton = Object.assign(document.createElement("button"), { type: "button", className: "mcc-btn mcc-btn-small mcc-btn-secondary", textContent: "Bearbeiten" });
+        editButton.addEventListener("click", () => { edit(icon); root.scrollIntoView({ behavior: "smooth" }); });
+        const remove = Object.assign(document.createElement("button"), { type: "button", className: "nt-delete", textContent: "Löschen" });
+        remove.addEventListener("click", async () => {
+          if (!confirm(`Icon :${icon.name}: löschen? Prefixe mit dem Icon bekommen das Ersatzzeichen, Join-Nachrichten verlieren es.`)) return;
+          const result = await postJson("/api/mod/icons", { delete: icon.id });
+          if (!result.ok) return showMessage(message, result.data.error || "Löschen fehlgeschlagen.", "error");
+          icons = result.data.icons;
+          if (editing === icon.id) edit(null);
+          renderList();
+        });
+        li.append(img, name, fallback, editButton, remove);
+        return li;
+      }));
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const body = { name: form.elements.name.value, fallback: form.elements.fallback.value, pixels };
+      if (editing !== null) body.id = editing;
+      const result = await postJson("/api/mod/icons", body);
+      if (!result.ok) return showMessage(message, result.data.error || "Speichern fehlgeschlagen.", "error");
+      icons = result.data.icons;
+      renderList();
+      const saved = icons.find((icon) => icon.name === form.elements.name.value.trim().toLowerCase());
+      edit(saved || null);
+      showMessage(message, "Gespeichert – im Spiel lädt das Ressourcenpaket neu.", "success");
+    });
+
+    renderList();
+    draw();
+  })();
+</script>
+{% endblock %}

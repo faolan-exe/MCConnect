@@ -28,6 +28,13 @@ public class JoinListener implements Listener {
         event.setFormat(plugin.prefixDisplay().chatFormat(event.getPlayer().getUniqueId(), event.getFormat()));
     }
 
+    /** Players with the resource pack get the line with the prefix's icons (see PrefixDisplay.sendIcons). */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    @SuppressWarnings("deprecation")
+    public void onChatSent(AsyncPlayerChatEvent event) {
+        plugin.prefixDisplay().sendIcons(event);
+    }
+
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         plugin.playerQuit(event.getPlayer());
