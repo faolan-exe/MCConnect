@@ -23,7 +23,8 @@ Plugin -> server:
                                  seitenleiste, vote, events; see mc_socket/commands.py), answered with !tell
     !FEATURES~<name>,<name>      what the plugin can do (after auth): "click" = buttons in chat messages (3.10),
                                  "glyphs" = icons of the resource pack with fallbacks (3.17; older plugins get
-                                 every icon replaced by its Unicode fallback, see database/glyphs.py)
+                                 every icon replaced by its Unicode fallback, see database/glyphs.py),
+                                 "update" = installs newer plugin versions itself (3.18, see !update)
     !DISCONNECT                  close the connection
 
 Server -> plugin:
@@ -54,6 +55,8 @@ Server -> plugin:
     !pack~<url>|<sha1>|<icon><fallback>,...   the icon resource pack to offer the players and the Unicode fallback
                                  of each icon for players without it (plugin 3.17, after "glyphs")
     !badge~<uuid>|<line>         the line under a player's name ("&" colors, icons; empty: nothing; plugin 3.17)
+    !update~<version>|<url>|<sha256>   the plugin MCConnect offers (after "update"); a newer one is downloaded,
+                                 checked against the checksum and put into the server's update folder (plugin 3.18)
     success|<code> / error|<code>
 
 Error codes:
@@ -93,7 +96,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from colorlogx import get_logger
-from database import achievements, badges, config, glyphs, metrics, motivation, rewards
+from database import achievements, badges, config, glyphs, metrics, motivation, plugin_jar, rewards
 from mc_socket import commands, tlscert
 from database.databaseManagerV2 import DatabaseManager
 
@@ -850,6 +853,10 @@ class SocketServer:
             elif command == "!FEATURES":
                 client.features = {f.strip() for f in value.split(",") if f.strip()}
                 client.send("success|106")
+                if "update" in client.features:
+                    message = plugin_jar.update_message()
+                    if message:
+                        client.send(message)
                 if "glyphs" in client.features:
                     # the join lines of the auth were sent with fallbacks: once more with the icons
                     client.send(self.pack_message())

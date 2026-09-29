@@ -7,7 +7,6 @@ Run for development:  python web/main.py
 Run in production:    gunicorn 'web.main:create_app()'
 """
 import functools
-import glob
 import json
 import os
 import re
@@ -37,6 +36,7 @@ from database import config
 from database import glyphs
 from database import metrics as metrics_mod
 from database import motivation
+from database import plugin_jar
 from database import rewards
 from mc_socket import commands as game_commands
 from database.databaseManagerV2 import MAX_GALLERY_IMAGES, MODERATOR_LEVEL, DatabaseManager
@@ -2733,7 +2733,7 @@ def manage_one_server(server_id):
     return render_template("serverAdminServer.html", server=server, max_gallery_images=MAX_GALLERY_IMAGES,
                            ban_reasons=db().get_ban_reasons(), base_domain=current_app.config["SERVER_NAME"],
                            plugin_host=config.PLUGIN_PUBLIC_HOST, plugin_port=config.PLUGIN_PUBLIC_PORT,
-                           plugin_available=plugin_jar_path() is not None, plugin_fingerprint=plugin_fingerprint(),
+                           plugin_available=plugin_jar.path() is not None, plugin_fingerprint=plugin_fingerprint(),
                            server_count=len(db().get_servers_by_owner(session["admin_id"])))
 
 
@@ -2774,16 +2774,10 @@ def admin_health(server):
             "availability": None if availability is None else f"{availability * 100:.1f} %".replace(".", ",")}
 
 
-def plugin_jar_path():
-    if config.PLUGIN_JAR:
-        return config.PLUGIN_JAR if os.path.isfile(config.PLUGIN_JAR) else None
-    builds = sorted(glob.glob(os.path.join(PROJECT_ROOT, "java plugin", "MCDataLink", "target", "MCDataLink-*.jar")))
-    return builds[-1] if builds else None
-
-
 @main_bp.route("/download/MCDataLink.jar")
 def download_plugin():
-    path = plugin_jar_path()
+    """For the admin page and the plugin's automatic update (plugin_jar.update_message)."""
+    path = plugin_jar.path()
     if path is None:
         abort(404)
     return send_file(path, as_attachment=True, download_name="MCDataLink.jar")

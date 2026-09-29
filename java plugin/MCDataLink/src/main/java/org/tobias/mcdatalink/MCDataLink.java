@@ -74,6 +74,7 @@ public final class MCDataLink extends JavaPlugin {
     private JoinMessages joinMessages;
     private Glyphs glyphs;
     private NameBadges nameBadges;
+    private PluginUpdater updater;
 
     @Override
     public void onEnable() {
@@ -100,6 +101,8 @@ public final class MCDataLink extends JavaPlugin {
         healthReporter = new HealthReporter(this);
         healthReporter.start();
         if (getConfig().getBoolean("live-stats", true)) new LiveStats(this, getConfig().getInt("live-stats-interval", 5)).start();
+        updater = new PluginUpdater(this, getFile(), getConfig().getBoolean("auto-update", true));
+        getServer().getPluginManager().registerEvents(updater, this);
         glyphs = new Glyphs(this, getConfig().getBoolean("resource-pack", true));
         getServer().getPluginManager().registerEvents(glyphs, this);
         sidebar = new Sidebar(this);
@@ -229,8 +232,8 @@ public final class MCDataLink extends JavaPlugin {
                 case "100":
                     authenticated = true;
                     getLogger().info("Connected to MCConnect");
-                    // chat messages may contain buttons (ChatMarkup) and icons (Glyphs)
-                    send("!FEATURES~click,glyphs");
+                    // chat messages may contain buttons (ChatMarkup) and icons (Glyphs); updates (PluginUpdater)
+                    send("!FEATURES~click,glyphs,update");
                     sendOnlinePlayers();
                     runOnMainThread(this::sendBanList);
                     runOnMainThread(healthReporter::report);  // first health sample right away
@@ -321,6 +324,13 @@ public final class MCDataLink extends JavaPlugin {
             }
             case "!joindefault":  // join line|leave line with {name} (players without an own style)
                 if (fields.length >= 2) joinMessages.setDefault(fields[0], fields[1]);
+                break;
+            case "!update":  // version|url|sha256 (downloaded off the connection thread, see PluginUpdater)
+                if (fields.length >= 3) {
+                    Thread download = new Thread(() -> updater.offer(fields[0], fields[1], fields[2]), "MCDataLink-update");
+                    download.setDaemon(true);
+                    download.start();
+                }
                 break;
             case "!pack":  // url|sha1|<icon><fallback>,...
                 if (fields.length >= 3) glyphs.setPack(fields[0], fields[1], fields[2]);

@@ -51,7 +51,7 @@ fingerprint of the local socket certificate (`certs/`) for a test plugin's `tls-
 
 ## Status
 
-State of 2026-09-29: schema version 25, plugin 3.17. Written as a handoff for the next development session.
+State of 2026-09-29: schema version 25, plugin 3.18. Written as a handoff for the next development session.
 
 ### Features
 
@@ -89,7 +89,9 @@ Charts are plain SVG without libraries (`web/static/*-chart.js`), styles in `web
 (`JoinMessages`, `!joinstyle`, `!joinmutes`, `!joinreset`), `/joinmessage` · 3.15 `!JOIN` sends the game's first
 join, the first live update after a join is complete · 3.16 default join lines for everyone (`!joindefault`) ·
 3.17 icons (`!FEATURES~…,glyphs`, `!pack`, fallbacks per viewer, hint with `/icons` after every decline) and the line under the names (`!badge`, Paper 1.20.3+ by
-reflection; players with the pack get a copy of the main scoreboard with MCConnect's teams).
+reflection; players with the pack get a copy of the main scoreboard with MCConnect's teams). · 3.18 automatic updates
+(`!update`, `database/plugin_jar.py`: version and SHA-256 of the offered jar over the pinned connection, a newer jar
+goes into `plugins/update/` under the running jar's name and is active after the next restart; `auto-update: false`).
 
 Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss the newer features.
 
