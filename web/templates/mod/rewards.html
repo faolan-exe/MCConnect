@@ -30,7 +30,8 @@
 
 <section class="srv-card" id="levels">
   <h2>Stufen</h2>
-  <p class="mcc-hint">Eine Stufe ist erreicht, sobald <b>eine</b> ihrer Bedingungen erfüllt ist. Was eine Stufe freischaltet, kommt zu den
+  <p class="mcc-hint">Eine Stufe hat Alternativen (<b>oder</b>); in einer Alternative müssen alle Bedingungen erfüllt sein (<b>und</b>) –
+    z.&nbsp;B. „(30 Tage Serie und 50 Std. Spielzeit) oder 500 Ancient Debris“. Was eine Stufe freischaltet, kommt zu den
     Stufen darunter dazu. Die erste Stufe hat jeder. Die oberste sollte lange dauern – zum Beispiel eine Serie von 365 Tagen.</p>
   <div data-role="levels"></div>
   <div class="mcc-actions">
@@ -58,7 +59,7 @@
       return node;
     };
 
-    function conditionRow(level, condition) {
+    function conditionRow(group, level, condition) {
       const type = el("select", { className: "mcc-select" },
         ...Object.entries(data.conditions).map(([key, c]) => el("option", { value: key, textContent: c.label, selected: key === condition.type })));
       const metric = el("select", { className: "mcc-select" },
@@ -77,7 +78,8 @@
       };
       [type, metric, value].forEach((input) => input.addEventListener("input", sync));
       remove.addEventListener("click", () => {
-        level.conditions.splice(level.conditions.indexOf(condition), 1);
+        group.splice(group.indexOf(condition), 1);
+        if (!group.length) level.conditions.splice(level.conditions.indexOf(group), 1);  // empty alternative: gone
         render();
       });
       sync();
@@ -106,14 +108,24 @@
         name.addEventListener("input", () => (level.name = name.value));
         const remove = index ? el("button", { type: "button", className: "nt-delete", textContent: "Stufe entfernen" }) : null;
         if (remove) remove.addEventListener("click", () => { levels.splice(index, 1); render(); });
-        const add = el("button", { type: "button", className: "mcc-btn mcc-btn-secondary mcc-btn-small", textContent: "+ Bedingung" });
-        add.addEventListener("click", () => { level.conditions.push({ type: "streak", value: 30 }); render(); });
+        // conditions: alternatives ("oder") of groups that must all be met ("und")
+        level.conditions = (level.conditions || []).map((g) => (Array.isArray(g) ? g : [g]));
+        const groups = level.conditions.flatMap((group, i) => {
+          const and = el("button", { type: "button", className: "mcc-btn mcc-btn-secondary mcc-btn-small", textContent: "+ und" });
+          and.addEventListener("click", () => { group.push({ type: "play_hours", value: 50 }); render(); });
+          const box = el("div", { className: "rw-group" },
+            el("p", { className: "mcc-hint", textContent: group.length > 1 ? "Alle diese Bedingungen zusammen:" : "Bedingung:" }),
+            ...group.map((c) => conditionRow(group, level, c)), and);
+          return i ? [el("p", { className: "rw-or", textContent: "oder" }), box] : [box];
+        });
+        const add = el("button", { type: "button", className: "mcc-btn mcc-btn-secondary mcc-btn-small", textContent: "+ oder" });
+        add.addEventListener("click", () => { level.conditions.push([{ type: "streak", value: 30 }]); render(); });
         return el("details", { className: "rw-level", open: opened.has(index) },
           el("summary", {}, el("b", { textContent: `Stufe ${index + 1}` }), " ", level.name),
           el("div", { className: "rw-head" }, el("label", { textContent: "Name" }), name, remove),
           index === 0 ? el("p", { className: "mcc-hint", textContent: "Die erste Stufe hat jeder von Anfang an." })
-            : el("div", {}, el("p", { className: "mcc-hint", textContent: "Erreicht, wenn eine dieser Bedingungen erfüllt ist:" }),
-                ...level.conditions.map((c) => conditionRow(level, c)), add),
+            : el("div", {}, el("p", { className: "mcc-hint", textContent: "Erreicht, wenn eine der Alternativen erfüllt ist:" }),
+                ...groups, add),
           ...KINDS.map(([kind, title]) => unlockGroup(level, kind, title)));
       }));
     }
@@ -173,7 +185,7 @@
       showMessage(textsMessage, "Hinzugefügt – Spieler ab dieser Stufe können ihn wählen.", "success");
     }));
     document.querySelector('[data-role="add-level"]').addEventListener("click", () => {
-      levels.push({ name: "Neue Stufe", conditions: [{ type: "streak", value: 400 }], unlocks: {} });
+      levels.push({ name: "Neue Stufe", conditions: [[{ type: "streak", value: 400 }]], unlocks: {} });
       render();
       root.lastElementChild.open = true;
       renderTexts();

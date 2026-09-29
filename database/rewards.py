@@ -1,7 +1,9 @@
 """Join/leave messages and the reward levels that unlock their colors, symbols, styles, texts and sounds.
 
-A level is reached when ANY of its conditions is met (e.g. a 365 day streak or 500 Ancient Debris). What a
-level unlocks adds up with the levels below it. A reached level is stored and never lost again (a broken
+A level's conditions are alternatives ("or") of groups whose conditions must all be met ("and"), e.g.
+(30 day streak and 50 hours) or 500 Ancient Debris: level["conditions"] = [[streak, hours], [debris]].
+Stored levels of the old format (a flat list of conditions, each one an alternative) are read as one group
+per condition. What a level unlocks adds up with the levels below it. A reached level is stored and never lost again (a broken
 streak keeps its colors). Moderators and OPs can also use MOD_COLORS. Every server can edit its levels
 (servers.reward_levels, None = DEFAULT_LEVELS).
 
@@ -121,6 +123,7 @@ DEFAULT_LEVELS = [
                  "join_texts": ["legend"], "leave_texts": ["legend_bye"], "sounds": ["fanfare"]}},
 ]
 MAX_LEVELS = 10
+MAX_GROUPS, MAX_GROUP_CONDITIONS = 8, 6
 LEVEL_NAME_RE = re.compile(r"^[A-Za-z0-9ÄÖÜäöüß _.!?+*#()'-]{2,24}$")
 
 # a player's choice
@@ -129,9 +132,21 @@ DEFAULT_STYLE = {"join_text": "joined", "leave_text": "left", "color": "white", 
                  "sound": ""}
 
 
+def groups_of(conditions):
+    """The conditions of a level as groups ("or" of "and" groups); a single condition is a group of its own."""
+    return [list(entry) if isinstance(entry, list) else [entry] for entry in conditions or []]
+
+
+for _level in DEFAULT_LEVELS:  # the defaults in the group format as well
+    _level["conditions"] = groups_of(_level["conditions"])
+
+
 def levels_of(stored):
-    """The levels of a server: its own (servers.reward_levels) or the default ones."""
-    return copy.deepcopy(stored) if stored else copy.deepcopy(DEFAULT_LEVELS)
+    """The levels of a server: its own (servers.reward_levels) or the default ones, conditions as groups."""
+    levels = copy.deepcopy(stored) if stored else copy.deepcopy(DEFAULT_LEVELS)
+    for level in levels:
+        level["conditions"] = groups_of(level.get("conditions"))
+    return levels
 
 
 def condition_met(condition, facts):
@@ -151,7 +166,7 @@ def reached_level(levels, facts):
     Levels count on their own: a higher level can be reached without the one below it."""
     reached = 0
     for index, level in enumerate(levels):
-        if index == 0 or any(condition_met(c, facts) for c in level["conditions"]):
+        if index == 0 or any(group and all(condition_met(c, facts) for c in group) for group in groups_of(level["conditions"])):
             reached = index
     return reached
 
@@ -249,26 +264,35 @@ def validate_levels(data, catalog=DEFAULT_CATALOG):
         if not LEVEL_NAME_RE.match(name):
             return None, f"Stufe {index + 1}: Der Name muss 2-24 Zeichen lang sein."
         conditions = []
-        for condition in raw.get("conditions") or []:
-            kind = condition.get("type") if isinstance(condition, dict) else None
-            if kind not in CONDITIONS:
-                return None, f"Stufe {index + 1}: unbekannte Bedingung."
-            try:
-                value = float(condition.get("value"))
-            except (TypeError, ValueError):
-                return None, f"Stufe {index + 1}: Bedingungen brauchen eine Zahl."
-            if not 0 < value < 10 ** 9:
-                return None, f"Stufe {index + 1}: Die Zahl muss größer als 0 sein."
-            entry = {"type": kind, "value": int(value) if value == int(value) else value}
-            if kind == "metric":
-                if condition.get("metric") not in metrics.METRICS_BY_KEY:
-                    return None, f"Stufe {index + 1}: unbekannte Kennzahl."
-                entry["metric"] = condition["metric"]
-            conditions.append(entry)
+        raw_groups = raw.get("conditions") or []
+        if not isinstance(raw_groups, list):
+            return None, f"Stufe {index + 1}: ungültige Bedingungen."
+        for raw_group in groups_of(raw_groups):
+            group = []
+            for condition in raw_group:
+                kind = condition.get("type") if isinstance(condition, dict) else None
+                if kind not in CONDITIONS:
+                    return None, f"Stufe {index + 1}: unbekannte Bedingung."
+                try:
+                    value = float(condition.get("value"))
+                except (TypeError, ValueError):
+                    return None, f"Stufe {index + 1}: Bedingungen brauchen eine Zahl."
+                if not 0 < value < 10 ** 9:
+                    return None, f"Stufe {index + 1}: Die Zahl muss größer als 0 sein."
+                entry = {"type": kind, "value": int(value) if value == int(value) else value}
+                if kind == "metric":
+                    if condition.get("metric") not in metrics.METRICS_BY_KEY:
+                        return None, f"Stufe {index + 1}: unbekannte Kennzahl."
+                    entry["metric"] = condition["metric"]
+                group.append(entry)
+            if group:  # an emptied group is simply dropped
+                if len(group) > MAX_GROUP_CONDITIONS:
+                    return None, f"Stufe {index + 1}: höchstens {MAX_GROUP_CONDITIONS} Bedingungen, die zusammen gelten."
+                conditions.append(group)
         if index > 0 and not conditions:
             return None, f"Stufe {index + 1} braucht mindestens eine Bedingung (die erste Stufe hat jeder)."
-        if len(conditions) > 8:
-            return None, f"Stufe {index + 1}: höchstens 8 Bedingungen."
+        if len(conditions) > MAX_GROUPS:
+            return None, f"Stufe {index + 1}: höchstens {MAX_GROUPS} Alternativen."
         unlocks = {}
         for kind, options in catalog.kinds.items():
             values = (raw.get("unlocks") or {}).get(kind) or []
@@ -296,8 +320,12 @@ def condition_text(condition):
 
 
 def level_hint(level):
-    """How a level is reached: "30 Tage Serie oder 50 Std. Spielzeit"."""
-    return " oder ".join(condition_text(c) for c in level["conditions"]) or "von Anfang an"
+    """How a level is reached: "(30 Tage Serie und 50 Std. Spielzeit) oder 500 Ancient Debris"."""
+    groups = [group for group in groups_of(level["conditions"]) if group]
+    texts = [" und ".join(condition_text(c) for c in group) for group in groups]
+    if len(groups) > 1:  # brackets only where an "and" meets an "or"
+        texts = [f"({t})" if len(group) > 1 else t for t, group in zip(texts, groups)]
+    return " oder ".join(texts) or "von Anfang an"
 
 
 # ------------------------------------------------------------------ with the database

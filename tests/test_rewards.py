@@ -235,3 +235,21 @@ def test_everyone_gets_the_default_message(db, server, plugin, two_players):
     connection.send(f"!AUTH~{server['key']}")
     until(connection, "!sendAllPlayerStats")
     assert not hasattr(connection, "join_default")
+
+
+def test_conditions_are_alternatives_of_groups():
+    """(30 day streak and 50 hours) or 500 Ancient Debris."""
+    levels = [{"conditions": [], "unlocks": {}}, {"conditions": [[{"type": "streak", "value": 30}, {"type": "play_hours", "value": 50}],
+                                                                  [{"type": "metric", "metric": "ancient_debris", "value": 500}]], "unlocks": {}}]
+    assert rewards.reached_level(levels, facts(streak=30, play_hours=10)) == 0  # only one of the "and"
+    assert rewards.reached_level(levels, facts(streak=30, play_hours=50)) == 1
+    assert rewards.reached_level(levels, facts(metrics={"ancient_debris": 500})) == 1
+    assert rewards.level_hint(levels[1]) == "(30 Tage Serie und 50 Std. Spielzeit) oder 500 Ancient Debris"
+    # the old flat format: every condition is an alternative of its own
+    assert rewards.levels_of([{"name": "A", "conditions": [], "unlocks": {}},
+                              {"name": "B", "conditions": [{"type": "streak", "value": 7}], "unlocks": {}}])[1]["conditions"] \
+        == [[{"type": "streak", "value": 7}]]
+    edited = copy.deepcopy(rewards.DEFAULT_LEVELS)
+    edited[2]["conditions"] = [[{"type": "streak", "value": 30}, {"type": "play_hours", "value": "50"}], []]
+    levels, error = rewards.validate_levels(edited)
+    assert error is None and levels[2]["conditions"] == [[{"type": "streak", "value": 30}, {"type": "play_hours", "value": 50}]]

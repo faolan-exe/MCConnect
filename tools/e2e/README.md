@@ -26,3 +26,17 @@ instead. Paper throttles joins from one IP (4 s), so start a second bot a few se
 parse some player chat packets of 1.21.4 (the bot logs a parser error and goes on) and does not keep the
 sidebar lines; `RAW=1` prints the scoreboard packets instead. Make a bot a moderator with
 `db.set_moderator(server_id, "TestBot", True)`.
+
+## Clicking through the website (ui-test.js)
+
+A real browser (Puppeteer) clicks through the pages that save without reload (moderation, level editor, own
+texts, profile, player page notes) and checks that nothing reloads or collapses and that the console (incl.
+CSP violations) stays clean. Port 5070 (Chrome refuses 5060, macOS AirPlay has 5000):
+
+```bash
+FLASK_SERVER_NAME=mc.t-auer.local:5070 MCC_BASE_DOMAIN=mc.t-auer.local:5070 .venv/bin/python -c \
+  "from web.main import create_app; create_app().run(host='0.0.0.0', port=5070)" &
+SESSION=$(FLASK_SERVER_NAME=mc.t-auer.local:5070 .venv/bin/python tools/e2e/session.py | tail -1)
+docker run --rm --add-host=testdomain.mc.t-auer.local:host-gateway --add-host=mc.t-auer.local:host-gateway \
+  -e SESSION="$SESSION" -v "$PWD/tools/e2e":/home/pptruser/ui -w /home/pptruser ghcr.io/puppeteer/puppeteer node ui/ui-test.js
+```
