@@ -15,6 +15,20 @@ if (process.env.RAW) {
     bot._client.on(packet, (data) => console.log(`[${name}] RAW ${packet}: ${JSON.stringify(data).slice(0, 160)}`));
   }
 }
+// PACK=accept|decline: answer the resource pack offer (the plugin's icons, 3.17). Answered by hand: mineflayer 4
+// sends the pack id 00000000-... back, which the plugin (rightly) does not take for its pack.
+bot._client.on("add_resource_pack", (data) => {
+  console.log(`[${name}] PACK offered: ${data.url}`);
+  const answer = { accept: [3, 0], decline: [1] }[process.env.PACK] || [];
+  for (const result of answer) bot._client.write("resource_pack_receive", { uuid: data.uuid, result });
+});
+if (process.env.RAW) {
+  bot._client.on("scoreboard_score", (data) => {
+    if (data.scoreName === "mccbadge" || data.objectiveName === "mccbadge" || data.objective_name === "mccbadge") {
+      console.log(`[${name}] BADGE ${JSON.stringify(data)}`);
+    }
+  });
+}
 bot.on("kicked", (reason) => console.log(`[${name}] KICKED: ${JSON.stringify(reason)}`));
 bot.on("error", (e) => console.log(`[${name}] ERROR: ${e.message}`));
 bot.once("spawn", async () => {

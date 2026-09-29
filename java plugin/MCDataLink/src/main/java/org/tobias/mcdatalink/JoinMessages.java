@@ -1,6 +1,5 @@
 package org.tobias.mcdatalink;
 
-import net.md_5.bungee.api.chat.BaseComponent;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -125,17 +124,17 @@ final class JoinMessages implements Listener {
     }
 
     private void announce(Player subject, String line, Style style, boolean withSound) {
-        BaseComponent[] message = ChatMarkup.parse(line);
+        Glyphs.Line message = plugin.glyphs().line(line);  // icons only for players with the resource pack
         UUID uuid = subject.getUniqueId();
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             if (!player.getUniqueId().equals(uuid) && muted.getOrDefault(player.getUniqueId(), Collections.emptySet()).contains(uuid)) {
                 continue;
             }
-            player.spigot().sendMessage(message);
+            player.spigot().sendMessage(message.of(player));
             if (withSound && !style.sound.isEmpty() && !soundsOff.contains(player.getUniqueId())) {
                 player.playSound(player.getLocation(), style.sound, style.volume, 1f);
             }
         }
-        plugin.getLogger().info(ChatMarkup.plain(line));
+        plugin.getLogger().info(ChatMarkup.plain(plugin.glyphs().fallback(line)));
     }
 }

@@ -51,7 +51,7 @@ fingerprint of the local socket certificate (`certs/`) for a test plugin's `tls-
 
 ## Status
 
-State of 2026-09-29: schema version 24, plugin 3.16. Written as a handoff for the next development session.
+State of 2026-09-29: schema version 25, plugin 3.17. Written as a handoff for the next development session.
 
 ### Features
 
@@ -74,6 +74,7 @@ State of 2026-09-29: schema version 24, plugin 3.16. Written as a handoff for th
 | Admin | `/manage` (server owners) | server tiles; `/manage/<id>` with tabs: overview (health, e-mail alerts), plugin (config with `tls-fingerprint`), server page (texts, images, directory), moderation (moderators, bans), danger zone |
 | Year in review | `/rueckblick/<name>` | year gains from the first/last snapshot of the year (both kept forever), sessions, achievements, trophies |
 | Reach & design | main page, `web/static/css/dark.css` | public server directory (`servers.listed`), dark mode for all server pages (`_theme.html`, `--srv-*` tokens) |
+| Icons & name line | `database/glyphs.py`, `database/badges.py`, `web/static/glyphs/` | 13 drawn 9×9 pixel icons (SVG → PNG without extra libraries) in a resource pack (`/resourcepack/<sha1>.zip`, private use area U+E000…); 8 of them are join symbols unlocked by the default levels (servers with own levels tick them in the editor); under the name up to 4 values (default trophies, streak, level; `player_server_info.name_badges`), nothing for `hide_stats`. The plugin offers the pack and shows Unicode fallbacks to players without it (per viewer; icon codepoints are stored – only append) |
 | Profile & privacy | `/profil` | bio, "hide my stats" (`hide_stats`: left out of every public view except server totals), favourites, sidebar, join message |
 
 Charts are plain SVG without libraries (`web/static/*-chart.js`), styles in `web/static/css/stats.css`.
@@ -86,7 +87,9 @@ Charts are plain SVG without libraries (`web/static/*-chart.js`), styles in `web
 3.11 buttons only run the plugin's own commands · 3.12 always TLS on 9991 (`tls-fingerprint`, `TlsPinning`) ·
 3.13 live stats every 5 s (`live-stats-interval`; events mark what changed) · 3.14 join/leave messages
 (`JoinMessages`, `!joinstyle`, `!joinmutes`, `!joinreset`), `/joinmessage` · 3.15 `!JOIN` sends the game's first
-join, the first live update after a join is complete · 3.16 default join lines for everyone (`!joindefault`).
+join, the first live update after a join is complete · 3.16 default join lines for everyone (`!joindefault`) ·
+3.17 icons (`!FEATURES~…,glyphs`, `!pack`, fallbacks per viewer) and the line under the names (`!badge`, Paper 1.20.3+ by
+reflection; players with the pack get a copy of the main scoreboard with MCConnect's teams).
 
 Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss the newer features.
 

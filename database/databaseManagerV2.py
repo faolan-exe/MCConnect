@@ -444,6 +444,10 @@ MIGRATIONS = {
         """UPDATE servers s SET tracking_since = COALESCE(
              (SELECT min(first_seen) FROM player_server_info WHERE server_id = s.id), s.created_at)""",
     ],
+    25: [
+        # what a player shows under their name in the game (list of database/badges.py keys; NULL = the default)
+        "ALTER TABLE player_server_info ADD COLUMN name_badges jsonb",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -3087,11 +3091,15 @@ class DatabaseManager:
             self._execute("UPDATE servers SET reward_levels = %s WHERE id = %s",
                           (json.dumps(levels) if levels is not None else None, server_id))
 
+    def get_first_join(self, player_id):
+        """The player's first join: the game's one if known, otherwise when MCConnect first saw them."""
+        return self._fetchvalue("SELECT COALESCE(first_played, first_seen) FROM player_server_info WHERE player_id = %s",
+                                (player_id,))
+
     def get_reward_facts(self, player_id):
         """What the reward conditions look at: {"streak" (best), "tiers", "play_hours", "days", "trophies", "metrics"}."""
         values = self.get_player_metrics(player_id)
-        first_seen = self._fetchvalue("SELECT COALESCE(first_played, first_seen) FROM player_server_info WHERE player_id = %s",
-                                      (player_id,))
+        first_seen = self.get_first_join(player_id)
         return {
             "streak": self.get_player_streak(player_id)["best"],
             "tiers": len(self.get_player_achievements(player_id)),
@@ -3116,6 +3124,15 @@ class DatabaseManager:
         """Store a newly reached level. True if it is higher than the stored one (levels are never lowered)."""
         return self._execute("UPDATE player_server_info SET reward_level = %s WHERE player_id = %s AND reward_level < %s",
                              (level, player_id, level)) > 0
+
+    def get_name_badges(self, player_id):
+        """The keys a player chose to show under their name, or None (not chosen: the default)."""
+        return self._fetchvalue("SELECT name_badges FROM player_server_info WHERE player_id = %s", (player_id,))
+
+    def set_name_badges(self, player_id, keys):
+        """keys: list (empty: show nothing) or None (back to the default)."""
+        self._execute("UPDATE player_server_info SET name_badges = %s WHERE player_id = %s",
+                      (json.dumps(keys) if keys is not None else None, player_id))
 
     def set_join_sounds_off(self, player_id, off):
         self._execute("UPDATE player_server_info SET join_sounds_off = %s WHERE player_id = %s", (bool(off), player_id))

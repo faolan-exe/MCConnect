@@ -32,7 +32,9 @@ from markupsafe import Markup, escape
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from database import achievements as achievements_mod
+from database import badges as badges_mod
 from database import config
+from database import glyphs
 from database import metrics as metrics_mod
 from database import motivation
 from database import rewards
@@ -1267,14 +1269,24 @@ def profile_page():
         return redirect("/login?next=/profil")
     return render_template("profil.html", profile=db().get_profile(player_id), bio_max=BIO_MAX_LENGTH,
                            favorites=db().get_favorites(player_id), sidebar=db().get_sidebar(player_id),
-                           join=join_view(player_id))
+                           join=join_view(player_id), badges=badges_view(player_id))
 
 
 MC_CODE_COLORS = {code: web for code, web in rewards.COLOR_CODES.values()}
 
 
+def glyph_url(char_or_key):
+    """The SVG of a drawn icon (database/glyphs.py)."""
+    return url_for("static", filename=f"glyphs/{glyphs.BY_CHAR.get(char_or_key, char_or_key)}.svg")
+
+
+def glyph_html(char):
+    return Markup('<img class="mc-glyph" src="{}" alt="{}" width="18" height="18"/>').format(
+        glyph_url(char), glyphs.label(char))
+
+
 def mc_html(line):
-    """A chat line with "&" codes as HTML (escaped) for the preview."""
+    """A chat line with "&" codes as HTML (escaped) for the preview; drawn icons as images."""
     html, color, bold = [], "#FFFFFF", False
     for part in re.split(r"(&[0-9a-fk-or])", line):
         if re.fullmatch(r"&[0-9a-fk-or]", part):
@@ -1285,8 +1297,26 @@ def mc_html(line):
                 bold = True
         elif part:
             weight = ";font-weight:700" if bold else ""
-            html.append(f'<span style="color:{color}{weight}">{escape(part)}</span>')
+            pieces = [glyph_html(piece) if glyphs.is_icon(piece) else str(escape(piece))
+                      for piece in re.split(f"({glyphs.ICON_RE.pattern})", part) if piece]
+            html.append(f'<span style="color:{color}{weight}">{"".join(pieces)}</span>')
     return Markup("".join(html))
+
+
+def symbol_label(value):
+    return glyphs.label(value) if glyphs.is_icon(value) else (value or "keins")
+
+
+def badges_view(player_id):
+    """The "under your name" part of /profil."""
+    stored = db().get_name_badges(player_id)
+    keys = badges_mod.chosen(stored)
+    line = badges_mod.line(db(), player_id)
+    return {"chosen": keys, "default": stored is None, "max": badges_mod.MAX_BADGES,
+            "hidden": db().get_profile(player_id)["hide_stats"],
+            "options": [{"key": k, "label": label, "hint": hint, "icon": glyph_url(icon)}
+                        for k, (icon, label, hint) in badges_mod.BADGES.items()],
+            "preview": mc_html(line) if line else None}
 
 
 def join_view(player_id, state=None):
@@ -1299,7 +1329,7 @@ def join_view(player_id, state=None):
     for field, kind, labels in (("join_text", "join_texts", lambda v: catalog.text("join_texts", v).replace("{name}", name)),
                                 ("leave_text", "leave_texts", lambda v: catalog.text("leave_texts", v).replace("{name}", name)),
                                 ("color", "colors", lambda v: rewards.COLOR_LABELS[v]),
-                                ("symbol", "symbols", lambda v: v or "keins"),
+                                ("symbol", "symbols", symbol_label),
                                 ("style", "styles", lambda v: rewards.STYLES[v]),
                                 ("sound", "sounds", lambda v: rewards.SOUNDS[v][0])):
         values = catalog.kinds[kind] + (rewards.MOD_COLORS if kind == "colors" and state["moderator"] else ())
@@ -1307,7 +1337,8 @@ def join_view(player_id, state=None):
                            "locked": v not in available[kind],
                            "hint": f"ab Stufe {first[(kind, v)] + 1} »{levels[first[(kind, v)]]['name']}«: "
                                    f"{rewards.level_hint(levels[first[(kind, v)]])}" if v not in available[kind] and (kind, v) in first else None,
-                           "web": rewards.COLOR_CODES[v][1] if kind == "colors" else None}
+                           "web": rewards.COLOR_CODES[v][1] if kind == "colors" else None,
+                           "icon": glyph_url(v) if glyphs.is_icon(v) else None}
                           for v in values if v in available[kind] or (kind, v) in first]
     return {"enabled": state["enabled"], "level": state["level"],
             "levels": [dict(level, hint=rewards.level_hint(level), reached=i <= state["level"]) for i, level in enumerate(levels)],
@@ -1565,7 +1596,8 @@ def reward_editor(stored, texts):
         "metrics": [{"key": m.key, "label": m.label, "unit": motivation.goal_unit(m)} for m in metrics_mod.METRICS],
         "options": {
             "colors": [{"value": c, "label": rewards.COLOR_LABELS[c], "web": rewards.COLOR_CODES[c][1]} for c in rewards.COLORS],
-            "symbols": [{"value": v, "label": v or "keins"} for v in rewards.SYMBOLS],
+            "symbols": [{"value": v, "label": symbol_label(v), "icon": glyph_url(v) if glyphs.is_icon(v) else None}
+                        for v in rewards.SYMBOLS],
             "styles": [{"value": k, "label": v.split(" (")[0]} for k, v in rewards.STYLES.items()],
             "join_texts": [{"value": k, "label": v.replace("{name}", "…")} for k, v in catalog.texts["join_texts"].items()],
             "leave_texts": [{"value": k, "label": v.replace("{name}", "…")} for k, v in catalog.texts["leave_texts"].items()],
@@ -1758,8 +1790,24 @@ def profile_save_api():
     bio = " ".join(str(data.get("bio") or "").split())  # one line, no control characters
     if len(bio) > BIO_MAX_LENGTH:
         return {"error": f"Der Text darf höchstens {BIO_MAX_LENGTH} Zeichen lang sein."}, 400
-    db().save_profile(logged_in_player_id(), bio, bool(data.get("hide_stats")))
+    player_id = logged_in_player_id()
+    db().save_profile(player_id, bio, bool(data.get("hide_stats")))
+    db().notify_server_event(g.server["id"], "badge", player_id=str(player_id))  # hidden stats: nothing under the name
     return ("", 200)
+
+
+@server_bp.route("/api/badges", methods=["POST"])
+@player_required
+def badges_save_api():
+    """{"keys": [...]} what to show under the own name ([] nothing), {"keys": null} back to the default."""
+    keys, error = badges_mod.check((request.get_json(silent=True) or {}).get("keys"))
+    if error:
+        return {"error": error}, 400
+    player_id = logged_in_player_id()
+    db().set_name_badges(player_id, keys)
+    db().notify_server_event(g.server["id"], "badge", player_id=str(player_id))
+    view = badges_view(player_id)
+    return {"keys": view["chosen"], "preview": str(view["preview"] or "")}
 
 
 SIDEBAR_MODES = ("off", "competition", "playtime")
@@ -2566,6 +2614,18 @@ def render_legal(page):
         "name": config.LEGAL_NAME, "address": config.LEGAL_ADDRESS,
         "email": config.LEGAL_EMAIL, "phone": config.LEGAL_PHONE,
     })
+
+
+@main_bp.route("/resourcepack/<sha1>.zip")
+def resource_pack(sha1):
+    """The icon resource pack (database/glyphs.py); the plugin offers this URL to the players."""
+    data, current = glyphs.build_pack()
+    if sha1 != current:
+        abort(404)
+    response = Response(data, mimetype="application/zip")
+    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    response.headers["Content-Disposition"] = "attachment; filename=MCConnect-Icons.zip"
+    return response
 
 
 @main_bp.route("/impressum")

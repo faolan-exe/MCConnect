@@ -64,7 +64,7 @@
     {% for o in join.options[field] %}
     <button type="button" data-value="{{ o.value }}" aria-pressed="{{ 'true' if o.chosen else 'false' }}"
             {% if o.locked %}disabled title="{{ o.hint }}"{% endif %}>
-      {% if o.web %}<span class="jm-swatch" style="background: {{ o.web }}"></span>{% endif %}{{ o.label }}{% if o.locked %} 🔒{% endif %}</button>
+      {% if o.web %}<span class="jm-swatch" style="background: {{ o.web }}"></span>{% endif %}{% if o.icon %}<img class="mc-glyph" src="{{ o.icon }}" alt="" width="18" height="18"/>{% endif %}{{ o.label }}{% if o.locked %} 🔒{% endif %}</button>
     {% endfor %}
   </div>
   {% endfor %}
@@ -87,6 +87,31 @@
   </details>
 </section>
 {% endif %}
+
+<section class="srv-card" id="badges">
+  <h2>Unter deinem Namen</h2>
+  <p class="mcc-hint">Im Spiel steht das unter deinem Namen über dem Kopf (ab Plugin-Version 3.17 auf Paper 1.20.3 oder neuer).
+    Wähle bis zu {{ badges.max }} Werte. Die Icons kommen aus dem MCConnect-Ressourcenpaket, das der Server beim Betreten anbietet –
+    wer es ablehnt, sieht einfache Symbole.</p>
+  {% if badges.hidden %}
+  <p class="mcc-hint"><b>Du verbirgst deine Statistiken</b> – deshalb steht unter deinem Namen nichts.</p>
+  {% endif %}
+  <div class="nb-preview" aria-live="polite">
+    <span class="nb-name">{{ name }}</span>
+    <span class="nb-line" data-role="badge-preview">{% if badges.preview %}{{ badges.preview }}{% else %}<span class="nb-empty">(nichts)</span>{% endif %}</span>
+  </div>
+  <div class="jm-options nb-options" data-max="{{ badges.max }}">
+    {% for o in badges.options if o.key != "level" or join.enabled %}
+    <button type="button" data-badge="{{ o.key }}" aria-pressed="{{ 'true' if o.key in badges.chosen else 'false' }}" title="{{ o.hint }}">
+      <img class="mc-glyph" src="{{ o.icon }}" alt="" width="18" height="18"/>{{ o.label }}</button>
+    {% endfor %}
+  </div>
+  <div class="mcc-actions">
+    <button class="mcc-btn mcc-btn-small mcc-btn-secondary" type="button" data-badges-preset="default">Standard (Trophäen, Serie, Stufe)</button>
+    <button class="mcc-btn mcc-btn-small mcc-btn-secondary" type="button" data-badges-preset="none">Nichts anzeigen</button>
+  </div>
+  <div class="mcc-message" id="badges-message"></div>
+</section>
 
 <section class="srv-card">
   <h2>Meine Favoriten</h2>
@@ -149,6 +174,38 @@
       const button = event.target.closest("[data-unmute]");
       if (button) showMutes(await postJson("/api/joinmutes", { name: button.dataset.unmute, muted: false }));
     });
+  })();
+</script>
+<script nonce="{{ csp_nonce() }}">
+  (() => {
+    const root = document.getElementById("badges");
+    const buttons = [...root.querySelectorAll("[data-badge]")];
+    const max = Number(root.querySelector(".nb-options").dataset.max);
+    const message = document.getElementById("badges-message");
+    let chosen = buttons.filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.dataset.badge);
+    function mark() {
+      buttons.forEach((b) => {
+        const on = chosen.includes(b.dataset.badge);
+        b.setAttribute("aria-pressed", String(on));
+        b.disabled = !on && chosen.length >= max;  // full: first take one away
+      });
+    }
+    async function save(keys) {
+      const result = await postJson("/api/badges", { keys });
+      if (!result.ok) return showMessage(message, result.data.error || "Speichern fehlgeschlagen.", "error");
+      chosen = result.data.keys;
+      mark();
+      root.querySelector('[data-role="badge-preview"]').innerHTML =  // rendered and escaped on the server
+        result.data.preview || '<span class="nb-empty">(nichts)</span>';
+      showMessage(message, "Gespeichert – im Spiel gleich sichtbar.", "success");
+    }
+    buttons.forEach((button) => button.addEventListener("click", () => {
+      const key = button.dataset.badge;
+      save(chosen.includes(key) ? chosen.filter((k) => k !== key) : [...chosen, key]);
+    }));
+    root.querySelectorAll("[data-badges-preset]").forEach((button) => button.addEventListener("click", () =>
+      save(button.dataset.badgesPreset === "default" ? null : [])));
+    mark();
   })();
 </script>
 <script nonce="{{ csp_nonce() }}">

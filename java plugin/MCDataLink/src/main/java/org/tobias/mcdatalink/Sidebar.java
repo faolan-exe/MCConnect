@@ -13,11 +13,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BiConsumer;
 
 /**
  * The scoreboard sidebar that players switch on with /seitenleiste (content from MCConnect).
  * Every player with a sidebar gets an own scoreboard; the name tag teams of PrefixDisplay are
- * copied into it, so prefixes above the heads stay visible. Main thread only.
+ * copied into it, so prefixes above the heads stay visible, and the line under the names (NameBadges) in the
+ * variant of its owner (icons or fallbacks). Main thread only.
  */
 final class Sidebar {
     private static final String OBJECTIVE = "mccside";
@@ -44,17 +46,18 @@ final class Sidebar {
         if (old != null) old.unregister();
         @SuppressWarnings("deprecation")  // the 1.13 API has no criteria enum yet
         Objective objective = board.registerNewObjective(OBJECTIVE, "dummy");
-        objective.setDisplayName(cut(color(title), MAX_TITLE));
+        objective.setDisplayName(cut(color(plugin.glyphs().forViewer(title, uuid)), MAX_TITLE));
         objective.setDisplaySlot(DisplaySlot.SIDEBAR);
         hideScores(objective);
         Set<String> used = new HashSet<>();
         int score = lines.size();
         for (String line : lines) {
-            String entry = cut(color(line), MAX_LINE - 4);
+            String entry = cut(color(plugin.glyphs().forViewer(line, uuid)), MAX_LINE - 4);
             while (!used.add(entry)) entry += ChatColor.RESET;  // entries must be unique
             objective.getScore(entry).setScore(score--);
         }
-        copyTeams(board);
+        copyTeams(plugin.getServer().getScoreboardManager().getMainScoreboard(), board);
+        plugin.nameBadges().apply(board, plugin.glyphs().hasPack(uuid));
         if (player.getScoreboard() != board) player.setScoreboard(board);
     }
 
@@ -62,7 +65,7 @@ final class Sidebar {
         Scoreboard board = boards.remove(uuid);
         Player player = plugin.getServer().getPlayer(uuid);
         if (board != null && player != null && player.getScoreboard() == board) {
-            player.setScoreboard(plugin.getServer().getScoreboardManager().getMainScoreboard());
+            player.setScoreboard(plugin.nameBadges().baseBoard(player));
         }
     }
 
@@ -70,13 +73,23 @@ final class Sidebar {
         boards.remove(player.getUniqueId());
     }
 
-    /** After a prefix changed: update the name tag teams in every sidebar scoreboard. */
-    void syncTeams() {
-        for (Scoreboard board : boards.values()) copyTeams(board);
+    /** The sidebar scoreboard of a player, or null. */
+    Scoreboard boardOf(UUID uuid) {
+        return boards.get(uuid);
     }
 
-    private void copyTeams(Scoreboard board) {
+    void forEachBoard(BiConsumer<UUID, Scoreboard> action) {
+        boards.forEach(action);
+    }
+
+    /** After a prefix changed: update the name tag teams in every sidebar scoreboard. */
+    void syncTeams() {
         Scoreboard main = plugin.getServer().getScoreboardManager().getMainScoreboard();
+        for (Scoreboard board : boards.values()) copyTeams(main, board);
+    }
+
+    /** MCConnect's name tag teams of the main scoreboard into another board. */
+    static void copyTeams(Scoreboard main, Scoreboard board) {
         for (Team team : board.getTeams()) {
             if (team.getName().startsWith(TEAM_PREFIX) && main.getTeam(team.getName()) == null) team.unregister();
         }
@@ -101,7 +114,7 @@ final class Sidebar {
         try {
             Class<?> format = Class.forName("io.papermc.paper.scoreboard.numbers.NumberFormat");
             Object blank = format.getMethod("blank").invoke(null);
-            objective.getClass().getMethod("numberFormat", format).invoke(objective, blank);
+            Objective.class.getMethod("numberFormat", format).invoke(objective, blank);  // the API interface: the implementation is not public
         } catch (ReflectiveOperationException | LinkageError ignored) {
             // not available on this server
         }

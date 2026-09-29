@@ -271,7 +271,7 @@ def test_migration_from_version_1(db):
         cur.execute("DROP TABLE join_mutes")
         cur.execute("ALTER TABLE servers DROP COLUMN rewards_enabled, DROP COLUMN reward_levels, DROP COLUMN reward_texts, "
                     "DROP COLUMN tracking_since")
-        cur.execute("ALTER TABLE player_server_info DROP COLUMN first_played")
+        cur.execute("ALTER TABLE player_server_info DROP COLUMN first_played, DROP COLUMN name_badges")
         cur.execute("ALTER TABLE player_server_info DROP COLUMN join_style, DROP COLUMN reward_level, DROP COLUMN join_sounds_off")
         cur.execute("ALTER TABLE duels DROP CONSTRAINT duels_status_check")
         cur.execute("ALTER TABLE banned_players DROP COLUMN delivered_at")

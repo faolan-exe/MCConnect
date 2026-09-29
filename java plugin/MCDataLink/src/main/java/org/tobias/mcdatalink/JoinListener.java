@@ -18,6 +18,7 @@ public class JoinListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
         plugin.prefixDisplay().apply(event.getPlayer());
+        plugin.nameBadges().joined(event.getPlayer());
         plugin.playerJoined(event.getPlayer());
     }
 

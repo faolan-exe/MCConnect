@@ -103,10 +103,11 @@
           });
           const swatch = option.web ? el("span", { className: "jm-swatch" }) : null;
           if (swatch) swatch.style.background = option.web;
+          const icon = option.icon ? el("img", { className: "mc-glyph", src: option.icon, alt: "", width: 18, height: 18 }) : null;
           const note = earlier >= 0 ? el("span", { className: "rw-from", textContent: `ab Stufe ${earlier + 1}` }) : null;
           return el("label", { className: "rw-option" + (earlier >= 0 ? " rw-inherited" : ""),
                                title: earlier >= 0 ? `Schon ab Stufe ${earlier + 1} (${levels[earlier].name}) freigeschaltet` : "" },
-                    box, swatch, option.label, note);
+                    box, swatch, icon, option.label, note);
         }));
     }
 

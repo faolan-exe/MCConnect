@@ -72,6 +72,8 @@ public final class MCDataLink extends JavaPlugin {
     private Sidebar sidebar;
     private Moderation moderation;
     private JoinMessages joinMessages;
+    private Glyphs glyphs;
+    private NameBadges nameBadges;
 
     @Override
     public void onEnable() {
@@ -98,7 +100,10 @@ public final class MCDataLink extends JavaPlugin {
         healthReporter = new HealthReporter(this);
         healthReporter.start();
         if (getConfig().getBoolean("live-stats", true)) new LiveStats(this, getConfig().getInt("live-stats-interval", 5)).start();
+        glyphs = new Glyphs(this, getConfig().getBoolean("resource-pack", true));
+        getServer().getPluginManager().registerEvents(glyphs, this);
         sidebar = new Sidebar(this);
+        nameBadges = new NameBadges(this, getConfig().getBoolean("name-badges", true));
         moderation = new Moderation(this);
         getServer().getPluginManager().registerEvents(moderation, this);
         joinMessages = new JoinMessages(this);
@@ -137,6 +142,7 @@ public final class MCDataLink extends JavaPlugin {
     @Override
     public void onDisable() {
         running = false;
+        if (nameBadges != null) nameBadges.disable();
         if (authenticated) trySend("!DISCONNECT");
         closeSocket();
         if (worker != null) worker.shutdownNow();
@@ -223,7 +229,8 @@ public final class MCDataLink extends JavaPlugin {
                 case "100":
                     authenticated = true;
                     getLogger().info("Connected to MCConnect");
-                    send("!FEATURES~click");  // chat messages may contain buttons (ChatMarkup)
+                    // chat messages may contain buttons (ChatMarkup) and icons (Glyphs)
+                    send("!FEATURES~click,glyphs");
                     sendOnlinePlayers();
                     runOnMainThread(this::sendBanList);
                     runOnMainThread(healthReporter::report);  // first health sample right away
@@ -281,7 +288,7 @@ public final class MCDataLink extends JavaPlugin {
                 String text = value.substring(value.indexOf('|') + 1);
                 runOnMainThread(() -> {
                     Player player = getServer().getPlayer(uuid);
-                    if (player != null) player.spigot().sendMessage(ChatMarkup.parse(text));
+                    if (player != null) player.spigot().sendMessage(ChatMarkup.parse(glyphs.forViewer(text, uuid)));
                 });
                 break;
             }
@@ -315,6 +322,14 @@ public final class MCDataLink extends JavaPlugin {
             case "!joindefault":  // join line|leave line with {name} (players without an own style)
                 if (fields.length >= 2) joinMessages.setDefault(fields[0], fields[1]);
                 break;
+            case "!pack":  // url|sha1|<icon><fallback>,...
+                if (fields.length >= 3) glyphs.setPack(fields[0], fields[1], fields[2]);
+                break;
+            case "!badge": {  // uuid|line (empty: nothing)
+                UUID uuid = fields.length >= 2 ? parseUuid(fields[0]) : null;
+                if (uuid != null) nameBadges.set(uuid, value.substring(value.indexOf('|') + 1));
+                break;
+            }
             case "!joinreset":
                 joinMessages.reset();
                 break;
@@ -331,9 +346,9 @@ public final class MCDataLink extends JavaPlugin {
                 if (fields.length < 2) break;
                 String text = "&" + broadcastColor(fields[0]).getChar() + value.substring(value.indexOf('|') + 1);
                 runOnMainThread(() -> {
-                    BaseComponent[] line = ChatMarkup.parse(text);
-                    for (Player player : getServer().getOnlinePlayers()) player.spigot().sendMessage(line);
-                    getLogger().info(ChatMarkup.plain(text));
+                    Glyphs.Line line = glyphs.line(text);
+                    for (Player player : getServer().getOnlinePlayers()) player.spigot().sendMessage(line.of(player));
+                    getLogger().info(ChatMarkup.plain(glyphs.fallback(text)));
                 });
                 break;
             }
@@ -439,6 +454,14 @@ public final class MCDataLink extends JavaPlugin {
         return sidebar;
     }
 
+    Glyphs glyphs() {
+        return glyphs;
+    }
+
+    NameBadges nameBadges() {
+        return nameBadges;
+    }
+
     /** Main thread: forward an in-game command (see InGameCommands). False if not connected. */
     boolean sendCommand(String message) {
         if (!authenticated) return false;
@@ -459,6 +482,7 @@ public final class MCDataLink extends JavaPlugin {
         UUID uuid = player.getUniqueId();
         prefixDisplay.clear(player);
         sidebar.quit(player);
+        nameBadges.quit(player);
         sendAsync("!QUIT~" + uuid);
         getServer().getScheduler().runTaskLaterAsynchronously(this, () -> sendPlayerStats(uuid), QUIT_STATS_DELAY_TICKS);
     }

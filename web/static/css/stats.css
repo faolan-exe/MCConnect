@@ -1312,7 +1312,16 @@ details.md-create[open] > .mcc-form { margin-top: 12px; padding: 14px; border: 1
 .jm-options button[aria-pressed="true"] { border-color: var(--srv-green); box-shadow: inset 0 0 0 1px var(--srv-green); font-weight: 700; }
 .jm-options button:disabled { opacity: 0.45; cursor: not-allowed; }
 .jm-swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0, 0, 0, 0.3); }
+.mc-glyph { width: 18px; height: 18px; image-rendering: pixelated; vertical-align: -3px; }
 .jm-mutes { margin-top: 18px; }
+
+/* /profil: under the name (looks like a name tag in the game) */
+.nb-preview { display: flex; flex-direction: column; align-items: center; gap: 4px; width: fit-content; min-width: 180px; margin: 14px auto;
+  padding: 8px 16px; border-radius: 4px; background: rgba(0, 0, 0, 0.72); color: #fff; font-family: ui-monospace, Menlo, monospace;
+  font-size: 15px; line-height: 1.4; }
+.nb-line { display: inline-block; min-height: 20px; white-space: pre; }  /* keeps the spaces between the values */
+.nb-empty { color: #8a8a8a; font-size: 13px; }
+.nb-options { margin-top: 6px; }
 .jm-mutes summary { cursor: pointer; color: var(--srv-muted); font-size: 14px; }
 .jm-muted { list-style: none; padding: 0; margin: 6px 0; display: grid; gap: 4px; }
 

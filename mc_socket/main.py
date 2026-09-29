@@ -21,7 +21,9 @@ Plugin -> server:
                                  "entities", "uptime_s", "mc_version", "plugin_version"}
     !CMD~<uuid>|<world>|<x>|<y>|<z>|<command>|<args>   in-game command (stats, top, wettbewerb, duell, report,
                                  seitenleiste, vote, events; see mc_socket/commands.py), answered with !tell
-    !FEATURES~<name>,<name>      what the plugin can do (after auth): "click" = buttons in chat messages (3.10)
+    !FEATURES~<name>,<name>      what the plugin can do (after auth): "click" = buttons in chat messages (3.10),
+                                 "glyphs" = icons of the resource pack with fallbacks (3.17; older plugins get
+                                 every icon replaced by its Unicode fallback, see database/glyphs.py)
     !DISCONNECT                  close the connection
 
 Server -> plugin:
@@ -49,6 +51,9 @@ Server -> plugin:
     !joindefault~<join line>|<leave line>   the lines of players without an own style ("{name}" for the name;
                                  plugin 3.16), sent with every full sync while the feature is on
     !joinreset~                  forget all join styles, mutes and the default lines (sent before a full sync)
+    !pack~<url>|<sha1>|<icon><fallback>,...   the icon resource pack to offer the players and the Unicode fallback
+                                 of each icon for players without it (plugin 3.17, after "glyphs")
+    !badge~<uuid>|<line>         the line under a player's name ("&" colors, icons; empty: nothing; plugin 3.17)
     success|<code> / error|<code>
 
 Error codes:
@@ -88,7 +93,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from colorlogx import get_logger
-from database import achievements, config, metrics, motivation, rewards
+from database import achievements, badges, config, glyphs, metrics, motivation, rewards
 from mc_socket import commands, tlscert
 from database.databaseManagerV2 import DatabaseManager
 
@@ -220,6 +225,7 @@ class SocketServer:
         self._pending_stats = {}  # player_id -> server_id: new stats not checked yet (throttled)
         self._last_checked = {}  # player_id -> monotonic time of the last after_stats
         self._changed_servers = set()  # servers with new stats since the last sidebar update
+        self._badge_lines = {}  # (server_id, uuid) -> the last !badge line sent (only changes are sent)
         self._threads = []
 
     # ------------------------------------------------------------------ lifecycle
@@ -396,6 +402,21 @@ class SocketServer:
         self.announce_records(server_id, player_id, self.db.update_records(player_id))
         self.announce_milestones(server_id, player_id, self.db.check_milestones(player_id))
         self.check_reward_level(server_id, player_id)
+        self.update_badge(server_id, player_id)
+
+    def update_badge(self, server_id, player_id, force=False):
+        """Send the line under the player's name if it changed (force: always, e.g. after a join)."""
+        uuid = str(self.db.get_mojang_uuid_from_player_id(player_id))
+        line = badges.line(self.db, player_id)
+        key = (server_id, uuid)
+        if not force and self._badge_lines.get(key) == line:
+            return
+        if self._send_to_server(server_id, badges.message(uuid, line)):
+            self._badge_lines[key] = line
+
+    def pack_message(self):
+        data, sha1 = glyphs.build_pack()
+        return f"!pack~{config.PUBLIC_SCHEME}://{config.BASE_DOMAIN}/resourcepack/{sha1}.zip|{sha1}|{glyphs.glyph_map()}"
 
     def check_reward_level(self, server_id, player_id):
         """Tell a player who reached a new reward level what it unlocks (and update the message, e.g. rainbow)."""
@@ -622,6 +643,8 @@ class SocketServer:
             client = self.active_connections.get(server_id)
         if client is None:
             return False
+        if "glyphs" not in client.features and glyphs.ICON_RE.search(msg):
+            msg = glyphs.fallback_text(msg)  # the plugin cannot show the icons (before 3.17 or before !FEATURES)
         if chat and "click" not in client.features:
             msg = commands.without_buttons(msg)
             if msg.startswith("!broadcast~"):  # older plugins show broadcasts without "&" color codes
@@ -673,6 +696,8 @@ class SocketServer:
             self._send_to_server(server_id, rewards.join_mutes_message(
                 self.db.get_mojang_uuid_from_player_id(player_id), settings["sounds_off"],
                 [m["uuid"] for m in self.db.get_join_mutes(player_id)]))
+        elif kind == "badge":
+            self.update_badge(server_id, event["player_id"])
         elif kind == "joinsync":
             self.sync_join_messages(server_id)
         else:
@@ -804,6 +829,7 @@ class SocketServer:
                 self.announce_milestones(client.server_id, player_id, self.db.check_milestones(player_id))
                 if self.db.get_sidebar(player_id) != "off":
                     self.update_sidebar(client.server_id, player_id)
+                self.update_badge(client.server_id, player_id, force=True)
                 # new on the server (not only new to MCConnect, e.g. an old player after installing the plugin)
                 new_here = first and (first_played is None or first_played > datetime.now(timezone.utc) - timedelta(days=1))
                 if new_here and self.db.get_server_settings(client.server_id)["rules_enabled"]:
@@ -824,6 +850,10 @@ class SocketServer:
             elif command == "!FEATURES":
                 client.features = {f.strip() for f in value.split(",") if f.strip()}
                 client.send("success|106")
+                if "glyphs" in client.features:
+                    # the join lines of the auth were sent with fallbacks: once more with the icons
+                    client.send(self.pack_message())
+                    self.sync_join_messages(client.server_id)
             elif command == "!CMD":
                 self.run_command(client.server_id, value)
             elif command == "!HEALTH":

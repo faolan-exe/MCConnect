@@ -81,6 +81,7 @@ final class PrefixDisplay {
                 team.addEntry(player.getName());
             }
             if (plugin.sidebar() != null) plugin.sidebar().syncTeams();
+            if (plugin.nameBadges() != null) plugin.nameBadges().syncTeams();
         }
     }
 

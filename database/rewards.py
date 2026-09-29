@@ -13,7 +13,7 @@ into the chat lines with "&" color codes that the plugin shows.
 import copy
 import re
 
-from database import metrics, motivation
+from database import glyphs, metrics, motivation
 
 # Minecraft chat colors: code and web color (for the preview). Players unlock COLORS, MOD_COLORS are for
 # moderators and OPs only.
@@ -30,7 +30,9 @@ COLOR_LABELS = {
 }
 MOD_COLORS = ("gold", "red", "dark_red")
 COLORS = tuple(c for c in COLOR_CODES if c not in MOD_COLORS)
-SYMBOLS = ("", "•", "✦", "★", "❖", "⚔", "☀", "❤", "✪", "♛")
+# Unicode symbols, then the drawn icons of the resource pack (database/glyphs.py; only append, the values are stored)
+JOIN_ICONS = ("pickaxe", "diamond", "creeper", "flame", "emerald", "ender_eye", "crown", "totem")
+SYMBOLS = ("", "•", "✦", "★", "❖", "⚔", "☀", "❤", "✪", "♛") + tuple(glyphs.char(key) for key in JOIN_ICONS)
 STYLES = {"normal": "Normal", "bold": "Fett", "frame": "Mit Rahmen (Symbol links und rechts)",
           "rainbow": "Regenbogen (alle freigeschalteten Farben)"}
 JOIN_TEXTS = {
@@ -103,23 +105,23 @@ DEFAULT_LEVELS = [
                  "join_texts": ["joined", "hello"], "leave_texts": ["left", "bye"], "sounds": []}},
     {"name": "Stammgast", "conditions": [{"type": "streak", "value": 7}, {"type": "play_hours", "value": 10},
                                          {"type": "tiers", "value": 5}],
-     "unlocks": {"colors": ["green", "aqua"], "symbols": ["•", "✦"], "styles": ["bold"],
+     "unlocks": {"colors": ["green", "aqua"], "symbols": ["•", "✦", glyphs.char("pickaxe")], "styles": ["bold"],
                  "join_texts": ["back", "landed"], "leave_texts": ["later"], "sounds": []}},
     {"name": "Abenteurer", "conditions": [{"type": "streak", "value": 30}, {"type": "play_hours", "value": 50},
                                           {"type": "tiers", "value": 15}, {"type": "trophies", "value": 1}],
-     "unlocks": {"colors": ["blue", "yellow"], "symbols": ["★"], "styles": [],
+     "unlocks": {"colors": ["blue", "yellow"], "symbols": ["★", glyphs.char("diamond"), glyphs.char("creeper")], "styles": [],
                  "join_texts": ["adventure", "tools"], "leave_texts": ["rest"], "sounds": ["chime"]}},
     {"name": "Veteran", "conditions": [{"type": "streak", "value": 60}, {"type": "play_hours", "value": 150},
                                        {"type": "tiers", "value": 25}, {"type": "days", "value": 180}],
-     "unlocks": {"colors": ["dark_aqua", "light_purple"], "symbols": ["❖", "⚔"], "styles": ["frame"],
+     "unlocks": {"colors": ["dark_aqua", "light_purple"], "symbols": ["❖", "⚔", glyphs.char("flame"), glyphs.char("emerald")], "styles": ["frame"],
                  "join_texts": [], "leave_texts": [], "sounds": ["bell", "orb"]}},
     {"name": "Held", "conditions": [{"type": "streak", "value": 100}, {"type": "play_hours", "value": 400},
                                     {"type": "tiers", "value": 35}, {"type": "trophies", "value": 5}],
-     "unlocks": {"colors": ["dark_green", "dark_purple"], "symbols": ["☀", "❤"], "styles": ["rainbow"],
+     "unlocks": {"colors": ["dark_green", "dark_purple"], "symbols": ["☀", "❤", glyphs.char("ender_eye")], "styles": ["rainbow"],
                  "join_texts": ["make_way"], "leave_texts": [], "sounds": ["levelup"]}},
     {"name": "Legende", "conditions": [{"type": "streak", "value": 365}, {"type": "play_hours", "value": 1500},
                                        {"type": "metric", "metric": "ancient_debris", "value": 500}],
-     "unlocks": {"colors": [], "symbols": ["✪", "♛"], "styles": [],
+     "unlocks": {"colors": [], "symbols": ["✪", "♛", glyphs.char("crown"), glyphs.char("totem")], "styles": [],
                  "join_texts": ["legend"], "leave_texts": ["legend_bye"], "sounds": ["fanfare"]}},
 ]
 MAX_LEVELS = 10
@@ -239,7 +241,8 @@ def render(name, style, available, kind="join", catalog=DEFAULT_CATALOG):
     rendered = render_name(name, style, available) + "&r&7"
     before, _, after = template.partition("{name}")
     symbol = style["symbol"]
-    code = COLOR_CODES[style["color"]][0]
+    # drawn icons keep their own colors (the game tints glyphs with the text color), Unicode symbols take the name's
+    code = "f" if glyphs.is_icon(symbol) else COLOR_CODES[style["color"]][0]
     line = f"&7{before}{rendered}{after}"
     if symbol:
         line = f"&{code}{symbol} {line}" + (f" &{code}{symbol}" if style["style"] == "frame" else "")

@@ -22,3 +22,13 @@ prefix:
 live-stats: true
 # Seconds between two updates (only what changed is read; the blocks are sent completely once a minute).
 live-stats-interval: 5
+
+# Offer the MCConnect resource pack (icons for join messages and the line under the names) when players join.
+# It is optional for the players; whoever declines it sees simple symbols instead. On 1.20.3+ it is loaded next
+# to the server's own pack; on older servers it replaces the pack from server.properties, so switch it off there.
+resource-pack: true
+
+# The line under the player names (trophies, streak, level, ...; every player picks on the website). Needs Paper
+# 1.20.3 or newer. Players with the resource pack use a copy of the main scoreboard with MCConnect's name tag
+# teams; switch this off if another plugin manages the scoreboard.
+name-badges: true

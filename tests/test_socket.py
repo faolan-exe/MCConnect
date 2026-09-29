@@ -23,6 +23,7 @@ class FakePlugin:
     def __init__(self, port, certificate):
         self.sock = tls_connect(port, certificate)
         self.prefixes = []
+        self.badges = []  # !badge messages (the line under the names), sent with every join
 
     def send(self, msg):
         self.sock.sendall(encode_msg(msg))
@@ -43,13 +44,22 @@ class FakePlugin:
             if msg.startswith("!prefix~"):
                 self.prefixes.append(msg)
                 continue
+            if msg.startswith("!badge~"):
+                self.badges.append(msg)
+                continue
+            if msg.startswith("!pack~"):  # after !FEATURES with "glyphs"
+                self.pack = msg
+                continue
             return msg
 
     def recv_prefix(self):
         """Next prefix message; fails if another message arrives first."""
         while not self.prefixes:
             msg = recv_msg(self.sock)
-            if msg in ("!heartbeat", "!joinreset~") or msg.startswith(("!metrics~", "!joindefault~")):
+            if msg in ("!heartbeat", "!joinreset~") or msg.startswith(("!metrics~", "!joindefault~", "!pack~")):
+                continue
+            if msg.startswith("!badge~"):
+                self.badges.append(msg)
                 continue
             if not msg.startswith("!prefix~"):
                 raise AssertionError(f"expected a prefix message, got {msg!r}")
