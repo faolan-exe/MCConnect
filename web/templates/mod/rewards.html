@@ -86,17 +86,27 @@
       return row;
     }
 
-    function unlockGroup(level, kind, title) {
+    // the first level (before `index`) that unlocks an option already, or -1
+    function unlockedBefore(index, kind, value) {
+      return levels.slice(0, index).findIndex((l) => (l.unlocks[kind] || []).includes(value));
+    }
+
+    function unlockGroup(level, index, kind, title) {
       const chosen = level.unlocks[kind] = level.unlocks[kind] || [];
       return el("fieldset", { className: "rw-unlocks" }, el("legend", { textContent: title }),
         ...data.options[kind].map((option) => {
-          const box = el("input", { type: "checkbox", checked: chosen.includes(option.value) });
+          const earlier = unlockedBefore(index, kind, option.value);
+          const box = el("input", { type: "checkbox", checked: earlier >= 0 || chosen.includes(option.value), disabled: earlier >= 0 });
           box.addEventListener("change", () => {
             if (box.checked) chosen.push(option.value); else chosen.splice(chosen.indexOf(option.value), 1);
+            render();  // the levels above show at once what is already unlocked
           });
           const swatch = option.web ? el("span", { className: "jm-swatch" }) : null;
           if (swatch) swatch.style.background = option.web;
-          return el("label", { className: "rw-option" }, box, swatch, option.label);
+          const note = earlier >= 0 ? el("span", { className: "rw-from", textContent: `ab Stufe ${earlier + 1}` }) : null;
+          return el("label", { className: "rw-option" + (earlier >= 0 ? " rw-inherited" : ""),
+                               title: earlier >= 0 ? `Schon ab Stufe ${earlier + 1} (${levels[earlier].name}) freigeschaltet` : "" },
+                    box, swatch, option.label, note);
         }));
     }
 
@@ -126,7 +136,7 @@
           index === 0 ? el("p", { className: "mcc-hint", textContent: "Die erste Stufe hat jeder von Anfang an." })
             : el("div", {}, el("p", { className: "mcc-hint", textContent: "Erreicht, wenn eine der Alternativen erfüllt ist:" }),
                 ...groups, add),
-          ...KINDS.map(([kind, title]) => unlockGroup(level, kind, title)));
+          ...KINDS.map(([kind, title]) => unlockGroup(level, index, kind, title)));
       }));
     }
 

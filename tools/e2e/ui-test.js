@@ -77,6 +77,31 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   check("level still open after saving", await page.evaluate(() => document.querySelectorAll("details.rw-level")[2].open));
   await page.click('[data-role="reset"]');
   await sleep(1200);
+  // options unlocked by an earlier level are marked and locked; taking one out frees it in the levels above
+  const option = (level, kind, value) => page.evaluate((level, kind, value) => {
+    const fieldset = [...document.querySelectorAll("details.rw-level")[level].querySelectorAll("fieldset")]
+      .find((f) => f.querySelector("legend").textContent === kind);
+    const label = [...fieldset.querySelectorAll("label")].find((l) => l.textContent.startsWith(value));
+    return { inherited: label.classList.contains("rw-inherited"), disabled: label.querySelector("input").disabled,
+             checked: label.querySelector("input").checked };
+  }, level, kind, value);
+  let white = await option(1, "Farben", "Weiß");
+  check("color of level 1 is marked in level 2", white.inherited && white.disabled && white.checked);
+  check("own color of level 2 is free", !(await option(1, "Farben", "Grün")).disabled);
+  check("color of level 2 is marked in level 3", (await option(2, "Farben", "Grün")).inherited);
+  await page.evaluate(() => {
+    const fieldset = [...document.querySelectorAll("details.rw-level")[1].querySelectorAll("fieldset")]
+      .find((f) => f.querySelector("legend").textContent === "Farben");
+    [...fieldset.querySelectorAll("label")].find((l) => l.textContent.startsWith("Grün")).querySelector("input").click();
+  });
+  await sleep(300);
+  const green = await option(2, "Farben", "Grün");
+  check("taken out in level 2: free again in level 3", !green.inherited && !green.disabled && !green.checked);
+  check("level still open after the change", await page.evaluate(() => document.querySelectorAll("details.rw-level")[2].open));
+  await page.goto(BASE + "/users/belohnungen", { waitUntil: "networkidle0" });  // drop the unsaved change
+  await mark();
+  await page.evaluate(() => document.querySelectorAll("details.rw-level")[2].querySelector("summary").click());
+
   // own text: added and listed, the level editor keeps its unsaved condition
   await page.type('[data-add-text="join"] input[name="text"]', "{name} testet die Knöpfe.");
   await page.click('[data-add-text="join"] button');
