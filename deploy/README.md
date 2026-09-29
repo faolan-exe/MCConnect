@@ -148,6 +148,7 @@ docker compose exec web python -m database.manage create-admin tobi tobi@tobisit
    key: <dein key>
    host: mc.tobisit.de
    port: 9991
+   tls-fingerprint: "<Fingerabdruck des Zertifikats, steht im Block>"
    ```
 4. Den Minecraft-Server neu starten. Im Server-Log steht dann `Connected to MCConnect`, und auf der
    Verwaltungsseite erscheint **„Plugin verbunden“**.

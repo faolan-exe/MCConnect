@@ -31,184 +31,139 @@ Preview:
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 docker compose -f docker/db/docker-compose.yml -p mcconnect up -d   # local postgres
-.venv/bin/python -m pytest -q -p no:logging                         # ~410 tests, uses database mcconnect_test
+.venv/bin/python -m pytest -q -p no:logging                         # ~470 tests, uses database mcconnect_test
 .venv/bin/python -m database.manage seed                            # dev admin 'tobi' + server 'testdomain'
-.venv/bin/python mc_socket/main.py                                  # plugin socket on :9991 (TLS, dev certificate)
-.venv/bin/python web/main.py                                        # http://mc.t-auer.local:5000
+MCC_BASE_DOMAIN=mc.t-auer.local:5050 .venv/bin/python mc_socket/main.py   # plugin socket on :9991 (TLS, own certificate)
+FLASK_SERVER_NAME=mc.t-auer.local:5050 .venv/bin/python -c "from web.main import create_app; create_app().run(port=5050)"
 ```
 
-- `database/` – DB layer (`databaseManagerV2.py`), schema + migrations, stats classification, config (`MCC_*` env vars)
-- `mc_socket/` – socket server the plugin connects to (protocol documented in `main.py`)
+Port 5000 is taken by the macOS AirPlay receiver, hence 5050. `python -m mc_socket.tlscert` prints the
+fingerprint of the local socket certificate (`certs/`) for a test plugin's `tls-fingerprint`.
+
+- `database/` – DB layer (`databaseManagerV2.py`), schema + migrations, stats classification, metrics,
+  achievements, motivation, rewards, config (`MCC_*` env vars)
+- `mc_socket/` – socket server the plugin connects to (protocol documented in `main.py`), in-game commands
+  (`commands.py`), TLS certificate (`tlscert.py`)
 - `web/` – Flask app (main domain: admin area; `<subdomain>.`: server pages)
 - `java plugin/MCDataLink/` – Spigot/Paper plugin (`mvn package`)
+- `tools/e2e/` – end-to-end test with a real Paper server and bots
 - `deploy/` – production docker compose (behind Nginx Proxy Manager, optional traefik); see [deploy/README.md](deploy/README.md)
 
-## Status and next steps
+## Status
 
-State of 2026-09-28 (schema version 24, plugin 3.15). Written as a handoff for the next development
-session; `docs/HANDOFF_spielervergleich.md` is the older handoff for the rankings feature (data model,
-stat units, screenshot workflow) and still useful as background.
+State of 2026-09-29: schema version 24, plugin 3.16. Written as a handoff for the next development session.
 
-### Done
+### Features
 
 | Area | Where | Notes |
 |---|---|---|
-| Rankings | `/rangliste` | 19 metrics in 4 groups (`database/metrics.py`), all time / 30 / 7 days |
-| Comparison | `/vergleich` | 2–4 players, best values, history chart, detail tables; `+` buttons collect players (`web/static/compare.js`) |
+| Rankings | `/rangliste` | 19 metrics in 4 groups (`database/metrics.py`), all time / 30 / 7 days; `+` buttons collect players for the comparison (`web/static/compare.js`) |
+| Comparison | `/vergleich` | 2–4 players, best values, history chart, detail tables |
 | Player list | `/spieler` | search, sort, "last online" filters, badges, top places, favourites |
-| Player page | `/spieler?player=` | first/last seen with time, activity chart, ranking places, highlights, achievements (live), bio, stat card, moderator notes |
-| Server statistics | `/server-statistik` | online history, peak-time heatmap, totals, new players; based on `player_sessions` |
-| Start page | `/` | records, weekly recap, running competition, activity feed (`/api/feed`) |
-| Achievements | `database/achievements.py` | 13 × 4 tiers, stored in `player_achievements`; tiers reached while not playing are `silent` (no feed, no chat) |
+| Player page | `/spieler?player=` | activity chart, ranking places, highlights, achievements (live), trophy cabinet, bio, stat card (`/spieler/<name>/karte.png`, `og:image`), guestbook, moderator notes and warnings |
+| Server statistics | `/server-statistik` | online history, peak-time heatmap, totals, new players, fun facts; based on `player_sessions` |
+| Start page | `/` | records, weekly recap, running competitions and goals, events, polls, activity feed (`/api/feed`) |
+| Achievements | `database/achievements.py` | 13 × 4 tiers (`player_achievements`); tiers reached while not playing are `silent` (no feed, no chat) |
 | Teams | `/teams` | prefixes as teams |
-| Competitions | `/wettbewerbe`, created on `/users` | start/end announced in chat by the socket server |
-| Profile & privacy | `/profil` | bio, "hide my stats" (`hide_stats`: left out of every public view except server totals), favourites |
-| Stat card | `/spieler/<name>/karte.png` | Pillow, fonts in `web/card_fonts/`, used as `og:image` |
-| Moderation | `/users` (moderators only) | overview (open tasks, server health, newest log entries) and sub pages `/users/spieler` (reports, bans, warnings, X-ray, activity), `/users/inhalte` (gallery, guestbook, events, polls, competitions, goals), `/users/zugang` (whitelist access, codes, rules/FAQ), `/users/protokoll`; templates in `web/templates/mod/`, every action saved without reload by `web/static/mod.js` (replaces the `data-live` parts); old anchors like `/users#reports` are forwarded |
-| Motivation (phase 5) | `database/motivation.py` | streaks + badges 7/30/100, anniversaries (`player_milestones`), record history (`record_history`, cooldown against flip-flops), community goals (`community_goals`, `/wettbewerbe#ziele`, created on `/users`), trophies (`trophies`: competition places, player of the week), fun facts on `/server-statistik`, trophy cabinet on the player page, hall of fame `/ruhmeshalle`; news in feed and chat |
-| In game (phase 6) | `mc_socket/commands.py` | `/stats`, `/top`, `/wettbewerb`, `/duell`, `/report`, `/seitenleiste` answered by the socket server (`!CMD` → `!tell`); scoreboard sidebar (`!sidebar`, setting also on `/profil`); duels (`duels`, `/duelle`), reports (`reports`, `/melden`, list on `/users`, online moderators get a chat message) |
-| Community (phase 7) | `/events`, `/umfragen`, `/galerie`, player page | event calendar with sign up and chat reminder (`events`, `event_signups`, `/events` in game), polls (`polls`, `poll_votes`, `/vote`, result in chat), build gallery with approval and likes (`builds`, `build_likes`, uploads like the server images), guestbook on the player page (`guestbook`, report/delete); created and moderated on `/users` (jump links at the top) |
-| Moderation & access (phase 8) | `/mitmachen`, `/regeln`, `/users`, `/manage` | whitelist access per server by application and/or invite code (`access_requests`, `invite_codes`; the plugin runs `whitelist add`, also after a reconnect; the kick message links to `/mitmachen`) – codes can only be entered on the website, a player who is not on the whitelist cannot run commands; warnings with automatic ban after X (`warnings`), mutes (chat and `/msg`), also `/verwarnen`, `/stumm`, `/entstummen` in the game; X-ray hints; e-mail alerts to the owner (offline > 5 min, TPS < 15, sent by the socket server); rules & FAQ page, link on the first join; server health on the admin page |
-| Reach & design (phase 9) | `/rueckblick/<name>`, main page, `web/static/css/dark.css` | year in review to click through and share (year gains from the first/last snapshot of the year – both are now kept forever, sessions, achievements, trophies, records); public server directory on the main domain (`servers.listed`, opt out on `/manage`); dark mode for all server pages incl. the old ones: `_theme.html` sets `<html data-dark>` from the system setting or the switch in the header (Auto/Dunkel/Hell, localStorage), `dark.css` redefines the `--srv-*` tokens and overrides the hard-coded colors |
-| Join messages & rewards | `database/rewards.py`, `/profil`, `/users/belohnungen`, `/joinmessage` | reward levels (default 6, editable per server: any of the conditions reaches a level, unlocks add up, a reached level is stored in `player_server_info.reward_level` and never lowered); players choose text, leave text, color, symbol, style and sound from what they unlocked (`join_style`, no free text), moderators/OPs also gold/red/dark red; mutes per player (`join_mutes`, `join_sounds_off`); the socket server renders the lines and syncs them to the plugin on auth (`sync_join_messages`) and on changes; a new level is told to the player in the chat |
-| Plugin | `java plugin/MCDataLink` | 3.1 `!broadcast` (chat), 3.2 `!HEALTH` every minute, 3.3 live stats of online players every minute (`live-stats` in config.yml), 3.4 in-game commands and sidebar (`InGameCommands`, `Sidebar`), 3.5 `/vote` and `/events`, 3.6 mutes, whitelist sync, join link, moderator commands (`Moderation`), 3.7 `!WEBBANS`: `/pardon` in the game lifts a website ban, website bans made while the plugin was offline are sent on the next connect (`banned_players.delivered_at`), 3.8 optional TLS (`tls: true`, port 9992 when the socket server has `MCC_SOCKET_TLS_CERT/KEY`), 3.9 mute/ban times in the local time zone (sent by MCConnect), sidebar without score numbers on Paper 1.20.3+, 3.10 clickable chat: buttons `⟦label⇒/command⟧` (see `commands.button`; `clean()` strips the markers from player text) and links, announced with `!FEATURES~click`, older plugins get the command as text, 3.11 buttons only run the plugin's own commands (`ChatMarkup.isOwnCommand`), any other button is shown as text, 3.12 always TLS on 9991 (the `tls` option is gone; `tls-fingerprint` pins the socket server's own certificate, `TlsPinning`), 3.13 live stats every 5 s (`live-stats-interval`): custom stats plus the block/item/mob stats events marked as changed, read from the game when sending; all blocks once a minute, 3.14 own join/leave messages with sound (`JoinMessages`, `!joinstyle`, `!joinmutes`, `!joinreset`) and `/joinmessage`, 3.15 `!JOIN` also sends the game's first join (`getFirstPlayed`), the first live update after a join is complete |
+| Motivation | `database/motivation.py`, `/wettbewerbe`, `/ruhmeshalle` | competitions, community goals, streaks + badges 7/30/100, anniversaries (`player_milestones`), record history (`record_history`), trophies (competition places, player of the week), hall of fame; news in feed and chat |
+| In game | `mc_socket/commands.py` | `/stats`, `/top`, `/wettbewerb`, `/duell`, `/report`, `/seitenleiste`, `/vote`, `/events`, `/joinmessage`, moderators `/verwarnen`, `/stumm`, `/entstummen` (`!CMD` → `!tell`, clickable buttons); scoreboard sidebar |
+| Community | `/events`, `/umfragen`, `/galerie`, `/duelle`, player page | events with sign up and chat reminder, polls, build gallery with approval and likes, duels, guestbook |
+| Access | `/mitmachen`, `/regeln` | whitelist by application and/or invite code (the plugin runs `whitelist add`; the kick message links to `/mitmachen`), optional rules & FAQ page |
+| Join messages & rewards | `database/rewards.py`, `/profil`, `/users/belohnungen`, `/joinmessage` | reward levels (default 6, editable per server; any condition reaches a level, unlocks add up, a reached level is stored and never lowered); players choose text, leave text, color, symbol, style and sound from what they unlocked (templates only, moderators add own texts; moderators/OPs also gold/red/dark red); while on, everyone gets an MCConnect message (without a choice the first level's default, `!joindefault`); players can hide others' messages and all sounds |
+| Moderation | `/users` (moderators) | overview (open tasks, server health, newest log entries) and sub pages `spieler` (reports, bans, warnings, X-ray hints, activity), `inhalte` (gallery, guestbook, events, polls, competitions, goals), `zugang` (whitelist, codes, rules/FAQ), `belohnungen`, `protokoll`; templates in `web/templates/mod/` |
+| Admin | `/manage` (server owners) | server tiles; `/manage/<id>` with tabs: overview (health, e-mail alerts), plugin (config with `tls-fingerprint`), server page (texts, images, directory), moderation (moderators, bans), danger zone |
+| Year in review | `/rueckblick/<name>` | year gains from the first/last snapshot of the year (both kept forever), sessions, achievements, trophies |
+| Reach & design | main page, `web/static/css/dark.css` | public server directory (`servers.listed`), dark mode for all server pages (`_theme.html`, `--srv-*` tokens) |
+| Profile & privacy | `/profil` | bio, "hide my stats" (`hide_stats`: left out of every public view except server totals), favourites, sidebar, join message |
 
-Charts are plain SVG without libraries (`web/static/*-chart.js`), styles for all of the above in
-`web/static/css/stats.css`.
+Charts are plain SVG without libraries (`web/static/*-chart.js`), styles in `web/static/css/stats.css`.
 
-### Current work: round 3 (agreed 2026-09-28, built in this order, one commit per feature)
+### Plugin versions
 
-Progress is ticked off here, so a new session knows where to continue.
+3.1 `!broadcast` · 3.2 `!HEALTH` · 3.3 live stats · 3.4 in-game commands, sidebar · 3.5 `/vote`, `/events` ·
+3.6 mutes, whitelist sync, join link, moderator commands · 3.7 `!WEBBANS` (`/pardon` lifts a website ban) ·
+3.8 optional TLS · 3.9 times in the local time zone · 3.10 clickable chat (`⟦label⇒/command⟧`, `!FEATURES~click`) ·
+3.11 buttons only run the plugin's own commands · 3.12 always TLS on 9991 (`tls-fingerprint`, `TlsPinning`) ·
+3.13 live stats every 5 s (`live-stats-interval`; events mark what changed) · 3.14 join/leave messages
+(`JoinMessages`, `!joinstyle`, `!joinmutes`, `!joinreset`), `/joinmessage` · 3.15 `!JOIN` sends the game's first
+join, the first live update after a join is complete · 3.16 default join lines for everyone (`!joindefault`).
 
-**A. Technik**
-- [x] A1 Polling instead of SSE (`/api/player_count`, `/api/status`, `/api/player_info`): `fetch` every 5–10 s,
-      paused in hidden tabs, result cached 2 s per server – no worker thread is held any more
-- [x] A2 Partial CSP now (`frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'`);
-      full CSP with nonces and without `onclick=` during the menu rework (B)
-- [x] A3 TLS only, on port 9991 (no 9992): plain connections are refused. The socket server creates its own
-      certificate on the first start (`mc_socket/tlscert.py`, docker volume `socket_tls`, 20 years); the admin page
-      shows its fingerprint as `tls-fingerprint` line of the plugin config (the plugin pins it). An own certificate
-      (`MCC_SOCKET_TLS_CERT/KEY`) is optional.
-- [x] A4 Live stats every 5 s: block break/place, mob kills/deaths, item use/craft events only mark
-      (player, stat) as dirty; every 5 s (config.yml) the plugin sends the exact vanilla values of the dirty
-      stats plus the custom stats (distance, play time) of online players. Server side: achievements, records,
-      streaks at most every 15 s per player; sidebar, player page, competitions and duels follow faster.
+Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss the newer features.
 
-**B. Menus** (settings are saved without a page reload – nothing collapses, no scrolling back)
-- [x] B1 Moderation `/users` → overview (open tasks: reports, builds, guestbook, applications; health) plus
-      sub pages: players (bans, warnings/mutes, X-ray, activity), content (events, polls, competitions, goals,
-      gallery, guestbook), access & rules, rewards, log
-- [x] B2 Admin `/manage` → server tiles, `/manage/<server>` with tabs: overview, plugin & connection,
-      appearance (texts, images, directory), moderators & bans, notifications, danger zone
-- [x] B3 Header of the server pages regrouped (fewer dropdown entries): players, rankings & statistics,
-      community, my area
-- [x] B4 Full CSP (nonces, no inline handlers)
+### How things work (read before changing them)
 
-**C. Join/leave messages & rewards** – [x] done (plugin 3.14, schema 20)
-- Only join/leave messages; prefixes keep deciding chat, tab list and name tag.
-- Players pick from templates only (no free text); types: texts, style/effects (colors, bold, symbols),
-  sound, also for leaving. No titles.
-- Rewards stay unlocked when a streak breaks (best streak counts). Levels (~6, default: first no sound, later
-  a quiet sound for everyone, the higher the more striking colors, sounds and symbols; the top level takes
-  really long, e.g. a 365 day streak or 500 Ancient Debris). Conditions: streak badges, achievement tiers,
-  play time/anniversary, trophies, any metric.
-- Moderators/OPs choose their own color, gold, red and dark red are theirs only; ~10 player colors.
-- Per server: level editor on the moderation page (conditions and what each level unlocks, reset to default),
-  feature on/off. Players can mute other players' join sounds/messages in `/profil` (off by default, not
-  prominent).
-- Set on `/profil` (Minecraft style preview, locked options with their condition) and in game with
-  `/joinmessage` (clickable options).
+- **Gains and baselines.** Gains (today, 7/30 days, competitions, goals, duels, sidebar, weekly recap) are the
+  difference between daily snapshots (`stat_snapshots`, written with every stats update). A player's first
+  sync is also stored as the day before (baseline). **New or old player** decides that baseline: a player
+  whose first join in the game (`player_server_info.first_played`, from plugin 3.15) lies after
+  `servers.tracking_since` (first plugin connection) is new – baseline 0, everything counts; otherwise the
+  first stats are the baseline (an old player's lifetime values are no gain). When the first join arrives
+  later, `_correct_first_baseline` fixes the guess once, in both directions. Without it (plugins before
+  3.15) the time since MCConnect's first sight is the fallback. This went wrong several times (schema 19,
+  21, 23, 24: players who joined while the plugin was disconnected, partial first live updates) – keep the
+  tests in `tests/test_metrics.py` green.
+- **"Dabei seit"**, veterans, anniversaries, new players per week/month and the reward condition "days" use
+  the game's first join if known (`COALESCE(first_played, first_seen)`).
+- **Live values.** The plugin sends custom stats and changed block/item/mob stats every 5 s, all blocks once
+  a minute. The socket server checks achievements, records and streaks at most every 15 s per player and
+  updates sidebars 5 s after new stats. Pages poll (`web/static/poll.js`, `LiveCache`, 2 s per
+  server/player); `/wettbewerbe` and `/duelle` refresh their standings every 10 s.
+- **No page reloads.** Forms and buttons are saved with `fetch`; afterwards `refreshLiveParts()` (`poll.js`)
+  replaces only the parts marked `data-live="…"`. Moderation pages use `web/static/mod.js`
+  (`data-mod-post`, `data-mod-form`, `data-settings-form`, `data-setting`).
+- **Plugin connection.** TLS only on 9991. The socket server creates its own certificate on the first start
+  (`mc_socket/tlscert.py`, docker volume `socket_tls`); the admin page shows its fingerprint in the plugin
+  config, the plugin pins it. An own certificate (`MCC_SOCKET_TLS_CERT/KEY`) is optional.
+- The once-a-minute checks of the socket server run step by step, each guarded ("Periodic check failed:
+  <step>" in the log).
 
-### Security (review of 2026-09-28)
+### Security
 
 - Free text in chat messages always goes through `commands.clean()` (no `&` codes, no button markers); the plugin
-  additionally only lets buttons run its own commands.
-- A failing `!CMD` answers the player with an error and a failing request gets `error|005`; neither ends the
-  plugin connection. Before `!AUTH` messages are limited to 1 KB.
-- Rate limits (`RateLimiter` in `web/main.py`, in memory per worker): admin login per address and per account,
-  login pins per player and per address, invite codes and applications per address. Behind a proxy
-  `FLASK_PROXY_FIX` must be on and port 8000 must not be reachable directly, otherwise the client address can
-  be forged with `X-Forwarded-For` (the production setup is fine: private network, proxy in another container).
+  only lets buttons run its own commands.
+- A failing `!CMD` answers the player with an error, a failing request gets `error|005`; neither ends the plugin
+  connection. Before `!AUTH` messages are limited to 1 KB.
+- Rate limits (`RateLimiter` in `web/main.py`, in memory per worker): admin login per address and account, login
+  pins per player and address, invite codes and applications per address. Behind a proxy `FLASK_PROXY_FIX` must
+  be on and port 8000 must not be reachable directly (the production setup is fine: private network).
 - Stats from the plugin are only stored for valid resource locations (`stats.OBJECT_NAME_RE`) and bigint values.
-- Every response has `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff` and a referrer policy; HTML
-  pages a full CSP (`content_security_policy()` in `web/main.py`): scripts only from the own origins, cdnjs,
-  googleapis and jsdelivr, inline `<script nonce="{{ csp_nonce() }}">` only. **New inline scripts need the nonce;
-  inline handlers (`onclick=`) do not work** – use `data-on-click="function"` (`web/static/actions.js`) or
+- Every response has `X-Frame-Options`, `nosniff` and a referrer policy; HTML pages a CSP
+  (`content_security_policy()`): scripts from the own origins, cdnjs, googleapis and jsdelivr (jQuery, three.js,
+  MineRender on the player page) and inline `<script nonce="{{ csp_nonce() }}">` only. **New inline scripts need
+  the nonce; `onclick=` does not work** – use `data-on-click="function"` (`web/static/actions.js`) or
   `addEventListener`. MineRender's page view counter (minerender.org) is blocked on purpose.
-- Live values are polled (`web/static/poll.js`, `LiveCache` in `web/main.py`, 2 s per server/player); no
-  request keeps a worker thread busy any more.
+- The dialog library (`messageBoxes.js`) is vendored in `web/static/vendor/messageBoxLib/` (fixed commit).
 
 ### Open
 
-- Phases 5-9 were built in one go without feedback rounds; screenshots were checked, the owner's visual feedback is
-  still missing. The plugin features were tested end to end on Paper 1.21.4 with bots (`tools/e2e/`): commands,
-  duels, reports, sidebar, mutes, warnings, bans with kick message, `/pardon`, whitelist codes and the kick link.
-  Prefix name tags stay visible with the sidebar on. Not tested in the game: the TLS connection (needs a trusted
-  certificate; the server side has tests).
-- Invite codes can only be redeemed on the website: a player who is not on the whitelist cannot join, so there is
-  no way to type a code in the game.
-- The year in review only knows gains since the snapshots started (schema 7); 2026 starts at the first snapshot.
-- Gains (today, competitions, goals, duels, sidebar) are measured against the last snapshot before the start day.
-  A player's first sync is therefore also stored as the day before (baseline, schema 19). **New or old player**
-  decides that baseline: a player whose first join in the game (`player_server_info.first_played`, sent by
-  plugin 3.15) lies after `servers.tracking_since` (first plugin connection) is new – baseline 0, everything
-  counts; otherwise the first stats are the baseline (an old player's lifetime values are no gain). When the
-  first join arrives later (older plugin, stats before the join), `register_player_join_info` corrects the
-  baseline once. Without the game's first join (plugins before 3.15) the time since MCConnect's first sight is
-  the fallback. This went wrong several times before (schema 19, 21, 23, 24): players who joined while the
-  plugin was disconnected, partial first live updates – keep the tests in `tests/test_metrics.py` green.
-- "Dabei seit", veterans, anniversaries, new players per week/month and the reward condition "days" use the
-  game's first join if known (`COALESCE(first_played, first_seen)`); an old player seen by MCConnect for the
-  first time is not "neu auf dem Server".
-- The once-a-minute checks of the socket server run step by step, each guarded; a failing step is logged as
-  "Periodic check failed: <step>" and the others go on.
-- New CSS should use the `--srv-*` / `--st-*` tokens (or get a rule in `dark.css`), otherwise it stays light in dark mode.
-- `database/manage.py seed` is dev only. The plugin connection is TLS only (port 9991); the socket server's own
-  certificate is in `certs/` locally (`python -m mc_socket.tlscert` prints the fingerprint).
+- The owner's visual feedback on the latest rounds is still missing.
+- Invite codes can only be redeemed on the website (a player who is not on the whitelist cannot join the game).
+- The year in review only knows gains since the snapshots started (schema 7).
+- Streaks and "days online" come from `player_sessions`: a day on which a player was only online while the
+  plugin was disconnected is missing.
+- Players who never joined while the plugin was connected and have no first join from the game (plugins
+  before 3.15) are guessed as old players.
 
-### Built on 2026-09-27 (phases 5-9, all done – feedback from the owner still open)
-
-1. ~~**Phase 5 – Motivation**~~ (done, see above): streaks (days online in a row, ranking, badges at 7/30/100),
-   community goals (server-wide goal with progress bar, created by moderators), record history
-   ("new record!" in feed and chat, who held which record when), anniversaries ("1 year on the server"
-   in feed/chat, badge), fun facts on the server statistics page, trophy cabinet on the player page
-   (competition wins, player of the week, records held) and a hall of fame page.
-2. ~~**Phase 6 – In game**~~ (done, see above): `/stats [player]`, `/top <metric>`, `/wettbewerb` in the chat;
-   optional scoreboard sidebar (competition standings / own play time, switchable per player);
-   duels (1 vs 1 challenge for a metric and a period, accept on the website or with `/duell`, winner in chat);
-   report system (`/report` or website, with position and time, list for moderators).
-3. ~~**Phase 7 – Community**~~ (done, see above): event calendar (start page, chat reminder, sign up), polls (moderators create,
-   vote on the website or with `/vote`), build gallery (players upload screenshots with title/coordinates,
-   moderators approve, likes), guestbook on the player page (report/delete).
-4. ~~**Phase 8 – Moderation & access**~~ (done, see above): whitelist access **either by application** (form on the website,
-   moderators accept, plugin whitelists) **or by invite code/password** (enter it on the website or in game
-   to be whitelisted directly); warnings with reason (shown in game, automatic ban after X) and chat mute;
-   X-ray suspicion hints for moderators (unusual ore/stone ratio or ores per hour, hint only); e-mail alert
-   to the admin when the server goes offline or the TPS stay below 15 (SMTP exists); rules & FAQ page,
-   **optional per server**, shown with a link on the first join.
-5. ~~**Phase 9 – Reach & design**~~ (done, see above): personal year in review "Wrapped" (to click through and share; best built
-   for December when a year of snapshots exists), public server directory on the main domain (opt out per
-   server), dark mode for all server pages (incl. the old templates).
-
-### Continuing in a new session
+### Conventions
 
 - UI texts in German with "du", code/comments/commits in English, **no AI attribution in commits**.
   Minecraft names the way players say them (Ancient Debris, not "Antiker Schutt"). No "AI look":
   fonts Chakra Petch / Atkinson Hyperlegible / JetBrains Mono (self-hosted), no external CDNs for new things.
-- The owner tests visually and gives short feedback: take screenshots before finishing (headless Chrome,
-  see `docs/HANDOFF_spielervergleich.md`; pages that need a login are rendered with `app.test_client()`
-  and `session_transaction`). Load the `dataviz` skill before writing chart code.
+- Take screenshots before finishing (headless Chrome with `--host-resolver-rules`; pages that need a login are
+  rendered with `app.test_client()` and `session_transaction`, see `docs/HANDOFF_spielervergleich.md`). Load the
+  `dataviz` skill before writing chart code.
 - New migration: add `N: [...]` to `MIGRATIONS` in `database/databaseManagerV2.py` **and** drop the new
   objects in `test_migration_from_version_1` (`tests/test_database.py`).
 - Every new public view must respect `hide_stats` (`get_server_metrics()` leaves hidden players out
   unless `include_hidden=True`).
-- Plugin changes: bump the version in `pom.xml`, document new messages in the docstring of
-  `mc_socket/main.py`, check that it compiles (Maven is not installed locally):
-  `docker run --rm -v <copy of java plugin/MCDataLink>:/build -w /build maven:3.9-eclipse-temurin-17 mvn -q -B package`.
-  Production builds the plugin in the Dockerfile; server owners download it on the admin page.
-- Dev data: the dev database has fake players, sessions, snapshots and health samples on `testdomain`;
-  more can be created with `ensure_player_on_server`, `update_player_stats` and by moving
-  `stat_snapshots.day` / `player_sessions` into the past.
+- New CSS uses the `--srv-*` / `--st-*` tokens (or gets a rule in `dark.css`), otherwise it stays light in dark mode.
+- Plugin changes: bump the version in `pom.xml`, document new messages in the docstring of `mc_socket/main.py`,
+  check that it compiles (`docker run --rm -v <copy>:/p -w /p maven:3.9-eclipse-temurin-17 mvn -q package`) and
+  test it with `tools/e2e/`. Production builds the plugin in the Dockerfile; server owners download it on the
+  admin page.
+- Dev data: the dev database has fake players, sessions, snapshots and health samples on `testdomain`; more can
+  be created with `ensure_player_on_server`, `update_player_stats` and by moving `stat_snapshots.day` /
+  `player_sessions` into the past.
 
 Legal information: 
 

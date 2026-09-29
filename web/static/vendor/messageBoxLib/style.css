@@ -1,0 +1,75 @@
+/* CSS für das Popup */
+.custom-modal,
+#custom-overlay {
+    box-sizing: border-box;
+}
+
+.custom-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0);
+    transition: 200ms ease-in-out;
+    border: 1px solid black;
+    border-radius: 10px;
+    z-index: 9999;
+    background-color: white;
+    width: 500px;
+    max-width: 80%;
+}
+
+.custom-modal.active {
+    transform: translate(-50%, -50%) scale(1);
+}
+
+.custom-modal .modal-header {
+    padding: 10px 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid black;
+}
+
+.button-container {
+    padding: 10px 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.custom-modal .title {
+    font-size: 1.25rem;
+    font-weight: bold;
+}
+
+.custom-modal .modal-header .close-button {
+    cursor: pointer;
+    border: none;
+    outline: none;
+    background: none;
+    font-size: 1.25rem;
+    font-weight: bold;
+    color: red;
+}
+
+.custom-modal .modal-body {
+    padding: 10px 15px;
+}
+
+#custom-overlay {
+    position: fixed;
+    opacity: 0;
+    transition: 200ms ease-in-out;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+    z-index: 9998;
+}
+
+#custom-overlay.active {
+    opacity: 1;
+    pointer-events: all;
+}

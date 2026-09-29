@@ -1,7 +1,7 @@
 <script src="{{ url_for('static', filename='actions.js') }}"></script>
 {% include "_theme.html" %}
 <script
-  src="https://cdn.jsdelivr.net/gh/Tobias-Auer/messageBoxLib/messageBoxes.js"
+  src="{{ url_for('static', filename='vendor/messageBoxLib/messageBoxes.js') }}"
   defer
 ></script>
 <link

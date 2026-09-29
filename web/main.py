@@ -3060,8 +3060,8 @@ def content_security_policy():
     return "; ".join((
         "default-src 'self'",
         f"script-src 'self' {static} 'nonce-{csp_nonce()}' {CSP_SCRIPT_HOSTS}",
-        # style attributes are everywhere (and harmless without script); the dialog library loads its CSS itself
-        f"style-src 'self' {static} 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net",
+        # style attributes are everywhere (and harmless without script)
+        f"style-src 'self' {static} 'unsafe-inline' https://fonts.googleapis.com",
         f"font-src 'self' {static} https://fonts.gstatic.com data:",
         f"img-src 'self' {static} https: data: blob:",
         # MineRender also reports every page view to minerender.org: not allowed
