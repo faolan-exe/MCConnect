@@ -6,6 +6,7 @@ import pytest
 from PIL import Image
 
 from database import config
+from database import chat
 from mc_socket import commands
 from tests.conftest import OTHER_UUID, PLAYER_UUID
 from tests.test_ingame import cmd, tells, until
@@ -124,7 +125,9 @@ def test_poll_votes(db, server, two_players):
         cur.execute("UPDATE polls SET ends_at = now() - interval '1 minute'")
     assert db.vote(server["id"], poll_id, a, 1) == "closed"
     finished = db.take_finished_polls([server["id"]])
-    assert commands.poll_result(finished[0]) == ("gold", "★ Umfrage »Was bauen wir?«: Hafen (100 %, 2 Stimmen)")
+    color, text = commands.poll_result(finished[0])
+    assert chat.without_hover(text) == "★ Umfrage »Was bauen wir?«: Hafen (100 %, 2 Stimmen)"
+    assert "⇝&eErgebnis¶&fHafen&7: 2 (100 %)¶&fBurg&7: 0 (0 %)⟧" in text  # all answers on hover
     assert db.take_finished_polls([server["id"]]) == []
 
 

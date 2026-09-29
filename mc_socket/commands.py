@@ -6,7 +6,7 @@ codes, which the plugin turns into chat colors; dynamic text is passed through c
 import re
 from datetime import timedelta
 
-from database import achievements, config, metrics, motivation, rewards
+from database import achievements, chat, config, metrics, motivation, rewards
 
 # Names for /top and /duell (what players type), in the order of the tab completion.
 METRIC_NAMES = {
@@ -57,7 +57,7 @@ def without_buttons(text):
 def clean(text):
     """Free text for the chat: no color codes, no protocol separators, no button markers."""
     text = str(text or "").replace("&", "+").replace("§", "").replace("|", "/").replace("~", "-").replace("\n", " ")
-    return text.replace(BUTTON_OPEN, "").replace(BUTTON_ARROW, "").replace(BUTTON_CLOSE, "")
+    return text.replace(BUTTON_OPEN, "").replace(BUTTON_ARROW, "").replace(BUTTON_CLOSE, "").replace(chat.HOVER, "")
 
 
 def metric_by_name(name):
@@ -344,7 +344,10 @@ def duel_result(duel):
     if c == o:
         return "gold", f"⚔ Duell {duel['challenger']} gegen {duel['opponent']} endet unentschieden ({score}, {metric.label})."
     winner, loser = (duel["challenger"], duel["opponent"]) if c > o else (duel["opponent"], duel["challenger"])
-    return "gold", f"⚔ {winner} gewinnt das Duell gegen {loser}: {score} ({metric.label})!"
+    details = chat.hover(score, f"&eDuell: {metric.label}", "&7Zuwachs während des Duells:",
+                         f"&f{duel['challenger']}&7: {metrics.format_value(metric, c)}",
+                         f"&f{duel['opponent']}&7: {metrics.format_value(metric, o)}")
+    return "gold", f"⚔ {winner} gewinnt das Duell gegen {loser}: {details} ({metric.label})!"
 
 
 # ------------------------------------------------------------------ /report
@@ -465,7 +468,10 @@ def poll_result(poll):
     top = max(poll["votes"])
     winners = [clean(o) for o, v in zip(poll["options"], poll["votes"]) if v == top]
     share = round(top * 100 / poll["total"])
-    return "gold", (f"★ Umfrage »{clean(poll['question'])}«: {' und '.join(winners)} "
+    results = [f"&f{clean(option)}&7: {votes} ({round(votes * 100 / poll['total'])} %)"
+               for option, votes in sorted(zip(poll["options"], poll["votes"]), key=lambda ov: -ov[1])][:5]
+    details = chat.hover(f"»{clean(poll['question'])}«", "&eErgebnis", *results)
+    return "gold", (f"★ Umfrage {details}: {' und '.join(winners)} "
                     f"({share} %, {poll['total']} {'Stimme' if poll['total'] == 1 else 'Stimmen'})")
 
 

@@ -58,7 +58,7 @@ UNLOCK_KINDS = {"colors": COLORS, "symbols": SYMBOLS, "styles": tuple(STYLES), "
 # Own texts of a server (servers.reward_texts: {"join": {key: text}, "leave": {key: text}}), keys "c1", "c2", ...
 CUSTOM_TEXT_MAX = 80
 CUSTOM_TEXTS_PER_KIND = 30
-CUSTOM_TEXT_RE = re.compile(r"^[^&§|~\u27e6\u21d2\u27e7\x00-\x1f]{1,80}$")
+CUSTOM_TEXT_RE = re.compile(r"^[^&§|~\u27e6\u21d2\u21dd\u27e7\x00-\x1f]{1,80}$")
 
 
 class Catalog:

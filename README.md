@@ -51,7 +51,7 @@ fingerprint of the local socket certificate (`certs/`) for a test plugin's `tls-
 
 ## Status
 
-State of 2026-09-29: schema version 26, plugin 3.19. Written as a handoff for the next development session.
+State of 2026-09-29: schema version 26, plugin 3.20. Written as a handoff for the next development session.
 
 ### Features
 
@@ -94,7 +94,9 @@ reflection; players with the pack get a copy of the main scoreboard with MCConne
 (`!update`, `database/plugin_jar.py`: version and SHA-256 of the offered jar over the pinned connection, a newer jar
 goes into `plugins/update/` under the running jar's name and is active after the next restart; `auto-update: false`) ·
 3.19 own icons in prefixes: above the heads and in the chat per viewer (players with the pack get the chat line with icons
-as a message of their own), the tab list always with fallbacks (it is the same for everyone).
+as a message of their own), the tab list always with fallbacks (it is the same for everyone) · 3.20 tooltips in chat
+lines (`database/chat.py`: `⟦label⇝line¶line⟧`; achievements, records, streaks, goals, competitions, player of the
+week, duels and polls show 2–4 lines of details on hover; older plugins get the label only).
 
 Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss the newer features.
 
@@ -129,7 +131,7 @@ Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss 
 
 ### Security
 
-- Free text in chat messages always goes through `commands.clean()` (no `&` codes, no button markers); the plugin
+- Free text in chat messages always goes through `commands.clean()` (no `&` codes, no button or tooltip markers); the plugin
   only lets buttons run its own commands.
 - A failing `!CMD` answers the player with an error, a failing request gets `error|005`; neither ends the plugin
   connection. Before `!AUTH` messages are limited to 1 KB.

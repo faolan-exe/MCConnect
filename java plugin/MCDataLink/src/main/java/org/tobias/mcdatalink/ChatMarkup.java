@@ -18,9 +18,10 @@ import java.util.regex.Pattern;
  * command as the player) and links (clicking opens them). MCConnect removes the button markers from
  * everything players type, so a button always comes from MCConnect itself. As a second line of defense a
  * button may only run MCDataLink's own commands; any other button is shown as plain text.
+ * Details on hover are written as ⟦label⇝tooltip⟧, "¶" breaks a tooltip line (plugin 3.20).
  */
 final class ChatMarkup {
-    private static final Pattern PART = Pattern.compile("⟦([^⇒⟧]*)⇒([^⟧]*)⟧|(https?://[^\\s⟦]+)");
+    private static final Pattern PART = Pattern.compile("⟦([^⇒⇝⟧]*)([⇒⇝])([^⟧]*)⟧|(https?://[^\\s⟦]+)");
     private static final Pattern COLOR = Pattern.compile("§[0-9a-fk-or]", Pattern.CASE_INSENSITIVE);
 
     private ChatMarkup() {
@@ -41,14 +42,16 @@ final class ChatMarkup {
             String before = line.substring(position, matcher.start());
             add(parts, color + before, null, null);
             color = lastColors(color + before);
-            if (matcher.group(1) != null && !isOwnCommand(matcher.group(2).trim())) {
+            if (matcher.group(1) != null && matcher.group(2).equals("⇝")) {
+                add(parts, color + matcher.group(1), null, matcher.group(3).replace('¶', '\n'));
+            } else if (matcher.group(1) != null && !isOwnCommand(matcher.group(3).trim())) {
                 add(parts, color + matcher.group(1), null, null);
             } else if (matcher.group(1) != null) {
-                String command = matcher.group(2).trim();
+                String command = matcher.group(3).trim();
                 add(parts, color + matcher.group(1), new ClickEvent(ClickEvent.Action.RUN_COMMAND, command),
                         ChatColor.GRAY + "Klicken: " + ChatColor.WHITE + command);
             } else {
-                String url = matcher.group(3);
+                String url = matcher.group(4);
                 add(parts, color + url, new ClickEvent(ClickEvent.Action.OPEN_URL, url), ChatColor.GRAY + "Link öffnen");
             }
             position = matcher.end();
@@ -67,17 +70,15 @@ final class ChatMarkup {
     /** The line without buttons and colors, e.g. for the console. */
     static String plain(String text) {
         return ChatColor.stripColor(ChatColor.translateAlternateColorCodes('&',
-                text.replaceAll("⟦([^⇒⟧]*)⇒([^⟧]*)⟧", "$1")));
+                text.replaceAll("⟦([^⇒⇝⟧]*)[⇒⇝]([^⟧]*)⟧", "$1")));
     }
 
     @SuppressWarnings("deprecation")  // HoverEvent(Action, BaseComponent[]) is the only constructor in the 1.13 API
     private static void add(List<BaseComponent> parts, String legacy, ClickEvent click, String hover) {
         if (ChatColor.stripColor(legacy).isEmpty()) return;
         for (BaseComponent part : TextComponent.fromLegacyText(legacy)) {
-            if (click != null) {
-                part.setClickEvent(click);
-                part.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, TextComponent.fromLegacyText(hover)));
-            }
+            if (click != null) part.setClickEvent(click);
+            if (hover != null) part.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, TextComponent.fromLegacyText(hover)));
             parts.add(part);
         }
     }

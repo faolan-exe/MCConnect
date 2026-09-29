@@ -5,7 +5,7 @@ in player_achievements when the plugin sends new stats.
 """
 from collections import namedtuple
 
-from . import metrics
+from . import chat, metrics
 
 Achievement = namedtuple("Achievement", "key name description metric thresholds")
 # (key, label, minecraft chat color of the announcement, web color)
@@ -68,6 +68,11 @@ def progress(achievement, value):
 
 
 def announcement(name, achievement, tier):
-    """(chat color, text) for the in-game announcement of a new tier."""
+    """(chat color, text) for the in-game announcement of a new tier; the name shows the tiers on hover."""
     _, label, color, _ = TIERS[tier]
-    return color, f"★ {name} hat den Erfolg »{achievement.name}« ({label}) erreicht!"
+    fmt = lambda threshold: metrics.format_count(int(_amount(achievement, threshold)))
+    following = (f"&7Nächste Stufe {TIERS[tier + 1][1]}: &f{fmt(achievement.thresholds[tier + 1])}"
+                 if tier + 1 < len(TIERS) else "&7Die höchste Stufe!")
+    details = chat.hover(f"»{achievement.name}«", f"&e{achievement.name} &7– {achievement.description}",
+                         f"&7{label}: &f{fmt(achievement.thresholds[tier])}", following)
+    return color, f"★ {name} hat den Erfolg {details} ({label}) erreicht!"

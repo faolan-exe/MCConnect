@@ -113,7 +113,7 @@ def test_taking_a_record_while_playing(db, server, two_players):
     db.update_records(a)
     db.update_player_stats(b, {"stats": dict(STATS_B["stats"], **{"minecraft:mined": {"minecraft:stone": 500}})})
     events = db.update_records(b)
-    assert [(m.key, previous, value) for m, previous, value in events] == [("blocks_mined", "_Tobias4444", 500)]
+    assert [(m.key, previous, value, old) for m, previous, value, old, _ in events] == [("blocks_mined", "_Tobias4444", 500, 107)]
     history = db.get_record_history(server["id"])
     assert [(h["metric"], h["name"], h["previous"]) for h in history] == [("blocks_mined", "Notch", "_Tobias4444")]
     assert db.get_current_records(server["id"])["blocks_mined"]["first"] is False

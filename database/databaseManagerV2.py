@@ -2204,7 +2204,8 @@ class DatabaseManager:
     def update_records(self, player_id):
         """
         Check the player's values against the records of the server (record_history) after new stats.
-        Returns [(metric, previous holder's name, value)] of the records the player took while playing
+        Returns [(metric, previous holder's name, value, previous record value, previous record since)] of the records
+        the player took while playing
         (to announce). The first record of a metric is taken from all players and stored silently.
         Players who hide their stats take no records.
         """
@@ -2255,7 +2256,7 @@ class DatabaseManager:
                 if not silent:
                     cur.execute("""SELECT p.name FROM player p JOIN player_server_info psi ON psi.mojang_uuid = p.uuid
                                    WHERE psi.player_id = %s""", (record["player_id"],))
-                    events.append((metrics_mod.METRICS_BY_KEY[key], cur.fetchone()[0], value))
+                    events.append((metrics_mod.METRICS_BY_KEY[key], cur.fetchone()[0], value, record["value"], record["since"]))
         return events
 
     @staticmethod

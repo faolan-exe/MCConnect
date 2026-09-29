@@ -232,8 +232,8 @@ public final class MCDataLink extends JavaPlugin {
                 case "100":
                     authenticated = true;
                     getLogger().info("Connected to MCConnect");
-                    // chat messages may contain buttons (ChatMarkup) and icons (Glyphs); updates (PluginUpdater)
-                    send("!FEATURES~click,glyphs,update");
+                    // chat messages may contain buttons and tooltips (ChatMarkup) and icons (Glyphs); updates (PluginUpdater)
+                    send("!FEATURES~click,glyphs,update,hover");
                     sendOnlinePlayers();
                     runOnMainThread(this::sendBanList);
                     runOnMainThread(healthReporter::report);  // first health sample right away

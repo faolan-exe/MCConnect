@@ -24,7 +24,9 @@ Plugin -> server:
     !FEATURES~<name>,<name>      what the plugin can do (after auth): "click" = buttons in chat messages (3.10),
                                  "glyphs" = icons of the resource pack with fallbacks (3.17; older plugins get
                                  every icon replaced by its Unicode fallback, see database/glyphs.py),
-                                 "update" = installs newer plugin versions itself (3.18, see !update)
+                                 "update" = installs newer plugin versions itself (3.18, see !update),
+                                 "hover" = tooltips ⟦label⇝line¶line⟧ in chat lines (3.20, see database/chat.py;
+                                 older plugins get the label only)
     !DISCONNECT                  close the connection
 
 Server -> plugin:
@@ -97,6 +99,7 @@ if PROJECT_ROOT not in sys.path:
 
 from colorlogx import get_logger
 from database import achievements, badges, config, glyphs, metrics, motivation, plugin_jar, rewards
+from database import chat as chat_markup
 from mc_socket import commands, tlscert
 from database.databaseManagerV2 import DatabaseManager
 
@@ -397,8 +400,8 @@ class SocketServer:
         if not records or len(records) > MAX_ANNOUNCED_RECORDS:
             return
         name = self.db.get_player_name_from_player_id(player_id) or "Jemand"
-        for metric, previous, value in records:
-            self.broadcast(server_id, *motivation.record_announcement(name, metric, previous, value))
+        for metric, previous, value, previous_value, since in records:
+            self.broadcast(server_id, *motivation.record_announcement(name, metric, previous, value, previous_value, since))
 
     def after_stats(self, server_id, player_id):
         """Achievements, records, milestones and reward levels after new stats of a player."""
@@ -486,7 +489,10 @@ class SocketServer:
 
     def announce_goals(self, connected):
         for goal in self.db.take_reached_goals(connected):
-            self.broadcast(goal["server_id"], *motivation.goal_announcement(goal))
+            _, per_player = self.db.get_goal_progress(goal)
+            best = sorted(((v, p) for p, v in per_player.items() if v > 0 and not self.db.is_stats_hidden(p)), reverse=True)[:3]
+            top = [(self.db.get_player_name_from_player_id(p), v) for v, p in best]
+            self.broadcast(goal["server_id"], *motivation.goal_announcement(goal, top))
 
     def announce_player_of_week(self, server_id):
         trophy = self.db.settle_player_of_week(server_id)
@@ -616,13 +622,20 @@ class SocketServer:
                 continue
             title = competition["title"]
             if kind == "start":
-                text = (f"★ Wettbewerb »{title}« hat begonnen: {metric.label} bis "
+                details = chat_markup.hover(f"»{title}«", f"&eWer bei {metric.label} am meisten dazugewinnt, gewinnt.",
+                                            f"&7Läuft bis {competition['ends_on'].strftime('%d.%m.')} – einfach spielen,",
+                                            "&7der Stand zählt ab jetzt.")
+                text = (f"★ Wettbewerb {details} hat begonnen: {metric.label} bis "
                         f"{competition['ends_on'].strftime('%d.%m.')}. Stand auf {self.competition_url(competition)}")
             else:
-                top = self.db.get_competition_standings(competition)[:3]
+                standings = self.db.get_competition_standings(competition)
                 places = ", ".join(f"{i}. {row['name']} ({metrics.format_value(metric, row['value'])})"
-                                   for i, row in enumerate(top, 1))
-                text = f"★ Wettbewerb »{title}« ist vorbei! " + (places or "Diesmal hat niemand mitgemacht.")
+                                   for i, row in enumerate(standings[:3], 1))
+                details = chat_markup.hover(f"»{title}«", f"&e{metric.label}, {len(standings)} Teilnehmer",
+                                            *[f"&7{i}. &f{row['name']}&7 – {metrics.format_value(metric, row['value'])}"
+                                              for i, row in enumerate(standings[3:5], 4)],
+                                            "&8Alle Plätze auf der Website")
+                text = f"★ Wettbewerb {details} ist vorbei! " + (places or "Diesmal hat niemand mitgemacht.")
             self.broadcast(competition["server_id"], "gold", text)
 
     def competition_url(self, competition):
@@ -655,6 +668,8 @@ class SocketServer:
             client = self.active_connections.get(server_id)
         if client is None:
             return False
+        if "hover" not in client.features:
+            msg = chat_markup.without_hover(msg)  # tooltips: plugin 3.20
         if "glyphs" not in client.features and glyphs.ICON_RE.search(msg):
             msg = self.icons(server_id).fallback_text(msg)  # the plugin cannot show icons (before 3.17 or !FEATURES)
         if chat and "click" not in client.features:

@@ -3,7 +3,7 @@
 The data lives in player_milestones, record_history, community_goals and trophies
 (see DatabaseManager); this module only holds the rules and the German texts.
 """
-from . import metrics
+from . import chat, metrics
 
 # Badges for days online in a row.
 STREAK_MILESTONES = (7, 30, 100)
@@ -27,23 +27,41 @@ def milestone_label(kind, value):
 def milestone_announcement(name, kind, value):
     """(chat color, text) for a new streak badge or anniversary."""
     if kind == "streak":
-        return "gold", f"★ {name} war {value} Tage in Folge online – Serie!"
+        following = next((n for n in STREAK_MILESTONES if n > value), None)
+        details = chat.hover("Serie", f"&7Abzeichen für &f{value} Tage&7 in Folge online",
+                             f"&7Nächstes: &f{following} Tage" if following else "&7Das höchste Serien-Abzeichen!",
+                             "&8Ein Tag zählt, wenn man online war.")
+        return "gold", f"★ {name} war {value} Tage in Folge online – {details}!"
     return "gold", f"★ {name} ist seit {years_text(value)} auf dem Server – danke fürs Mitspielen!"
 
 
-def record_announcement(name, metric, previous, value):
-    text = f"★ Neuer Rekord! {name} hat {previous} bei »{metric.label}« überholt: {metrics.format_value(metric, value)}"
+def record_announcement(name, metric, previous, value, previous_value=None, since=None):
+    """(chat color, text) of a record that changed hands; the metric shows the old and new record on hover."""
+    details = chat.hover(f"»{metric.label}«", f"&eRekord {metric.label}",
+                         f"&7Neu: &f{name} &7– &f{metrics.format_value(metric, value)}",
+                         f"&7Vorher: &f{previous}" + (f" &7– &f{metrics.format_value(metric, previous_value)}"
+                                                     if previous_value is not None else "")
+                         + (f" &7(seit {since.strftime('%d.%m.%Y')})" if since else ""))
+    text = f"★ Neuer Rekord! {name} hat {previous} bei {details} überholt: {metrics.format_value(metric, value)}"
     return "gold", text
 
 
-def goal_announcement(goal):
+def goal_announcement(goal, top=()):
+    """top: [(name, raw value)] of the players who helped most (shown on hover)."""
     metric = metrics.METRICS_BY_KEY[goal["metric"]]
-    return "gold", (f"★ Gemeinschaftsziel »{goal['title']}« geschafft! Alle zusammen: "
+    since = goal.get("starts_on")
+    details = chat.hover(f"»{goal['title']}«", f"&eZiel: &f{format_goal_value(metric, goal['target'])} {metric.label}",
+                         f"&7Seit {since.strftime('%d.%m.')}" if since else None,
+                         ("&7Am meisten beigetragen: &f" + ", ".join(
+                             f"{name} ({metrics.format_value(metric, value)})" for name, value in top)) if top else None)
+    return "gold", (f"★ Gemeinschaftsziel {details} geschafft! Alle zusammen: "
                     f"{format_goal_value(metric, goal['target'])} {metric.label}")
 
 
 def player_of_week_announcement(trophy):
-    return "gold", f"★ Spieler der Woche ({trophy['title']}): {trophy['name']} mit {trophy['detail']}!"
+    details = chat.hover(trophy["name"], "&eSpieler der Woche", "&7Die meiste Spielzeit der letzten Woche",
+                         "&7Dafür gibt es eine Trophäe (Ruhmeshalle).")
+    return "gold", f"★ Spieler der Woche ({trophy['title']}): {details} mit {trophy['detail']}!"
 
 
 # ------------------------------------------------------------------ community goal units

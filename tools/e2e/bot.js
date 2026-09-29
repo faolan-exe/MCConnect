@@ -9,6 +9,7 @@ bot.on("messagestr", (message) => console.log(`[${name}] CHAT: ${message}`));
 if (process.env.RAW) {
   bot._client.on("system_chat", (data) => {
     const json = JSON.stringify(data.content ?? data);
+    if (/hover/i.test(json)) console.log(`[${name}] RAW hover: ${(json.match(/"(text|value)":\{"type":"string","value":"[^"]*"/g) || []).join(" ").slice(0, 400)}`);
     if (/click/i.test(json)) console.log(`[${name}] RAW clickable: ${(json.match(/"(value|command|url)":\{"type":"string","value":"(\/[^"]*|https?:[^"]*)"/g) || []).join(" ")}`);
   });
   for (const packet of ["scoreboard_objective", "scoreboard_score", "scoreboard_display_objective", "teams"]) {
