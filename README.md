@@ -114,6 +114,8 @@ Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss 
 - **Plugin connection.** TLS only on 9991. The socket server creates its own certificate on the first start
   (`mc_socket/tlscert.py`, docker volume `socket_tls`); the admin page shows its fingerprint in the plugin
   config, the plugin pins it. An own certificate (`MCC_SOCKET_TLS_CERT/KEY`) is optional.
+- **Streaks** count days with a session and days on which the play time grew (online while the plugin was
+  disconnected, no session).
 - The once-a-minute checks of the socket server run step by step, each guarded ("Periodic check failed:
   <step>" in the log).
 
@@ -139,8 +141,6 @@ Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss 
 - The owner's visual feedback on the latest rounds is still missing.
 - Invite codes can only be redeemed on the website (a player who is not on the whitelist cannot join the game).
 - The year in review only knows gains since the snapshots started (schema 7).
-- Streaks and "days online" come from `player_sessions`: a day on which a player was only online while the
-  plugin was disconnected is missing.
 - Players who never joined while the plugin was connected and have no first join from the game (plugins
   before 3.15) are guessed as old players.
 

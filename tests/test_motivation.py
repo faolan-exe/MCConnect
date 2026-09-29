@@ -336,3 +336,17 @@ def test_fun_facts():
 def test_fun_facts_on_server_stats(client, db, server, two_players):
     html = client.get("/server-statistik", **on("testdomain")).get_data(as_text=True)
     assert "Schon gewusst?" in html and "Am häufigsten: Stone" in html
+
+
+def test_streak_counts_days_without_session_when_the_play_time_grew(db, server):
+    """Online while the plugin was disconnected: no session, but the play time of that day grew."""
+    player = db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
+    with db._cursor() as cur:
+        cur.execute("UPDATE player_sessions SET started_at = current_date - 2 + time '10:00', ended_at = current_date - 2 + time '11:00'")
+        for days_ago, play in ((3, 1000), (2, 2000), (1, 3000), (0, 4000)):  # yesterday only in the stats
+            cur.execute("INSERT INTO stat_snapshots (player_id, metric, day, value) VALUES (%s, 'play_time', current_date - %s, %s)",
+                        (player, days_ago, play))
+        cur.execute("INSERT INTO player_sessions (player_id, started_at) VALUES (%s, now())", (player,))
+    streak = db.get_player_streak(player)
+    assert (streak["best"], streak["current"]) == (3, 3)  # the day before yesterday, yesterday (stats), today
+    assert db.get_streaks(server["id"])[str(player)]["best"] == 3

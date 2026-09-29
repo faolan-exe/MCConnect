@@ -2089,11 +2089,19 @@ class DatabaseManager:
     # Runs of days in a row with a session (a session over midnight counts for both days).
     _STREAK_RUNS = """
         WITH days AS (
-            SELECT DISTINCT ps.player_id, d::date AS day
+            -- days with a session, and days on which the play time grew (online while the plugin was
+            -- disconnected, e.g. during an update: no session, but the stats show it)
+            SELECT ps.player_id, d::date AS day
             FROM player_sessions ps JOIN player_server_info psi ON psi.player_id = ps.player_id
             CROSS JOIN LATERAL generate_series(ps.started_at::date, COALESCE(ps.ended_at, now())::date,
                                                interval '1 day') AS d
-            WHERE {where}),
+            WHERE {where}
+            UNION
+            SELECT player_id, day FROM (
+                SELECT s.player_id, s.day, s.value, lag(s.value) OVER (PARTITION BY s.player_id ORDER BY s.day) AS before
+                FROM stat_snapshots s JOIN player_server_info psi ON psi.player_id = s.player_id
+                WHERE s.metric = 'play_time' AND {where}) played
+            WHERE value > before),
         runs AS (
             SELECT player_id, min(day) AS first, max(day) AS last, count(*)::int AS length
             FROM (SELECT player_id, day, day - (row_number() OVER (PARTITION BY player_id ORDER BY day))::int AS grp
@@ -2115,11 +2123,11 @@ class DatabaseManager:
         current counts while the player was online today or yesterday (the streak can still go on).
         """
         rows = self._fetchall(self._STREAK_RUNS.format(where="psi.server_id = %s AND (%s OR NOT psi.hide_stats)"),
-                              (server_id, include_hidden))
+                              (server_id, include_hidden) * 2)
         return {str(row[0]): self._streak(row) for row in rows}
 
     def get_player_streak(self, player_id):
-        row = self._fetchone(self._STREAK_RUNS.format(where="ps.player_id = %s"), (player_id,))
+        row = self._fetchone(self._STREAK_RUNS.format(where="psi.player_id = %s"), (player_id, player_id))
         return self._streak(row) if row else {"best": 0, "current": 0, "best_first": None, "best_last": None}
 
     def _played_recently(self, cur, player_id):
