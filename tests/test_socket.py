@@ -37,6 +37,9 @@ class FakePlugin:
                 continue
             if msg == "!joinreset~":  # sent before the join messages of every auth
                 continue
+            if msg.startswith("!joindefault~"):  # the default join lines, sent with every auth
+                self.join_default = msg
+                continue
             if msg.startswith("!prefix~"):
                 self.prefixes.append(msg)
                 continue
@@ -46,7 +49,7 @@ class FakePlugin:
         """Next prefix message; fails if another message arrives first."""
         while not self.prefixes:
             msg = recv_msg(self.sock)
-            if msg in ("!heartbeat", "!joinreset~") or msg.startswith("!metrics~"):
+            if msg in ("!heartbeat", "!joinreset~") or msg.startswith(("!metrics~", "!joindefault~")):
                 continue
             if not msg.startswith("!prefix~"):
                 raise AssertionError(f"expected a prefix message, got {msg!r}")

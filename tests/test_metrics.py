@@ -269,9 +269,9 @@ def test_known_player_seen_for_the_first_time_counts_from_then_on(db, server):
     assert db.get_metrics_between(server["id"], today, today)[str(player)]["blocks_mined"] == 10
 
 
-@pytest.mark.parametrize("migration", [21, 23])
+@pytest.mark.parametrize("migration", [21])
 def test_migration_gives_new_players_their_first_session_back(db, server, migration):
-    """Migrations 21 (sessions) and 23 (first join): baselines of new players stored with the old rule become 0."""
+    """Migration 21 (sessions): baselines of new players stored with the old rule become 0."""
     from database.databaseManagerV2 import MIGRATIONS
     new = db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
     old = db.register_player_join(server["id"], OTHER_UUID, "Notch")
@@ -283,8 +283,6 @@ def test_migration_gives_new_players_their_first_session_back(db, server, migrat
     with db._cursor() as cur:  # the old rule: the first stats were the baseline
         cur.execute("UPDATE stat_snapshots s SET value = t.value FROM stat_snapshots t WHERE s.player_id = t.player_id "
                     "AND s.metric = t.metric AND s.day = current_date - 1 AND t.day = current_date")
-        if migration == 23:
-            cur.execute("DELETE FROM player_sessions")  # the plugin was disconnected: no sessions
         for statement in MIGRATIONS[migration]:
             cur.execute(statement)
     today = db.get_today()
@@ -352,3 +350,17 @@ def test_old_player_new_to_mcconnect_is_not_new(db, server, plugin):
     today = db.get_today()
     assert db.get_new_players_between(server["id"], today, today) == 0
     assert db.get_veterans(server["id"])[0]["first_seen"].year == (datetime.now() - timedelta(days=800)).year
+
+
+
+def test_old_player_zeroed_by_a_guess_is_restored(db, server, plugin):
+    """An old player whose baseline an earlier correction set to 0 gets the values of the first sync back."""
+    player = db.ensure_player_on_server(server["id"], PLAYER_UUID, "_Tobias4444")
+    db.update_player_stats(player, new_player_stats(600, 5000))
+    with db._cursor() as cur:  # wrongly corrected: baseline 0
+        cur.execute("UPDATE stat_snapshots SET value = 0 WHERE player_id = %s AND day = current_date - 1", (player,))
+    today = db.get_today()
+    assert db.get_metrics_between(server["id"], today, today)[str(player)]["blocks_mined"] == 5000
+    connection = plugin().auth(server["key"])
+    assert connection.request(f"!JOIN~{PLAYER_UUID}|_Tobias4444|0|{epoch_ms(timedelta(days=-300))}") == "success|101"
+    assert db.get_metrics_between(server["id"], today, today)[str(player)]["blocks_mined"] == 0

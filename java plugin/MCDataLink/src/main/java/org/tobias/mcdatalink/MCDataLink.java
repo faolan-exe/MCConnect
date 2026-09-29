@@ -312,6 +312,9 @@ public final class MCDataLink extends JavaPlugin {
                 if (uuid != null) joinMessages.setMutes(uuid, "1".equals(fields[1]), JoinMessages.parseUuids(fields[2]));
                 break;
             }
+            case "!joindefault":  // join line|leave line with {name} (players without an own style)
+                if (fields.length >= 2) joinMessages.setDefault(fields[0], fields[1]);
+                break;
             case "!joinreset":
                 joinMessages.reset();
                 break;

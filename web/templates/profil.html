@@ -53,10 +53,6 @@
     <div data-role="join-preview">{{ join.preview_join }}</div>
     <div data-role="leave-preview">{{ join.preview_leave }}</div>
   </div>
-  <label class="pf-check">
-    <input type="checkbox" data-role="custom"{% if join.custom %} checked{% endif %}/>
-    <span><b>Eigene Nachricht verwenden</b> <span class="mcc-hint">(sonst die normale des Spiels)</span></span>
-  </label>
 
   {% for field, title in (("join_text", "Text beim Kommen"), ("leave_text", "Text beim Gehen"), ("color", "Farbe deines Namens"),
                           ("symbol", "Symbol"), ("style", "Stil"), ("sound", "Sound (hören alle, die ihn nicht abgeschaltet haben)")) %}
@@ -111,13 +107,11 @@
     const root = document.getElementById("join");
     if (!root) return;
     const message = document.getElementById("join-message");
-    const custom = root.querySelector('[data-role="custom"]');
     function show(result) {
       if (!result.ok) return showMessage(message, result.data.error || "Speichern fehlgeschlagen.", "error");
       root.querySelector('[data-role="join-preview"]').innerHTML = result.data.join;  // rendered and escaped on the server
       root.querySelector('[data-role="leave-preview"]').innerHTML = result.data.leave;
-      custom.checked = result.data.custom;
-      showMessage(message, result.data.custom ? "Gespeichert – im Spiel ab dem nächsten Join." : "Du hast wieder die normale Nachricht des Spiels.", "success");
+      showMessage(message, "Gespeichert – im Spiel ab dem nächsten Join.", "success");
     }
     root.querySelectorAll(".jm-options").forEach((group) => group.addEventListener("click", async (event) => {
       const button = event.target.closest("button[data-value]");
@@ -126,11 +120,6 @@
       if (result.ok) group.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
       show(result);
     }));
-    custom.addEventListener("change", async () => {
-      // switching on saves the current choice (every field sends the whole normalized style)
-      const chosen = root.querySelector('[data-field="join_text"] [aria-pressed="true"]');
-      show(await postJson("/api/joinstyle", custom.checked ? { field: "join_text", value: chosen.dataset.value } : { custom: false }));
-    });
 
     const muteMessage = document.getElementById("mute-message");
     const list = root.querySelector('[data-role="muted"]');

@@ -653,12 +653,9 @@ def cmd_joinmessage(ctx, args):
     style, available, catalog = state["style"], state["available"], state["catalog"]
     levels, level = state["levels"], state["level"]
     lines = [f"&6--- Deine Join-Nachricht · Stufe {clean(levels[level]['name'])} ({level + 1}/{len(levels)}) ---"]
-    if state["custom"]:
-        lines += [f"&7Join: {rewards.render(ctx.name, style, available, 'join', catalog)}",
-                  f"&7Leave: {rewards.render(ctx.name, style, available, 'leave', catalog)}"]
-    else:
-        lines.append("&7Gerade zeigt das Spiel seine normale Nachricht. Wähl etwas aus, um deine eigene zu nutzen.")
     lines += [
+        f"&7Join: {rewards.render(ctx.name, style, available, 'join', catalog)}",
+        f"&7Leave: {rewards.render(ctx.name, style, available, 'leave', catalog)}",
         "&7Text: " + _options(state, "join_text", "join_texts", lambda v: catalog.text("join_texts", v).replace("{name}", "…")),
         "&7Leave: " + _options(state, "leave_text", "leave_texts", lambda v: catalog.text("leave_texts", v).replace("{name}", "…")),
         "&7Farbe: " + _options(state, "color", "colors", lambda v: rewards.COLOR_LABELS[v]),
@@ -669,21 +666,15 @@ def cmd_joinmessage(ctx, args):
     if level + 1 < len(levels):
         following = levels[level + 1]
         lines.append(f"&7Nächste Stufe »{clean(following['name'])}«: {clean(rewards.level_hint(following))}")
-    if state["custom"]:
-        lines.append(button("&7[Normale Nachricht des Spiels]", "/joinmessage aus"))
     lines.append(f"&7Vorschau und Stummschalten: &b{page_url(db, ctx.server_id, '/profil')}")
     return lines
 
 
 def set_join_style(ctx, state, what, value):
     db = ctx.db
-    if what == "aus":
-        db.set_join_style(ctx.player_id, None)
-        ctx.send(rewards.join_style_message(db, ctx.player_id))
-        return ["&7Du hast wieder die normale Join-Nachricht des Spiels."]
     field = JOIN_FIELDS.get(what)
     if field is None:
-        return ["&7Benutzung: &f/joinmessage [text|leave|farbe|symbol|stil|sound|aus] [wert]"]
+        return ["&7Benutzung: &f/joinmessage [text|leave|farbe|symbol|stil|sound] [wert]"]
     if field == "symbol":
         try:
             value = rewards.SYMBOLS[int(value)]

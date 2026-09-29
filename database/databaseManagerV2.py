@@ -430,18 +430,10 @@ MIGRATIONS = {
         "ALTER TABLE servers ADD COLUMN reward_texts jsonb",
     ],
     23: [
-        # Like 21, but measured against the time since the first join instead of the sessions: while the plugin
-        # was disconnected (updates, restarts) new players kept playing without a session and were missed.
-        # The first snapshot is the baseline of the first sync (the day before it).
-        """WITH first AS (SELECT DISTINCT ON (player_id) player_id, day FROM stat_snapshots ORDER BY player_id, day),
-           new_players AS (
-             SELECT f.player_id, f.day FROM first f
-             JOIN stat_snapshots s ON s.player_id = f.player_id AND s.day = f.day AND s.metric = 'play_time'
-             JOIN player_server_info psi ON psi.player_id = f.player_id
-             WHERE psi.first_seen IS NOT NULL AND psi.first_seen < (f.day + 2)::timestamptz
-               AND s.value / 20.0 <= 300 + extract(epoch FROM (f.day + 2)::timestamptz - psi.first_seen))
-           UPDATE stat_snapshots s SET value = 0 FROM new_players n
-           WHERE s.player_id = n.player_id AND s.day = n.day AND s.value <> 0""",
+        # (Was a correction by the time since the first join; a later check showed it cannot tell an old player
+        # from a new one afterwards. Now done safely per player with the game's first join, see
+        # register_player_join_info. Kept as a no-op so the numbering stays.)
+        "SELECT 1",
     ],
     24: [
         # A new player is one whose first join on the Minecraft server (Bukkit getFirstPlayed, sent with !JOIN
@@ -947,13 +939,8 @@ class DatabaseManager:
                                RETURNING first_played >= (SELECT tracking_since FROM servers WHERE id = %s)""",
                             (first_played, player_id, server_id))
                 row = cur.fetchone()
-                if row and row[0]:
-                    # Joined the game after MCConnect started recording: everything the player has was gained here.
-                    # The baseline of their first sync may have been guessed wrong (e.g. they joined while the
-                    # plugin was disconnected): it becomes 0.
-                    cur.execute("""UPDATE stat_snapshots SET value = 0 WHERE player_id = %s AND value <> 0
-                                     AND day = (SELECT min(day) FROM stat_snapshots WHERE player_id = %s)""",
-                                (player_id, player_id))
+                if row and row[0] is not None:
+                    self._correct_first_baseline(cur, player_id, new_player=row[0])
             cur.execute("""UPDATE player_server_info
                            SET online = true, first_seen = COALESCE(first_seen, now()), last_seen = now()
                            WHERE player_id = %s""", (player_id,))
@@ -968,6 +955,30 @@ class DatabaseManager:
                 if cur.rowcount == 0:
                     cur.execute("INSERT INTO player_sessions (player_id) VALUES (%s)", (player_id,))
         return player_id, first
+
+    @staticmethod
+    def _correct_first_baseline(cur, player_id, new_player):
+        """
+        The baseline of a player's first sync (the earliest snapshot) was guessed before the game's first join was
+        known; correct it once. New player (joined the game after MCConnect started recording): everything was
+        gained here, the baseline becomes 0. Old player whose baseline was guessed as 0 (an earlier correction):
+        it becomes the values of their first sync again (the next snapshot), so their lifetime is no gain.
+        """
+        cur.execute("SELECT DISTINCT day FROM stat_snapshots WHERE player_id = %s ORDER BY day LIMIT 2", (player_id,))
+        days = [row[0] for row in cur.fetchall()]
+        if not days:
+            return
+        if new_player:
+            cur.execute("UPDATE stat_snapshots SET value = 0 WHERE player_id = %s AND day = %s AND value <> 0",
+                        (player_id, days[0]))
+            return
+        cur.execute("SELECT value FROM stat_snapshots WHERE player_id = %s AND day = %s AND metric = 'play_time'",
+                    (player_id, days[0]))
+        row = cur.fetchone()
+        if len(days) == 2 and row is not None and row[0] == 0:
+            cur.execute("""UPDATE stat_snapshots s SET value = n.value FROM stat_snapshots n
+                           WHERE s.player_id = %s AND s.day = %s AND n.player_id = s.player_id AND n.day = %s
+                             AND n.metric = s.metric""", (player_id, days[0], days[1]))
 
     def register_player_quit(self, server_id, mojang_uuid):
         """Mark the player offline. Returns False if the player is unknown on this server."""

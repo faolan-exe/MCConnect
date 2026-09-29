@@ -29,7 +29,7 @@ final class InGameCommands implements CommandExecutor, TabCompleter {
     private static final List<String> NUMBERS = Arrays.asList("1", "2", "3", "4", "5", "6", "7", "8");
     private static final List<String> EVENT_ACTIONS = Arrays.asList("anmelden", "abmelden");
     private static final List<String> MUTE_MINUTES = Arrays.asList("10", "60", "360", "1440");
-    private static final List<String> JOIN_FIELDS = Arrays.asList("text", "leave", "farbe", "symbol", "stil", "sound", "aus");
+    private static final List<String> JOIN_FIELDS = Arrays.asList("text", "leave", "farbe", "symbol", "stil", "sound");
 
     private final MCDataLink plugin;
     /** Metric names for the tab completion, sent by MCConnect after connecting (!metrics). */

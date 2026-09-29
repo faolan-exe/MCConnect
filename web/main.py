@@ -1309,7 +1309,7 @@ def join_view(player_id, state=None):
                                    f"{rewards.level_hint(levels[first[(kind, v)]])}" if v not in available[kind] and (kind, v) in first else None,
                            "web": rewards.COLOR_CODES[v][1] if kind == "colors" else None}
                           for v in values if v in available[kind] or (kind, v) in first]
-    return {"enabled": state["enabled"], "custom": state["custom"], "level": state["level"],
+    return {"enabled": state["enabled"], "level": state["level"],
             "levels": [dict(level, hint=rewards.level_hint(level), reached=i <= state["level"]) for i, level in enumerate(levels)],
             "preview_join": mc_html(rewards.render(name, style, available, "join", catalog)),
             "preview_leave": mc_html(rewards.render(name, style, available, "leave", catalog)),
@@ -1320,23 +1320,20 @@ def join_view(player_id, state=None):
 @server_bp.route("/api/joinstyle", methods=["POST"])
 @player_required
 def join_style_api():
-    """{"field", "value"} changes one part of the own message, {"custom": false} goes back to the game's message."""
+    """{"field", "value"} changes one part of the own join/leave message."""
     player_id = logged_in_player_id()
     state = rewards.player_state(db(), player_id)
     if not state["enabled"]:
         return {"error": "Eigene Join-Nachrichten sind auf diesem Server ausgeschaltet."}, 409
     data = request.get_json(silent=True) or {}
-    if data.get("custom") is False:
-        db().set_join_style(player_id, None)
-    else:
-        field, value = str(data.get("field") or ""), str(data.get("value") if data.get("value") is not None else "")
-        error = rewards.check_choice(field, value, state["available"], state["catalog"])
-        if error:
-            return {"error": error}, 400
-        db().set_join_style(player_id, dict(state["style"], **{field: value}))
+    field, value = str(data.get("field") or ""), str(data.get("value") if data.get("value") is not None else "")
+    error = rewards.check_choice(field, value, state["available"], state["catalog"])
+    if error:
+        return {"error": error}, 400
+    db().set_join_style(player_id, dict(state["style"], **{field: value}))
     db().notify_server_event(g.server["id"], "joinstyle", player_id=str(player_id))
     view = join_view(player_id)
-    return {"custom": view["custom"], "join": str(view["preview_join"]), "leave": str(view["preview_leave"])}
+    return {"join": str(view["preview_join"]), "leave": str(view["preview_leave"])}
 
 
 @server_bp.route("/api/joinmutes", methods=["POST"])

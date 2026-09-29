@@ -16,9 +16,11 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Own join and leave messages of players (chosen on the website or with /joinmessage, unlocked by reward
- * levels) with an optional sound for everyone. Players can mute the messages of others and all join sounds;
- * a muted message is simply not sent to them. Players without an own message keep the game's message.
+ * Join and leave messages from MCConnect (chosen on the website or with /joinmessage, unlocked by reward levels)
+ * with an optional sound for everyone. Players can mute the messages of others and all join sounds; a muted
+ * message is simply not sent to them. Players without an own choice get the default lines (!joindefault, with
+ * "{name}"), also a brand-new player on the very first join. Only while MCConnect has sent nothing (feature off,
+ * not connected yet) the game's own message stays.
  */
 final class JoinMessages implements Listener {
     private static final class Style {
@@ -40,6 +42,8 @@ final class JoinMessages implements Listener {
     /** player -> the players whose messages they do not see */
     private final Map<UUID, Set<UUID>> muted = new ConcurrentHashMap<>();
     private final Set<UUID> soundsOff = ConcurrentHashMap.newKeySet();
+    /** Lines of players without an own style, "{name}" is replaced; null: the game's own message. */
+    private volatile Style defaultStyle;
 
     JoinMessages(MCDataLink plugin) {
         this.plugin = plugin;
@@ -68,8 +72,14 @@ final class JoinMessages implements Listener {
         else muted.put(uuid, mutedPlayers);
     }
 
+    /** From the connection thread: !joindefault. */
+    void setDefault(String join, String leave) {
+        defaultStyle = join.isEmpty() && leave.isEmpty() ? null : new Style(join, leave, "", 0f);
+    }
+
     /** From the connection thread: !joinreset before a full sync. */
     void reset() {
+        defaultStyle = null;
         styles.clear();
         muted.clear();
         soundsOff.clear();
@@ -88,9 +98,19 @@ final class JoinMessages implements Listener {
         return result;
     }
 
+    /** The player's own style, or the default lines with the name filled in, or null (the game's message). */
+    private Style styleOf(Player player) {
+        Style style = styles.get(player.getUniqueId());
+        if (style != null) return style;
+        Style fallback = defaultStyle;
+        if (fallback == null) return null;
+        return new Style(fallback.join.replace("{name}", player.getName()), fallback.leave.replace("{name}", player.getName()),
+                "", 0f);
+    }
+
     @EventHandler(priority = EventPriority.HIGH)
     public void onJoin(PlayerJoinEvent event) {
-        Style style = styles.get(event.getPlayer().getUniqueId());
+        Style style = styleOf(event.getPlayer());
         if (style == null || style.join.isEmpty()) return;
         event.setJoinMessage(null);
         announce(event.getPlayer(), style.join, style, true);
@@ -98,7 +118,7 @@ final class JoinMessages implements Listener {
 
     @EventHandler(priority = EventPriority.HIGH)
     public void onQuit(PlayerQuitEvent event) {
-        Style style = styles.get(event.getPlayer().getUniqueId());
+        Style style = styleOf(event.getPlayer());
         if (style == null || style.leave.isEmpty()) return;
         event.setQuitMessage(null);
         announce(event.getPlayer(), style.leave, style, false);

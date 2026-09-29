@@ -60,7 +60,6 @@
     <div class="pl-status" data-role="status"></div>
     {% if logged_in %}<button class="pl-star" type="button" data-favorite="{{ p.name }}" aria-pressed="{{ 'true' if p.favorite else 'false' }}"
       aria-label="{{ p.name }} als Favorit" title="Favorit">{{ "★" if p.favorite else "☆" }}</button>{% endif %}
-    {% if config.FEATURE_RANKINGS %}<button class="cmp-add" type="button" data-compare="{{ p.name }}" aria-label="{{ p.name }} zum Vergleich hinzufügen">+</button>{% endif %}
   </li>
   {% endfor %}
 </ul>
@@ -69,7 +68,6 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='poll.js') }}"></script>
-{% if config.FEATURE_RANKINGS %}<script src="{{ url_for('static', filename='compare.js') }}"></script>{% endif %}
 <script nonce="{{ csp_nonce() }}">
   (() => {
     const DAY = 86400000;

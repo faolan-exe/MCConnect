@@ -304,7 +304,7 @@ def level_hint(level):
 
 def player_state(db, player_id):
     """Everything about a player's rewards: {"enabled", "levels", "level", "new_level" (just reached, or None),
-    "available", "style" (normalized choice), "custom" (own message chosen), "sounds_off", "moderator"}.
+    "available", "style" (normalized choice; the default one if the player chose nothing), "sounds_off", "moderator"}.
     A level reached for the first time is stored here."""
     server_id = db.get_server_id_from_player_id(player_id)
     enabled, stored, texts = db.get_reward_settings(server_id)
@@ -317,21 +317,33 @@ def player_state(db, player_id):
     available = unlocked(levels, level, moderator, catalog)
     return {"enabled": enabled, "levels": levels, "level": level, "new_level": new_level, "available": available,
             "catalog": catalog,
-            "style": normalized_style(settings["style"], available), "custom": settings["style"] is not None,
+            "style": normalized_style(settings["style"], available),
             "sounds_off": settings["sounds_off"], "moderator": moderator}
 
 
 def join_style_message(db, player_id, state=None):
-    """!joinstyle for the plugin: the player's join and leave line and sound (empty lines: the game's own)."""
+    """!joinstyle for the plugin: the player's join and leave line and sound (empty lines: the plugin's default
+    lines from !joindefault, or the game's own message while the feature is off)."""
     state = state or player_state(db, player_id)
     uuid = db.get_mojang_uuid_from_player_id(player_id)
-    if not (state["enabled"] and state["custom"]):
+    if not state["enabled"]:
         return f"!joinstyle~{uuid}||||"
     name = db.get_player_name_from_player_id(player_id)
     sound = sound_of(state["style"])
     return "!joinstyle~" + "|".join((str(uuid), clean(render(name, state["style"], state["available"], "join", state["catalog"])),
                                      clean(render(name, state["style"], state["available"], "leave", state["catalog"])),
                                      sound[0] if sound else "", str(sound[1]) if sound else ""))
+
+
+def join_default_message(stored_levels, texts):
+    """!joindefault for the plugin: the lines of a player who chose nothing (and of a brand-new one the plugin
+    does not know yet), with "{name}" for the plugin to fill in. The default choice of the first level."""
+    catalog = Catalog(texts)
+    levels = levels_of(stored_levels)
+    available = unlocked(levels, 0, catalog=catalog)
+    style = normalized_style(None, available)
+    return "!joindefault~" + "|".join((clean(render("{name}", style, available, "join", catalog)),
+                                       clean(render("{name}", style, available, "leave", catalog))))
 
 
 def join_mutes_message(uuid, sounds_off, muted_uuids):

@@ -116,11 +116,11 @@ def test_choose_a_join_style(me, db, server, two_players):
     try:
         assert me.post("/api/joinstyle", json={"field": "color", "value": "blue"}, **on("testdomain")).status_code == 400
         response = me.post("/api/joinstyle", json={"field": "join_text", "value": "hello"}, **on("testdomain"))
-        assert response.status_code == 200 and response.json["custom"] and "sagt Hallo!" in response.json["join"]
+        assert response.status_code == 200 and "sagt Hallo!" in response.json["join"]
         assert db.get_join_settings(a)["style"]["join_text"] == "hello"
         assert events == [("joinstyle", {"player_id": str(a)})]
-        assert not me.post("/api/joinstyle", json={"custom": False}, **on("testdomain")).json["custom"]
-        assert db.get_join_settings(a)["style"] is None
+        # no way back to the game's own message
+        assert me.post("/api/joinstyle", json={"custom": False}, **on("testdomain")).status_code == 400
     finally:
         db.notify_server_event = db_notify
 
@@ -171,8 +171,8 @@ def test_joinmessage_command(db, server, game, two_players):
     style_message, answer = game.recv(), game.recv()
     assert style_message == f"!joinstyle~{PLAYER_UUID}|&7&7_Tobias4444&r&7 ist da.|&7&7_Tobias4444&r&7 ist weg.||"
     assert answer.startswith(f"!tell~{PLAYER_UUID}|&aGespeichert:")
-    cmd(game, PLAYER_UUID, "joinmessage", "aus")
-    assert game.recv() == f"!joinstyle~{PLAYER_UUID}||||"
+    cmd(game, PLAYER_UUID, "joinmessage", "aus")  # gone: the MCConnect message is always used
+    assert tells(game, 1)[0].startswith("&7Benutzung")
 
 
 def test_styles_and_mutes_are_sent_on_connect(db, server, plugin, two_players):
@@ -182,6 +182,7 @@ def test_styles_and_mutes_are_sent_on_connect(db, server, plugin, two_players):
     connection = plugin()
     connection.send(f"!AUTH~{server['key']}")
     messages = until(connection, "!joinmutes~")
+    assert connection.join_default == "!joindefault~&7&f{name}&r&7 ist da.|&7&f{name}&r&7 ist weg."
     assert f"!joinstyle~{PLAYER_UUID}|&7&f_Tobias4444&r&7 sagt Hallo!|&7&f_Tobias4444&r&7 ist weg.||" in messages
     assert messages[-1] == f"!joinmutes~{OTHER_UUID}|0|{PLAYER_UUID}"
 
@@ -221,3 +222,16 @@ def test_moderators_add_and_remove_own_texts(me, db, server, two_players, game):
     assert me.post("/api/mod/rewards", json={"remove_text": {"kind": "join", "key": "c1"}}, **on("testdomain")).json["texts"]["join"] == []
     state = rewards.player_state(db, a)
     assert state["style"]["join_text"] == "joined" and "c1" not in state["levels"][0]["unlocks"]["join_texts"]
+
+
+
+def test_everyone_gets_the_default_message(db, server, plugin, two_players):
+    """Players without an own choice: the default lines of the first level (the plugin fills in the name)."""
+    a, _ = two_players
+    assert rewards.join_style_message(db, a) == f"!joinstyle~{PLAYER_UUID}|&7&f_Tobias4444&r&7 ist da.|&7&f_Tobias4444&r&7 ist weg.||"
+    db.set_reward_settings(server["id"], enabled=False)  # switched off: the game's own message
+    assert rewards.join_style_message(db, a) == f"!joinstyle~{PLAYER_UUID}||||"
+    connection = plugin()
+    connection.send(f"!AUTH~{server['key']}")
+    until(connection, "!sendAllPlayerStats")
+    assert not hasattr(connection, "join_default")

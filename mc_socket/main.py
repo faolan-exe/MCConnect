@@ -46,7 +46,9 @@ Server -> plugin:
     !joinstyle~<uuid>|<join line>|<leave line>|<sound>|<volume>   own join/leave message of a player
                                  ("&" colors; empty lines: the game's own message; plugin 3.14)
     !joinmutes~<uuid>|<sounds off 0/1>|<uuid>,<uuid>   whose join/leave messages a player does not see
-    !joinreset~                  forget all join styles and mutes (sent before a full sync)
+    !joindefault~<join line>|<leave line>   the lines of players without an own style ("{name}" for the name;
+                                 plugin 3.16), sent with every full sync while the feature is on
+    !joinreset~                  forget all join styles, mutes and the default lines (sent before a full sync)
     success|<code> / error|<code>
 
 Error codes:
@@ -404,14 +406,15 @@ class SocketServer:
         uuid = str(self.db.get_mojang_uuid_from_player_id(player_id))
         self.tell(server_id, uuid, f"&6★ Neue Stufe »{commands.clean(level['name'])}«! &7Neue Farben, Symbole und mehr für "
                                    "deine Join-Nachricht: " + commands.button("&a[/joinmessage]", "/joinmessage"))
-        if state["custom"]:
-            self._send_to_server(server_id, rewards.join_style_message(self.db, player_id, state))
+        self._send_to_server(server_id, rewards.join_style_message(self.db, player_id, state))
 
     def sync_join_messages(self, server_id):
         """All join styles and mutes of a server to its plugin (after the auth or when the feature is switched)."""
         self._send_to_server(server_id, "!joinreset~")
-        if not self.db.get_reward_settings(server_id)[0]:
+        enabled, stored, texts = self.db.get_reward_settings(server_id)
+        if not enabled:
             return
+        self._send_to_server(server_id, rewards.join_default_message(stored, texts))
         styled, mutes = self.db.get_join_sync(server_id)
         for player_id in styled:
             self._send_to_server(server_id, rewards.join_style_message(self.db, player_id))

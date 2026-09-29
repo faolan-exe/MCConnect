@@ -42,4 +42,4 @@ commands:
     usage: /entstummen <spieler>
   joinmessage:
     description: Deine Join- und Leave-Nachricht gestalten
-    usage: /joinmessage [text|leave|farbe|symbol|stil|sound|aus] [wert]
+    usage: /joinmessage [text|leave|farbe|symbol|stil|sound] [wert]
