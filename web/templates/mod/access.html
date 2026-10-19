@@ -13,15 +13,15 @@
   <div data-live="applications">
   {% if access_requests %}
   <div class="mcc-table-wrap">
-    <table class="mcc-table">
+    <table class="mcc-table mcc-stack">
       <thead><tr><th>Wann</th><th>Name</th><th>Nachricht</th><th>Status</th><th></th></tr></thead>
       <tbody>
         {% for r in access_requests %}
         <tr{% if r.status != "pending" %} class="rp-done"{% endif %}>
-          <td>{{ r.when }}</td><td><b>{{ r.name }}</b></td><td>{{ r.message or "–" }}</td>
-          <td>{{ {"pending": "offen", "accepted": "freigeschaltet", "rejected": "abgelehnt"}[r.status] }}{% if r.handled_by %} · {{ r.handled_by }}{% endif %}
+          <td data-label="Wann">{{ r.when }}</td><td data-label="Name"><b>{{ r.name }}</b></td><td data-label="Nachricht">{{ r.message or "–" }}</td>
+          <td data-label="Status">{{ {"pending": "offen", "accepted": "freigeschaltet", "rejected": "abgelehnt"}[r.status] }}{% if r.handled_by %} · {{ r.handled_by }}{% endif %}
             {% if r.status == "accepted" and not r.synced %}<span class="mcc-hint">(wartet aufs Plugin)</span>{% endif %}</td>
-          <td class="md-actions">{% if r.status == "pending" %}
+          <td data-label="" class="md-actions">{% if r.status == "pending" %}
             <button class="mcc-btn mcc-btn-small" type="button" data-mod-post="/api/mod/applications" data-id="{{ r.id }}" data-body='{"accept": true}'>Annehmen</button>
             <button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-mod-post="/api/mod/applications" data-id="{{ r.id }}" data-body='{"accept": false}'>Ablehnen</button>{% endif %}</td>
         </tr>
@@ -49,14 +49,14 @@
   <div data-live="codes">
   {% if invite_codes %}
   <div class="mcc-table-wrap" style="margin-top: 16px">
-    <table class="mcc-table">
+    <table class="mcc-table mcc-stack">
       <thead><tr><th>Code</th><th>Genutzt</th><th>Gültig bis</th><th></th></tr></thead>
       <tbody>
         {% for c in invite_codes %}
         <tr{% if not c.valid %} class="rp-done"{% endif %}>
-          <td><code>{{ c.code }}</code></td><td>{{ c.uses }}{% if c.max_uses %} von {{ c.max_uses }}{% endif %}</td>
-          <td>{{ c.until or "unbegrenzt" }}{% if not c.valid %} (abgelaufen){% endif %}</td>
-          <td><button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-mod-post="/api/mod/codes/delete"
+          <td data-label="Code"><code>{{ c.code }}</code></td><td data-label="Genutzt">{{ c.uses }}{% if c.max_uses %} von {{ c.max_uses }}{% endif %}</td>
+          <td data-label="Gültig bis">{{ c.until or "unbegrenzt" }}{% if not c.valid %} (abgelaufen){% endif %}</td>
+          <td data-label=""><button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-mod-post="/api/mod/codes/delete"
                       data-id="{{ c.id }}" data-confirm="Code {{ c.code }} löschen?">Löschen</button></td>
         </tr>
         {% endfor %}

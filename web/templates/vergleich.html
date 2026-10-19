@@ -54,7 +54,7 @@
           {% for p in selected %}
           <th scope="col" class="cmp-player" style="--c: {{ p.color }}">
             <img src="https://mc-heads.net/avatar/{{ p.uuid }}/64" alt="" width="44" height="44"/>
-            <a href="/spieler?player={{ p.name | urlencode }}">{{ p.name }}</a>
+            <a href="/spieler?player={{ p.name | urlencode }}" title="{{ p.name }}">{{ p.name }}</a>
             {% set pre = prefixes.get(p.uuid) %}{% if pre %}<span>{{ prefix_chip(pre[0], pre[1], prefix_colors) }}</span>{% endif %}
             <span class="cmp-wins"><strong>{{ wins[loop.index0] }}</strong> von {{ metric_count }} Bestwerten</span>
           </th>
@@ -66,11 +66,12 @@
         <tr class="cmp-group"><th scope="rowgroup" colspan="{{ selected | length + 1 }}">{{ label }}</th></tr>
         {% for row in rows %}
         <tr>
-          <th scope="row">{{ row.metric.label }}{% if row.metric.lower_is_better %} <span class="mcc-hint">(weniger ist besser)</span>{% endif %}</th>
+          <th scope="row">{{ row.metric.label }}{% if row.metric.note %} <span class="cmp-note">{{ row.metric.note }}</span>{% endif %}{% if row.metric.lower_is_better %} <span class="cmp-note">weniger ist besser</span>{% endif %}</th>
           {% for cell in row.cells %}
           <td class="{% if loop.index0 in row.best %}cmp-best{% endif %}" style="--c: {{ selected[loop.index0].color }}">
-            <span class="cmp-value">{{ cell.text }}{% if loop.index0 in row.best %}<span class="cmp-best-mark" title="Bestwert">Bestwert</span>{% endif %}</span>
+            <span class="cmp-value">{{ cell.text }}{% if loop.index0 in row.best %}<span class="cmp-best-mark" title="Bestwert"><span aria-hidden="true">★</span><span class="cmp-best-text">Bestwert</span></span>{% endif %}</span>
             {% if cell.share %}<span class="cmp-meter"><span style="width: {{ '%.1f' | format(cell.share * 100) }}%"></span></span>{% else %}<span class="cmp-meter"></span>{% endif %}
+            {% if cell.split %}<span class="cmp-split">{{ cell.split }}</span>{% endif %}
           </td>
           {% endfor %}
         </tr>
@@ -106,10 +107,14 @@
 
 <section class="st-group">
   <h2>Im Detail</h2>
+  <p class="cmp-detail-note">Einzelne Blöcke und Mobs, immer über die gesamte Zeit{% if period != "gesamt" %} (nicht nur die
+    letzten {{ period }} Tage wie oben){% endif %}. Erze stehen hier je Variante für sich, z. B. Iron Ore und Deepslate Iron Ore;
+    oben bei den Erzen sind beide zusammengezählt.</p>
   <div class="st-boards cmp-details">
     {% for title, rows in details %}
     <article class="st-board">
       <h3>{{ title }}</h3>
+      {% if title == "Getötet von Mobs" %}<p class="cmp-board-note">Nur Tode durch Mobs. Stürze, Lava, Ertrinken usw. zählen oben bei „Tode“ mit.</p>{% endif %}
       {% if rows %}
       <div class="mcc-table-wrap">
         <table class="mcc-table cmp-detail-table">

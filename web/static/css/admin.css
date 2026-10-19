@@ -219,7 +219,9 @@ summary { cursor: pointer; font-weight: 600; }
 
 @media (max-width: 640px) {
   .site-header .inner { height: auto; padding: 12px 0; flex-wrap: wrap; }
-  .site-nav { margin-left: 0; width: 100%; flex-wrap: wrap; gap: 14px; }
+  .site-nav { margin-left: 0; width: 100%; flex-wrap: wrap; gap: 0 14px; }
+  .site-nav a, .site-nav button { display: inline-flex; align-items: center; min-height: 40px; }
+  .site-footer a { display: inline-block; padding: 10px 0; }
   .hero h1 { font-size: 30px; }
 }
 

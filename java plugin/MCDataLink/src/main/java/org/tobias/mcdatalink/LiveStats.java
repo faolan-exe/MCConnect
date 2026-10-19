@@ -127,11 +127,12 @@ final class LiveStats implements Listener {
         }
     }
 
-    /** "minecraft:play_time" since 1.17, "minecraft:play_one_minute" before. */
+    /** "minecraft:play_one_minute" before 1.17, "minecraft:play_time" since then and in the year versions (26.1, ...). */
     static String playTimeName(String bukkitVersion) {
         String[] parts = bukkitVersion.split("[.-]");
         try {
-            return parts.length > 1 && Integer.parseInt(parts[1]) >= 17 ? "minecraft:play_time" : "minecraft:play_one_minute";
+            boolean old = Integer.parseInt(parts[0]) == 1 && parts.length > 1 && Integer.parseInt(parts[1]) < 17;
+            return old ? "minecraft:play_one_minute" : "minecraft:play_time";
         } catch (NumberFormatException e) {
             return "minecraft:play_time";
         }

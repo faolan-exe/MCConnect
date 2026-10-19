@@ -84,11 +84,13 @@
       cross.setAttribute("visibility", "hidden");
       dot.setAttribute("visibility", "hidden");
     }
-    hit.addEventListener("pointermove", (event) => {
+    // pointerdown: a tap on a touch screen shows the value too
+    for (const type of ["pointermove", "pointerdown"]) hit.addEventListener(type, (event) => {
       const box = svg.getBoundingClientRect();
       show(Math.round(((event.clientX - box.left - pad.left) / plotW) * (points.length - 1)));
     });
-    hit.addEventListener("pointerleave", hide);
+    // on touch screens the value stays until the next tap elsewhere (blur)
+    hit.addEventListener("pointerleave", (event) => { if (event.pointerType !== "touch") hide(); });
     hit.addEventListener("focus", () => show(points.length - 1));
     hit.addEventListener("blur", hide);
     hit.addEventListener("keydown", (event) => {

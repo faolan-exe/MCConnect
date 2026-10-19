@@ -11,13 +11,17 @@ from . import stats
 
 # unit: "time" (ticks), "distance" (cm), "damage" (tenths of a health point), "count"
 # objects: tuple of stat objects, or None for the whole category
-Metric = namedtuple("Metric", "key label group category objects unit lower_is_better")
+# note: what the value adds up, shown next to the label where it could be mistaken for a single block or stat
+Metric = namedtuple("Metric", "key label group category objects unit lower_is_better note")
 
 
-def _metric(key, label, group, category, objects=None, unit="count", lower_is_better=False):
+def _metric(key, label, group, category, objects=None, unit="count", lower_is_better=False, note=None):
     if objects is not None:
         objects = tuple(o if ":" in o else f"minecraft:{o}" for o in objects)
-    return Metric(key, label, group, category, objects, unit, lower_is_better)
+    return Metric(key, label, group, category, objects, unit, lower_is_better, note)
+
+
+DEEPSLATE = "inkl. Deepslate"
 
 
 DISTANCE_OBJECTS = (
@@ -45,21 +49,22 @@ GROUPS = (
 )
 
 METRICS = (
-    # play_one_minute is the name before 1.17 (it counts ticks as well)
-    _metric("play_time", "Spielzeit", "general", stats.CUSTOM, ("play_time", "play_one_minute"), "time"),
+    # (play_one_minute, the name before 1.17, is stored as play_time: stats.ALIASES)
+    _metric("play_time", "Spielzeit", "general", stats.CUSTOM, ("play_time",), "time"),
     _metric("blocks_mined", "Blöcke abgebaut", "general", stats.BLOCK_MINED),
     _metric("mob_kills", "Mobs getötet", "general", stats.CUSTOM, ("mob_kills",)),
     _metric("deaths", "Tode", "general", stats.CUSTOM, ("deaths",), lower_is_better=True),
 
-    _metric("distance", "Strecke gesamt", "movement", stats.CUSTOM, DISTANCE_OBJECTS, "distance"),
+    _metric("distance", "Strecke gesamt", "movement", stats.CUSTOM, DISTANCE_OBJECTS, "distance",
+            note="alle Arten zusammen"),
     _metric("distance_elytra", "Mit Elytra geflogen", "movement", stats.CUSTOM, ("aviate_one_cm",), "distance"),
     _metric("jumps", "Sprünge", "movement", stats.CUSTOM, ("jump",)),
 
-    _metric("diamonds", "Diamanterz", "ores", stats.BLOCK_MINED, ("diamond_ore", "deepslate_diamond_ore")),
+    _metric("diamonds", "Diamanterz", "ores", stats.BLOCK_MINED, ("diamond_ore", "deepslate_diamond_ore"), note=DEEPSLATE),
     _metric("ancient_debris", "Ancient Debris", "ores", stats.BLOCK_MINED, ("ancient_debris",)),
-    _metric("emeralds", "Smaragderz", "ores", stats.BLOCK_MINED, ("emerald_ore", "deepslate_emerald_ore")),
-    _metric("gold", "Golderz", "ores", stats.BLOCK_MINED, ("gold_ore", "deepslate_gold_ore")),
-    _metric("iron", "Eisenerz", "ores", stats.BLOCK_MINED, ("iron_ore", "deepslate_iron_ore")),
+    _metric("emeralds", "Smaragderz", "ores", stats.BLOCK_MINED, ("emerald_ore", "deepslate_emerald_ore"), note=DEEPSLATE),
+    _metric("gold", "Golderz", "ores", stats.BLOCK_MINED, ("gold_ore", "deepslate_gold_ore"), note=DEEPSLATE),
+    _metric("iron", "Eisenerz", "ores", stats.BLOCK_MINED, ("iron_ore", "deepslate_iron_ore"), note=DEEPSLATE),
 
     _metric("blocks_placed", "Blöcke platziert", "misc", stats.BLOCK_USED),
     _metric("damage_dealt", "Schaden ausgeteilt", "misc", stats.CUSTOM, ("damage_dealt",), "damage"),
@@ -128,3 +133,51 @@ def format_distance(cm):
 def object_label(name):
     """"minecraft:deepslate_diamond_ore" -> "Deepslate Diamond Ore"."""
     return stats.strip_namespace(name).replace("_", " ").title()
+
+
+# ---------------------------------------------------------------- single stats (detail tables of the player page)
+
+TIME_STATS = {"minecraft:play_time", "minecraft:time_since_death", "minecraft:time_since_rest", "minecraft:sneak_time",
+              "minecraft:total_world_time"}
+
+# German names of the general (custom) stats; the others are shown with their game name.
+CUSTOM_LABELS = {
+    "minecraft:play_time": "Spielzeit", "minecraft:total_world_time": "Zeit in der Welt",
+    "minecraft:time_since_death": "Zeit seit dem letzten Tod", "minecraft:time_since_rest": "Zeit seit dem letzten Schlaf",
+    "minecraft:sneak_time": "Zeit geschlichen", "minecraft:deaths": "Tode", "minecraft:mob_kills": "Mobs getötet",
+    "minecraft:player_kills": "Spieler getötet", "minecraft:jump": "Sprünge", "minecraft:leave_game": "Spiel verlassen",
+    "minecraft:damage_dealt": "Schaden ausgeteilt", "minecraft:damage_taken": "Schaden erlitten",
+    "minecraft:damage_absorbed": "Schaden absorbiert", "minecraft:damage_blocked_by_shield": "Mit Schild geblockt",
+    "minecraft:damage_resisted": "Schaden widerstanden", "minecraft:damage_dealt_absorbed": "Schaden ausgeteilt (absorbiert)",
+    "minecraft:damage_dealt_resisted": "Schaden ausgeteilt (widerstanden)",
+    "minecraft:fish_caught": "Fische gefangen", "minecraft:animals_bred": "Tiere gezüchtet",
+    "minecraft:traded_with_villager": "Handel mit Dorfbewohnern", "minecraft:talked_to_villager": "Mit Dorfbewohnern gesprochen",
+    "minecraft:enchant_item": "Gegenstände verzaubert", "minecraft:sleep_in_bed": "Im Bett geschlafen",
+    "minecraft:open_chest": "Truhen geöffnet", "minecraft:open_enderchest": "Endertruhen geöffnet",
+    "minecraft:open_shulker_box": "Shulker-Kisten geöffnet", "minecraft:open_barrel": "Fässer geöffnet",
+    "minecraft:raid_win": "Überfälle gewonnen", "minecraft:raid_trigger": "Überfälle ausgelöst",
+    "minecraft:eat_cake_slice": "Kuchenstücke gegessen", "minecraft:drop": "Gegenstände fallen gelassen",
+    "minecraft:bell_ring": "Glocke geläutet", "minecraft:play_record": "Schallplatten abgespielt",
+    "minecraft:fall_one_cm": "Gefallen", "minecraft:target_hit": "Zielblock getroffen",
+}
+CUSTOM_LABELS.update({key: f"Strecke: {label}" for key, label in MOVEMENT_LABELS.items()})
+
+
+def stat_unit(obj):
+    """Unit of a single custom stat: "time" (ticks), "distance" (cm), "damage" or "count"."""
+    if obj in TIME_STATS:
+        return "time"
+    if obj.endswith("_one_cm"):
+        return "distance"
+    if stats.strip_namespace(obj).startswith("damage_"):
+        return "damage"
+    return "count"
+
+
+def format_stat(obj, value):
+    """Display text of a single custom stat, in the same units as the metrics (e.g. "3 Std. 12 Min.")."""
+    return format_value(Metric(obj, "", "", stats.CUSTOM, None, stat_unit(obj), False, None), value)
+
+
+def stat_label(obj):
+    return CUSTOM_LABELS.get(obj) or object_label(obj)

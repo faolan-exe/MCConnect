@@ -53,7 +53,7 @@
 :root[data-dark] .srv-card p a, :root[data-dark] .rl-text a, :root[data-dark] .bg-meta a, :root[data-dark] .mcc-table a,
 :root[data-dark] .pi-extra > p a, :root[data-dark] .gb-section > p a { color: #7cc8ff; }
 :root[data-dark] .gb-head a, :root[data-dark] .hf-what a { color: var(--srv-text); }
-:root[data-dark] .st-periods [aria-current="page"], :root[data-dark] .st-periods [aria-pressed="true"] {
+:root[data-dark] .st-periods [aria-current="page"], :root[data-dark] .st-periods [aria-pressed="true"], :root[data-dark] .pi-tabs [aria-selected="true"] {
   background: var(--srv-green); color: #0b1a10;
 }
 
@@ -88,19 +88,8 @@
 :root[data-dark] .dropdown-content a { color: var(--srv-text); }
 :root[data-dark] .dropdown-content a:hover { background-color: #242c28; }
 
-/* old player page (spieler-info.html, player-info.css) */
-:root[data-dark] .box { background: var(--srv-card); color: var(--srv-text); box-shadow: 0 0 0 1px var(--srv-border); }
-:root[data-dark] .box img { filter: invert(0.9); }
-:root[data-dark] #mySkinContainer { background: #1f2622; box-shadow: 0 0 0 1px var(--srv-border); }
-:root[data-dark] .item-3 abc { color: var(--srv-text) !important; }
-:root[data-dark] .player-name { color: var(--srv-text); }
-:root[data-dark] .downloadButton button { background: var(--srv-card); border-color: var(--srv-border); }
-:root[data-dark] .downloadButton svg { fill: var(--srv-text); }
-:root[data-dark] .tabBlock, :root[data-dark] .tabBlock-content, :root[data-dark] .stats_div_outer_outer,
-:root[data-dark] .stats_table, :root[data-dark] .stats_table td { background: var(--srv-card) !important; color: var(--srv-text) !important; }
-:root[data-dark] .tabBlock-tab { background: #1f2622 !important; color: var(--srv-text) !important; border-color: var(--srv-border) !important; }
-:root[data-dark] .tabBlock-tab.is-active { background: var(--srv-card) !important; color: var(--srv-green-dark) !important; }
-:root[data-dark] .stats_table tr:nth-child(even) td { background: #1f2622 !important; }
+/* player page (spieler-info.html) */
+:root[data-dark] .pi-banned { background: #3a1717; border-color: #5c2323; color: #ffb4b4; }
 :root[data-dark] hr { border-color: var(--srv-border); }
 
 /* theme switch in the header */
@@ -122,7 +111,6 @@
 :root[data-dark] .ac-pips span { background: var(--st-track); }
 :root[data-dark] .pi-chart .cmp-grid, :root[data-dark] .cmp-grid { stroke: var(--st-grid); }
 :root[data-dark] .pi-chart .cmp-axis, :root[data-dark] .cmp-axis { stroke: var(--st-axis); }
-:root[data-dark] .bottomDiv p span { background-color: transparent; }
 :root[data-dark] .pi-extra a.bg-item, :root[data-dark] .pi-extra a.pi-tile, :root[data-dark] .srv-page a.bg-item { color: var(--srv-text); }
 :root[data-dark] .lg-action { background: #242c28; }
 :root[data-dark] .ss-heat td:not([style]) { background: #1f2622; }
@@ -139,3 +127,4 @@
 /* login page (login.html, login.css): the blue shapes become dark blue */
 :root[data-dark] svg.bg circle, :root[data-dark] svg.bg path { fill: #17244a; }
 :root[data-dark] .dropdown-sep { background: rgba(255, 255, 255, 0.12); }
+:root[data-dark] .pi-tabs [aria-selected="true"] span { color: rgba(11, 26, 16, 0.7); }

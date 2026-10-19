@@ -8,36 +8,16 @@
   rel="stylesheet"
   href="{{ url_for('static', filename='css/responsiveHeader.css') }}"
 />
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}"/>
 <header class="sticky">
   <div class="container-util-wide">
-    <nav>
-      <div class="mobile-view-only">
-        <span style="width: 8%">
-          <img
-            class="header-icon-mobile"
-            alt="logo"
-            height="100px"
-            id="logo"
-            src="{{ url_for('static', filename='images/logo2.png') }}"
-          />
-        </span>
-
-        <span
-          id="loginVar2"
-          style="display: flex; width: 84%; justify-content: center"
-          >{{ mc_server_domain if (mc_server_domain and not whitelist) else server_name }}</span
-        >
-
-        <span style="display: flex; width: 8%; justify-content: end">
-          <button
-            class="menue-icon"
-            data-on-click="toggleNavMenu"
-          >
-            <div></div>
-            <div></div>
-            <div></div>
-          </button>
-        </span>
+    <nav aria-label="Hauptmenü">
+      <div class="mh-bar">
+        <a class="mh-logo" href="/"><img alt="Startseite" width="40" height="40" src="{{ url_for('static', filename='images/logo2.png') }}"/></a>
+        <span class="mh-title">{{ mc_server_domain if (mc_server_domain and not whitelist) else server_name }}</span>
+        <button class="mh-toggle" type="button" aria-controls="nav-bar" aria-expanded="false" data-on-click="toggleNavMenu">
+          <span class="mh-toggle-icon" aria-hidden="true"><i></i><i></i><i></i></span><span class="mh-toggle-text">Menü</span>
+        </button>
       </div>
       <div class="mainHeader">
         <img
@@ -48,15 +28,6 @@
           src="{{ url_for('static', filename='images/logo2.png') }}"
         />
         <ul id="nav-bar">
-          <li class="mobile-view-only logout2">
-            {% if name == "" %} {{ loginVar | safe }} {% else %}
-            <a
-              style="color: red; padding-top: 6px; padding-bottom: 6px"
-              data-on-click="askLogout"
-              >Logout</a
-            >
-            {% endif %}
-          </li>
           <li>
             <div class="dropdown">
               <button
@@ -70,9 +41,9 @@
           <li>
             <div class="dropdown">
               <button
-                class="dropbtn {% if request.path in ('/spieler', '/vergleich', '/teams') %} current{% endif %}"
+                class="dropbtn dd-group {% if request.path in ('/spieler', '/vergleich', '/teams') %} current{% endif %}"
               >
-                ▼ Spieler
+                <span class="dd-arrow" aria-hidden="true">▼ </span>Spieler
               </button>
               <div class="dropdown-content">
                 <a href="/spieler">Alle Spieler</a>
@@ -87,9 +58,9 @@
           <li>
             <div class="dropdown">
               <button
-                class="dropbtn {% if request.path in ('/rangliste', '/wettbewerbe', '/server-statistik', '/ruhmeshalle') %} current{% endif %}"
+                class="dropbtn dd-group {% if request.path in ('/rangliste', '/wettbewerbe', '/server-statistik', '/ruhmeshalle') %} current{% endif %}"
               >
-                ▼ Statistiken
+                <span class="dd-arrow" aria-hidden="true">▼ </span>Statistiken
               </button>
               <div class="dropdown-content">
                 <a href="/rangliste">Rangliste</a>
@@ -102,9 +73,9 @@
           <li>
             <div class="dropdown">
               <button
-                class="dropbtn {% if request.path in ('/duelle', '/melden', '/events', '/umfragen', '/galerie', '/regeln', '/mitmachen') %} current{% endif %}"
+                class="dropbtn dd-group {% if request.path in ('/duelle', '/melden', '/events', '/umfragen', '/galerie', '/regeln', '/mitmachen') %} current{% endif %}"
               >
-                ▼ Community
+                <span class="dd-arrow" aria-hidden="true">▼ </span>Community
               </button>
               <div class="dropdown-content">
                 <a href="/events">Events</a>
@@ -119,10 +90,6 @@
             </div>
           </li>
           {% endif %}
-          {% if name != "" %}
-          <li class="mobile-view-only mobile-link"><a href="/profil">Mein Profil</a></li>
-          {% if config.FEATURE_PREFIXES %}<li class="mobile-view-only mobile-link"><a href="/add_pref">Mein Prefix</a></li>{% endif %}
-          {% endif %}
           {% if config.FEATURE_ADMIN_PANEL and perm <= 1 %}
           <li>
             <div class="dropdown">
@@ -135,7 +102,22 @@
             </div>
           </li>
           {% endif %}
+          <li class="mh-account">
+            {% if name == "" %}
+            <a class="mh-login" href="/login">Login</a>
+            {% else %}
+            <div class="mh-me"><img alt="" width="32" height="32" src="https://mc-heads.net/avatar/{{ uuid_profile }}/64"/><b>{{ name }}</b></div>
+            <a href="/spieler?player={{ name | urlencode }}">Meine Statistiken</a>
+            <a href="/profil">Mein Profil</a>
+            {% if config.FEATURE_PREFIXES %}
+            <a href="/add_pref">Mein Prefix</a>
+            <a href="/join_pref">Prefix beitreten</a>
+            {% endif %}
+            <a class="mh-logout" data-on-click="askLogout" href="#">Logout</a>
+            {% endif %}
+          </li>
           <li class="theme-item">
+            <span class="mh-theme-label">Farbschema</span>
             <button type="button" class="theme-switch" id="theme-switch" data-on-click="mccCycleTheme"
                     title="Farbschema: Auto (wie das System), Dunkel oder Hell">Auto</button>
             <script nonce="{{ csp_nonce() }}">window.mccApplyTheme();</script>
@@ -181,10 +163,21 @@
 </header>
 
 <script nonce="{{ csp_nonce() }}">
-  function toggleNavMenu() {
-    document.getElementById("nav-bar").classList.toggle("menueToggle");
+  function toggleNavMenu(button) {
+    const open = document.getElementById("nav-bar").classList.toggle("menueToggle");
+    button.setAttribute("aria-expanded", String(open));
+    document.documentElement.classList.toggle("mh-open", open);
   }
-  function askLogout() {
+  // the mobile menu closes with Escape and when a link in it is followed (e.g. an anchor on the same page)
+  document.addEventListener("keydown", (event) => {
+    const button = document.querySelector(".mh-toggle");
+    if (event.key === "Escape" && button && button.getAttribute("aria-expanded") === "true") toggleNavMenu(button);
+  });
+  for (const link of document.querySelectorAll("#nav-bar a[href^='/']")) {
+    if (link.getAttribute("href") === location.pathname) link.setAttribute("aria-current", "page");
+  }
+  function askLogout(element, event) {
+    if (event) event.preventDefault();
     logout();
   }
   function logout(confirmed) {

@@ -8,17 +8,17 @@
   <div data-live="reports">
   {% if reports %}
   <div class="mcc-table-wrap">
-    <table class="mcc-table">
+    <table class="mcc-table mcc-stack">
       <thead><tr><th>Wann</th><th>Von</th><th>Über</th><th>Was</th><th>Wo</th><th></th></tr></thead>
       <tbody>
         {% for r in reports %}
         <tr{% if r.handled_at %} class="rp-done"{% endif %}>
-          <td>{{ r.when }}</td>
-          <td>{{ r.reporter or "–" }}</td>
-          <td>{% if r.target_name %}<a href="/spieler?player={{ r.target_name | urlencode }}">{{ r.target_name }}</a>{% else %}–{% endif %}</td>
-          <td>{{ r.reason }}</td>
-          <td>{% if r.world %}<code>{{ r.world }} {{ r.x }} {{ r.y }} {{ r.z }}</code>{% else %}{{ "Website" if r.source == "web" else "–" }}{% endif %}</td>
-          <td>{% if r.handled_at %}<span class="mcc-hint">erledigt von {{ r.handled_by or "–" }}</span>
+          <td data-label="Wann">{{ r.when }}</td>
+          <td data-label="Von">{{ r.reporter or "–" }}</td>
+          <td data-label="Über">{% if r.target_name %}<a href="/spieler?player={{ r.target_name | urlencode }}">{{ r.target_name }}</a>{% else %}–{% endif %}</td>
+          <td data-label="Was">{{ r.reason }}</td>
+          <td data-label="Wo">{% if r.world %}<code>{{ r.world }} {{ r.x }} {{ r.y }} {{ r.z }}</code>{% else %}{{ "Website" if r.source == "web" else "–" }}{% endif %}</td>
+          <td data-label="">{% if r.handled_at %}<span class="mcc-hint">erledigt von {{ r.handled_by or "–" }}</span>
             {% else %}<button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-mod-post="/api/mod/reports/resolve" data-id="{{ r.id }}">Erledigt</button>{% endif %}</td>
         </tr>
         {% endfor %}
@@ -61,15 +61,15 @@
     1.000 abgebauten Stein/Deepslate/Tuff (normal etwa 1–3) und Ancient Debris pro 1.000 Netherrack.</p>
   {% if xray %}
   <div class="mcc-table-wrap">
-    <table class="mcc-table">
+    <table class="mcc-table mcc-stack">
       <thead><tr><th>Spieler</th><th>Diamanterz / 1.000 Stein</th><th>Debris / 1.000 Netherrack</th><th>Diamanterz pro Stunde</th></tr></thead>
       <tbody>
         {% for h in xray %}
         <tr>
-          <td><a href="/spieler?player={{ h.name | urlencode }}">{{ h.name }}</a></td>
-          <td class="num{% if 'diamonds' in h.flags %} xr-flag{% endif %}">{{ h.diamond_rate }} <span class="mcc-hint">({{ h.diamonds }} / {{ h.stone }})</span></td>
-          <td class="num{% if 'debris' in h.flags %} xr-flag{% endif %}">{{ h.debris_rate }} <span class="mcc-hint">({{ h.debris }} / {{ h.netherrack }})</span></td>
-          <td class="num">{{ h.diamonds_per_hour }}</td>
+          <td data-label="Spieler"><a href="/spieler?player={{ h.name | urlencode }}">{{ h.name }}</a></td>
+          <td data-label="Diamanterz / 1.000 Stein" class="num{% if 'diamonds' in h.flags %} xr-flag{% endif %}">{{ h.diamond_rate }} <span class="mcc-hint">({{ h.diamonds }} / {{ h.stone }})</span></td>
+          <td data-label="Debris / 1.000 Netherrack" class="num{% if 'debris' in h.flags %} xr-flag{% endif %}">{{ h.debris_rate }} <span class="mcc-hint">({{ h.debris }} / {{ h.netherrack }})</span></td>
+          <td data-label="Diamanterz pro Stunde" class="num">{{ h.diamonds_per_hour }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -93,17 +93,17 @@
     <span class="in-count" data-role="count"></span>
   </div>
   <div class="mcc-table-wrap">
-    <table class="mcc-table in-table">
+    <table class="mcc-table mcc-stack in-table">
       <thead><tr><th>Spieler</th><th>Zuletzt online</th><th>Dabei seit</th><th>Spielzeit</th></tr></thead>
       <tbody>
         {% for p in activity %}
         <tr data-name="{{ p.name }}" data-last="{{ p.last_seen.isoformat() if p.last_seen else '' }}"
             data-online="{{ 1 if p.online else 0 }}" data-first="{{ p.first_seen.isoformat() if p.first_seen else '' }}">
-          <td><img src="https://mc-heads.net/avatar/{{ p.uuid }}/32" alt="" width="22" height="22" loading="lazy"/><a href="/spieler?player={{ p.name | urlencode }}">{{ p.name }}</a>
+          <td data-label="Spieler"><img src="https://mc-heads.net/avatar/{{ p.uuid }}/32" alt="" width="22" height="22" loading="lazy"/><a href="/spieler?player={{ p.name | urlencode }}">{{ p.name }}</a>
             {% if p.banned %}<span class="pl-badge pl-badge-ban">Gebannt</span>{% endif %}</td>
-          <td>{{ "online" if p.online else (p.last_seen.strftime("%d.%m.%Y, %H:%M") if p.last_seen else "nie") }}</td>
-          <td>{{ p.first_seen.strftime("%d.%m.%Y") if p.first_seen else "–" }}</td>
-          <td>{{ p.play_time }}</td>
+          <td data-label="Zuletzt online">{{ "online" if p.online else (p.last_seen.strftime("%d.%m.%Y, %H:%M") if p.last_seen else "nie") }}</td>
+          <td data-label="Dabei seit">{{ p.first_seen.strftime("%d.%m.%Y") if p.first_seen else "–" }}</td>
+          <td data-label="Spielzeit">{{ p.play_time }}</td>
         </tr>
         {% endfor %}
       </tbody>

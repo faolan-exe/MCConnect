@@ -463,6 +463,52 @@ MIGRATIONS = {
              UNIQUE (server_id, name))""",
         "ALTER TABLE servers ADD COLUMN icons_next integer NOT NULL DEFAULT 0",
     ],
+    27: [
+        # Plugin 3.3-3.20 sent the live play time as "play_one_minute" on Minecraft 26.x (year versions: the minor
+        # version "1" looked older than 1.17), the stats file as "play_time". Both rows were stored, so every sum
+        # (rankings, comparison, snapshots) counted the play time twice. Now stored as play_time only (stats.ALIASES).
+        """CREATE TEMP TABLE play_time_fix ON COMMIT DROP AS
+           SELECT pt.player_id, GREATEST(pt.value, pom.value) AS value FROM actions pt
+           JOIN actions pom ON pom.player_id = pt.player_id AND pom.category = 21 AND pom.object = 'minecraft:play_one_minute'
+           WHERE pt.category = 21 AND pt.object = 'minecraft:play_time'""",
+        # The play time snapshots of these players hold the double value from when the live stats started. A snapshot
+        # is either right or about twice too high: take the one that is closer to the estimate from the sessions
+        # (today's value minus the time played after that day), never above today's value, never falling. Today's
+        # snapshot is today's value (as update_player_stats writes it).
+        """WITH estimated AS (
+             SELECT s.player_id, s.day, s.value, f.value AS now_value,
+                    GREATEST(0, f.value - 20 * COALESCE((
+                      SELECT sum(extract(epoch FROM COALESCE(ps.ended_at, now()) - GREATEST(ps.started_at, (s.day + 1)::timestamptz)))
+                      FROM player_sessions ps
+                      WHERE ps.player_id = s.player_id AND COALESCE(ps.ended_at, now()) > (s.day + 1)::timestamptz), 0)) AS estimate
+             FROM stat_snapshots s JOIN play_time_fix f ON f.player_id = s.player_id
+             WHERE s.metric = 'play_time'),
+           picked AS (
+             SELECT player_id, day, CASE WHEN day >= current_date THEN now_value
+                                         ELSE LEAST(now_value, CASE WHEN abs(value / 2 - estimate) < abs(value - estimate)
+                                                                    THEN value / 2 ELSE value END) END AS value
+             FROM estimated),
+           steady AS (
+             SELECT player_id, day, min(value) OVER (PARTITION BY player_id ORDER BY day DESC) AS value FROM picked)
+           UPDATE stat_snapshots s SET value = st.value FROM steady st
+           WHERE s.player_id = st.player_id AND s.day = st.day AND s.metric = 'play_time' AND s.value <> st.value""",
+        # play time records: at most what the holder had at the end of that day
+        """UPDATE record_history rh SET value = LEAST(rh.value, COALESCE((
+             SELECT s.value FROM stat_snapshots s WHERE s.player_id = rh.player_id AND s.metric = 'play_time'
+               AND s.day >= rh.since::date ORDER BY s.day LIMIT 1), f.value))
+           FROM play_time_fix f WHERE rh.player_id = f.player_id AND rh.metric = 'play_time'""",
+        # "Stammgast" tiers (10, 50, 200, 500 hours) reached only with the double play time
+        """DELETE FROM player_achievements pa USING play_time_fix f
+           WHERE pa.player_id = f.player_id AND pa.achievement = 'regular'
+             AND f.value < (ARRAY[10, 50, 200, 500])[pa.tier + 1] * 72000""",
+        """UPDATE actions a SET value = f.value FROM play_time_fix f
+           WHERE a.player_id = f.player_id AND a.category = 21 AND a.object = 'minecraft:play_time'""",
+        """UPDATE actions a SET object = 'minecraft:play_time' WHERE a.category = 21 AND a.object = 'minecraft:play_one_minute'
+             AND NOT EXISTS (SELECT 1 FROM actions e WHERE e.player_id = a.player_id AND e.category = 21
+                                                     AND e.object = 'minecraft:play_time')""",
+        "DELETE FROM actions WHERE category = 21 AND object = 'minecraft:play_one_minute'",
+        "DROP TABLE play_time_fix",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -3039,7 +3085,7 @@ class DatabaseManager:
                               (stats_mod.BLOCK_MINED, ["minecraft:stone", "minecraft:deepslate", "minecraft:tuff"],
                                stats_mod.BLOCK_MINED, ["minecraft:diamond_ore", "minecraft:deepslate_diamond_ore"],
                                stats_mod.BLOCK_MINED, stats_mod.BLOCK_MINED,
-                               stats_mod.CUSTOM, ["minecraft:play_time", "minecraft:play_one_minute"], server_id))
+                               stats_mod.CUSTOM, ["minecraft:play_time"], server_id))
         keys = ("player_id", "name", "uuid", "stone", "diamonds", "netherrack", "debris", "ticks")
         result = []
         for row in rows:

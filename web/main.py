@@ -208,16 +208,7 @@ def subdomain_index_route():
                                     if c["starts_on"] <= today <= c["ends_on"]) if v]
         goals = [v for v in (goal_view(goal, today) for goal in db().list_goals(g.server["id"]))
                  if v and v["status"] in ("running", "reached_recently")]
-        held = db().get_current_records(g.server["id"])
-        for key in metrics_mod.RECORD_METRICS:
-            metric = metrics_mod.METRICS_BY_KEY[key]
-            best = max(players, key=lambda p: p["values"][key], default=None)
-            if best and best["values"][key] > 0:
-                record = held.get(key)
-                since = record["since"] if record and record["name"] == best["name"] and not record["first"] else None
-                records.append({"label": metric.label, "name": best["name"], "uuid": best["uuid"],
-                                "text": metrics_mod.format_value(metric, best["values"][key]),
-                                "since": since.strftime("%d.%m.%Y") if since else None})
+        records = list(record_holders(g.server["id"], [metrics_mod.METRICS_BY_KEY[k] for k in metrics_mod.RECORD_METRICS]).values())
     return render_template("index-subpage.html",
                            player_total=len(db().get_all_player_ids_from_subdomain(g.subdomain)),
                            records=records, recap=recap, competitions=competitions, goals=goals,
@@ -287,12 +278,8 @@ def player_overview_route():
         muted_until=info["muted_until"].strftime("%d.%m. %H:%M") if info.get("muted_until") and
         info["muted_until"] > datetime.now(timezone.utc) else None,
         banned=bool(banned), startdate=startdate, enddate=enddate,
-        armor_stats=json.dumps(db().get_all_armor_stats(player_id)),
-        tool_stats=json.dumps(db().get_all_tools_stats(player_id)),
-        item_stats=json.dumps(db().get_all_items_stats(player_id)),
-        block_stats=json.dumps(db().get_all_blocks_stats(player_id)),
-        mob_stats=json.dumps(db().get_all_mobs_stats(player_id)),
-        custom_stats=json.dumps(db().get_all_custom_stats(player_id)))
+        cards=player_card_values(db(), player_id), tables=detail_tables(player_id),
+        deaths_total=metrics_mod.format_count(db().get_player_metrics(player_id)["deaths"]))
 
 
 def feature_rankings_required(view):
@@ -548,14 +535,7 @@ def hall_of_fame_page():
     server_id = g.server["id"]
     today = db().get_today()
     names = visible_players(server_id)
-    held = db().get_current_records(server_id)
-    records = []
-    for metric in motivation.RECORD_METRICS:
-        record = held.get(metric.key)
-        if record:
-            records.append({"label": metric.label, "name": record["name"], "uuid": record["uuid"],
-                            "text": metrics_mod.format_value(metric, record["value"]),
-                            "since": None if record["first"] else record["since"].strftime("%d.%m.%Y")})
+    records = list(record_holders(server_id, motivation.RECORD_METRICS).values())
     history = [dict(h, label=metrics_mod.METRICS_BY_KEY[h["metric"]].label, when=h["at"].strftime("%d.%m.%Y, %H:%M"),
                     text=metrics_mod.format_value(metrics_mod.METRICS_BY_KEY[h["metric"]], h["value"]))
                for h in db().get_record_history(server_id, 25) if h["metric"] in metrics_mod.METRICS_BY_KEY]
@@ -583,6 +563,31 @@ def hall_of_fame_page():
 
 
 GOAL_RECENT_DAYS = 7
+
+
+def record_holders(server_id, record_metrics):
+    """
+    {metric key: {"label", "player_id", "name", "uuid", "value", "text", "since", "first"}} of the records: the best current
+    value of the visible players, so start page, hall of fame and player page show the numbers of rankings and
+    comparison. since ("dd.mm.yyyy" or None): when that player took the record, if the record history knows it;
+    first: the player holds the first record of the history (since the start of the recording).
+    """
+    players = list(visible_players(server_id).values())
+    held = db().get_current_records(server_id)
+    result = {}
+    for metric in record_metrics:
+        record = held.get(metric.key)
+        holder = record["player_id"] if record else None
+        # on a tie the player who holds the record keeps it
+        best = max(players, key=lambda p: (p["values"][metric.key], p["player_id"] == holder), default=None)
+        if not best or best["values"][metric.key] <= 0:
+            continue
+        since = record["since"] if record and holder == best["player_id"] and not record["first"] else None
+        result[metric.key] = {"label": metric.label, "player_id": best["player_id"], "name": best["name"], "uuid": best["uuid"],
+                              "value": best["values"][metric.key], "text": metrics_mod.format_value(metric, best["values"][metric.key]),
+                              "since": since.strftime("%d.%m.%Y") if since else None,
+                              "first": bool(record and holder == best["player_id"] and record["first"])}
+    return result
 
 
 def visible_players(server_id):
@@ -632,6 +637,19 @@ def best_indexes(values, lower_is_better):
     return {i for i, value in enumerate(values) if value == best}
 
 
+def ore_split(player_id):
+    """{metric key: "245 normal + 10 Deepslate"} of the ore metrics with blocks of both kinds."""
+    ores = [m for m in metrics_mod.METRICS if m.note == metrics_mod.DEEPSLATE]
+    mined = db().get_stat_values(player_id, stats_mod.BLOCK_MINED, [o for m in ores for o in m.objects])
+    result = {}
+    for metric in ores:
+        deep = sum(mined.get(o, 0) for o in metric.objects if "deepslate_" in o)
+        normal = sum(mined.get(o, 0) for o in metric.objects if "deepslate_" not in o)
+        if deep and normal:
+            result[metric.key] = f"{metrics_mod.format_count(normal)} normal + {metrics_mod.format_count(deep)} Deepslate"
+    return result
+
+
 @server_bp.route("/vergleich")
 @feature_rankings_required
 def compare_page():
@@ -646,6 +664,8 @@ def compare_page():
     for player, color in zip(selected, COMPARE_COLORS):
         player["color"] = color
 
+    # all time: which ore blocks a value is made of (the block table below lists them one by one)
+    splits = [ore_split(p["player_id"]) for p in selected] if PERIODS[period] is None else [{} for _ in selected]
     groups, wins = [], [0] * len(selected)
     for key, label in metrics_mod.GROUPS:
         rows = []
@@ -656,8 +676,8 @@ def compare_page():
                 wins[index] += 1
             top = max(values, default=0)
             rows.append({"metric": metric, "best": best,
-                         "cells": [{"text": metrics_mod.format_value(metric, v), "share": v / top if top else 0}
-                                   for v in values]})
+                         "cells": [{"text": metrics_mod.format_value(metric, v), "share": v / top if top else 0,
+                                    "split": split.get(metric.key)} for v, split in zip(values, splits)]})
         groups.append((label, rows))
 
     details, history = [], None
@@ -665,7 +685,7 @@ def compare_page():
         ids = [p["player_id"] for p in selected]
         for title, category in (("Meist abgebaute Blöcke", stats_mod.BLOCK_MINED),
                                 ("Meist getötete Mobs", stats_mod.MOB_KILLED),
-                                ("Getötet von", stats_mod.MOB_KILLED_BY)):
+                                ("Getötet von Mobs", stats_mod.MOB_KILLED_BY)):
             rows = []
             for obj, values in db().get_top_objects(ids, category):
                 row_values = [values.get(i, 0) for i in ids]
@@ -748,26 +768,70 @@ def player_list_page():
                            logged_in=bool(viewer))
 
 
+# Tabs of the detail tables on the player page: (key, title, [(category, column)])
+DETAIL_TABS = (
+    ("blocks", "Blöcke", [(stats_mod.BLOCK_MINED, "Abgebaut"), (stats_mod.BLOCK_USED, "Platziert"),
+                          (stats_mod.BLOCK_CRAFTED, "Hergestellt"), (stats_mod.BLOCK_PICKED_UP, "Aufgehoben"),
+                          (stats_mod.BLOCK_DROPPED, "Fallen gelassen")]),
+    ("items", "Items", [(stats_mod.ITEM_USED, "Benutzt"), (stats_mod.ITEM_CRAFTED, "Hergestellt"),
+                        (stats_mod.ITEM_PICKED_UP, "Aufgehoben"), (stats_mod.ITEM_DROPPED, "Fallen gelassen")]),
+    ("tools", "Werkzeuge", [(stats_mod.TOOL_USED, "Benutzt"), (stats_mod.TOOL_BROKEN, "Kaputt"),
+                            (stats_mod.TOOL_CRAFTED, "Hergestellt"), (stats_mod.TOOL_PICKED_UP, "Aufgehoben"),
+                            (stats_mod.TOOL_DROPPED, "Fallen gelassen")]),
+    ("armor", "Rüstung", [(stats_mod.ARMOR_USED, "Benutzt"), (stats_mod.ARMOR_BROKEN, "Kaputt"),
+                          (stats_mod.ARMOR_CRAFTED, "Hergestellt"), (stats_mod.ARMOR_PICKED_UP, "Aufgehoben"),
+                          (stats_mod.ARMOR_DROPPED, "Fallen gelassen")]),
+    ("mobs", "Mobs", [(stats_mod.MOB_KILLED, "Getötet"), (stats_mod.MOB_KILLED_BY, "Hat dich getötet")]),
+    ("custom", "Allgemein", [(stats_mod.CUSTOM, "Wert")]),
+)
+
+
+def detail_tables(player_id):
+    """
+    The detail tables of the player page: [{"key", "title", "columns", "rows": [{"object", "label", "values",
+    "texts"}]}]. Every value of the game once, named like in the game (the general ones in German, with units).
+    """
+    database = db()
+    tables = []
+    for key, title, columns in DETAIL_TABS:
+        per_column = [database.get_stat_values(player_id, category) for category, _ in columns]
+        objects = sorted(set().union(*per_column))
+        rows = []
+        for obj in objects:
+            values = [column.get(obj, 0) for column in per_column]
+            row = {"object": stats_mod.strip_namespace(obj), "label": metrics_mod.object_label(obj), "values": values}
+            if key == "custom":
+                row["label"] = metrics_mod.stat_label(obj)
+                row["texts"] = [metrics_mod.format_stat(obj, values[0])]
+            rows.append(row)
+        # most first; the general values have different units, so they are sorted by name
+        rows.sort(key=lambda row: row["label"] if key == "custom" else (-row["values"][0], row["label"]))
+        tables.append({"key": key, "title": title, "columns": [label for _, label in columns], "rows": rows})
+    return tables
+
+
 def player_extras(player_id):
     """Highlights, ranking places and daily activity for the player page."""
     database = db()
     highlights = []
+    values = database.get_player_metrics(player_id)
+    # the game counts deaths by mobs per mob only (falls, lava, ... are in the total only): "5 von 51 Toden"
+    deaths = f" von {metrics_mod.format_count(values['deaths'])} Toden" if values["deaths"] else " Tode"
     for label, category in (("Lieblingsblock", stats_mod.BLOCK_MINED), ("Meist getöteter Mob", stats_mod.MOB_KILLED),
-                            ("Häufigste Todesursache", stats_mod.MOB_KILLED_BY)):
+                            ("Am häufigsten getötet von", stats_mod.MOB_KILLED_BY)):
         top = database.get_top_objects([player_id], category, limit=1)
         if top:
-            obj, values = top[0]
-            count = values[player_id]
-            suffix = {stats_mod.BLOCK_MINED: "abgebaut", stats_mod.MOB_KILLED: "getötet"}.get(category, "Tode")
+            obj, top_values = top[0]
+            count = top_values[player_id]
+            suffix = {stats_mod.BLOCK_MINED: " abgebaut", stats_mod.MOB_KILLED: " getötet"}.get(category, deaths)
             highlights.append({"label": label, "value": metrics_mod.object_label(obj),
-                               "detail": f"{metrics_mod.format_count(count)} {suffix}"})
+                               "detail": f"{metrics_mod.format_count(count)}{suffix}"})
     moves = database.get_stat_values(player_id, stats_mod.CUSTOM, metrics_mod.MOVEMENT_LABELS)
     if moves:
         obj, cm = max(moves.items(), key=lambda item: item[1])
         highlights.append({"label": "Liebste Fortbewegung", "value": metrics_mod.MOVEMENT_LABELS[obj],
                            "detail": metrics_mod.format_distance(cm)})
 
-    values = database.get_player_metrics(player_id)
     earned = database.get_player_achievements(player_id)
     achievements = []
     for achievement in achievements_mod.ACHIEVEMENTS:
@@ -811,12 +875,8 @@ def trophy_cabinet(player_id):
     competitions = [dict(t, color=motivation.PLACE_COLORS.get(t["place"]), date=t["awarded_at"].strftime("%d.%m.%Y"))
                     for t in trophies if t["kind"] == "competition"]
     weeks = [t for t in trophies if t["kind"] == "player_of_week"]
-    records = []
-    for key, record in database.get_current_records(database.get_server_id_from_player_id(player_id)).items():
-        metric = metrics_mod.METRICS_BY_KEY.get(key)
-        if metric and record["player_id"] == str(player_id):
-            records.append({"label": metric.label, "text": metrics_mod.format_value(metric, record["value"]),
-                            "since": None if record["first"] else record["since"].strftime("%d.%m.%Y")})
+    records = [r for r in record_holders(database.get_server_id_from_player_id(player_id), motivation.RECORD_METRICS).values()
+               if r["player_id"] == str(player_id)]
     streak = database.get_player_streak(player_id)
     badges = [{"label": motivation.milestone_label(m["kind"], m["value"]), "kind": m["kind"],
                "date": m["reached_at"].strftime("%d.%m.%Y")} for m in database.get_player_milestones(player_id)]
@@ -2652,13 +2712,31 @@ def live_status():
                                                        for p in db().get_players_overview_from_subdomain(g.subdomain)])
 
 
-def _custom_stat(database, player_id, *names):
-    """First existing value of the given custom stats (names differ between game versions)."""
-    for name in names:
-        value = database.get_value_from_unique_object_from_action_table_with_player_id(name, player_id)
-        if value is not None:
-            return value
-    return 0
+def _custom_stat(database, player_id, name):
+    return database.get_value_from_unique_object_from_action_table_with_player_id(name, player_id) or 0
+
+
+def player_card_values(database, player_id):
+    """
+    The cards at the top of the player page (also polled by /api/player_info): [uuid, "online" | "offline", deaths,
+    first join, last seen, time since the last death, play time]. Play time and deaths are the metrics, so the cards
+    show the same numbers as rankings, comparison and player list; the first join is the one of the player list.
+    """
+    info = database.get_player_info_by_player_id(player_id)
+    fmt = lambda ts: ts.strftime("%d.%m.%Y, %H:%M Uhr") if ts else "-"
+    values = database.get_player_metrics(player_id)
+    deaths = values["deaths"]
+    # Without a death the game counts time_since_death from the first join, which would be misleading.
+    since_death = format_time(_custom_stat(database, player_id, "minecraft:time_since_death") / 20) if deaths else "-"
+    return [
+        str(info["mojang_uuid"]),
+        "online" if info["online"] else "offline",
+        metrics_mod.format_value(metrics_mod.METRICS_BY_KEY["deaths"], deaths),
+        fmt(database.get_first_join(player_id)),
+        fmt(info["last_seen"]),
+        since_death,
+        metrics_mod.format_value(metrics_mod.METRICS_BY_KEY["play_time"], values["play_time"]),
+    ]
 
 
 @server_bp.route("/api/player_info/<path:player_name>")
@@ -2669,20 +2747,7 @@ def live_player_info(player_name):
         abort(404)
 
     def player_info():
-        info = database.get_player_info_by_player_id(player_id)
-        fmt = lambda ts: ts.strftime("%d.%m.%Y, %H:%M Uhr") if ts else "-"
-        deaths = _custom_stat(database, player_id, "minecraft:deaths")
-        # Without a death the game counts time_since_death from the first join, which would be misleading.
-        since_death = format_time(_custom_stat(database, player_id, "minecraft:time_since_death") / 20) if deaths else "-"
-        return [
-            str(info["mojang_uuid"]),
-            "online" if info["online"] else "offline",
-            deaths,
-            fmt(info["first_seen"]),
-            fmt(info["last_seen"]),
-            since_death,
-            format_time(_custom_stat(database, player_id, "minecraft:play_time", "minecraft:play_one_minute") / 20),
-        ]
+        return player_card_values(database, player_id)
     return live_json(("player", str(player_id)), player_info)
 
 

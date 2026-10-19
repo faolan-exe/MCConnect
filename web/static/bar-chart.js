@@ -46,9 +46,11 @@ function mccBarChart(root) {
     tip.hidden = true;
     root.append(tip);
 
+    // labels at least 48px apart (fewer on phones)
+    const labelEvery = Math.max(every, Math.ceil(days.length * 48 / plotW));
     days.forEach((day, i) => {
       const x = pad.left + i * band + (band - barW) / 2;
-      if ((days.length - 1 - i) % every === 0) {
+      if ((days.length - 1 - i) % labelEvery === 0) {
         el("text", { x: x + barW / 2, y: height - 8, "text-anchor": "middle", class: "cmp-tick" }, svg)
           .textContent = day.label;
       }
@@ -77,8 +79,9 @@ function mccBarChart(root) {
         tip.style.left = `${left + tip.offsetWidth > width ? left - tip.offsetWidth - 20 : left}px`;
       };
       hit.addEventListener("pointerenter", show);
+      hit.addEventListener("pointerdown", show);  // tap on touch screens
       hit.addEventListener("focus", show);
-      hit.addEventListener("pointerleave", () => (tip.hidden = true));
+      hit.addEventListener("pointerleave", (event) => { if (event.pointerType !== "touch") tip.hidden = true; });
       hit.addEventListener("blur", () => (tip.hidden = true));
     });
   }

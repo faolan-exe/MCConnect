@@ -21,7 +21,7 @@
       <span class="st-record-label">{{ r.label }}</span>
       <span class="st-record-value">{{ r.text }}</span>
       <span class="st-record-who"><img src="https://mc-heads.net/avatar/{{ r.uuid }}/32" alt="" width="22" height="22" loading="lazy"/><span>{{ r.name }}</span></span>
-      <span class="ss-note">{{ "seit " ~ r.since if r.since else "seit Aufzeichnungsbeginn" }}</span>
+      <span class="ss-note">{{ "seit " ~ r.since if r.since else ("seit Aufzeichnungsbeginn" if r.first else "") }}</span>
     </a>
     {% endfor %}
   </div>

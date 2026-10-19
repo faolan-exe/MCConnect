@@ -51,7 +51,7 @@ fingerprint of the local socket certificate (`certs/`) for a test plugin's `tls-
 
 ## Status
 
-State of 2026-09-29: schema version 26, plugin 3.20. Written as a handoff for the next development session.
+State of 2026-10-19: schema version 27, plugin 3.21. Written as a handoff for the next development session.
 
 ### Features
 
@@ -60,7 +60,7 @@ State of 2026-09-29: schema version 26, plugin 3.20. Written as a handoff for th
 | Rankings | `/rangliste` | 19 metrics in 4 groups (`database/metrics.py`), all time / 30 / 7 days; `+` buttons collect players for the comparison (`web/static/compare.js`) |
 | Comparison | `/vergleich` | 2–4 players, best values, history chart, detail tables |
 | Player list | `/spieler` | search, sort, "last online" filters, badges, top places, favourites |
-| Player page | `/spieler?player=` | activity chart, ranking places, highlights, achievements (live), trophy cabinet, bio, stat card (`/spieler/<name>/karte.png`, `og:image`), guestbook, moderator notes and warnings |
+| Player page | `/spieler?player=` | cards (same values as rankings, `player_card_values`), activity chart, ranking places, highlights, achievements (live), trophy cabinet, bio, stat card (`/spieler/<name>/karte.png`, `og:image`), all single values in tabs with search and sorting (`detail_tables`, `web/static/player-page.js`), guestbook, moderator notes and warnings |
 | Server statistics | `/server-statistik` | online history, peak-time heatmap, totals, new players, fun facts; based on `player_sessions` |
 | Start page | `/` | records, weekly recap, running competitions and goals, events, polls, activity feed (`/api/feed`) |
 | Achievements | `database/achievements.py` | 13 × 4 tiers (`player_achievements`); tiers reached while not playing are `silent` (no feed, no chat) |
@@ -96,7 +96,10 @@ goes into `plugins/update/` under the running jar's name and is active after the
 3.19 own icons in prefixes: above the heads and in the chat per viewer (players with the pack get the chat line with icons
 as a message of their own), the tab list always with fallbacks (it is the same for everyone) · 3.20 tooltips in chat
 lines (`database/chat.py`: `⟦label⇝line¶line⟧`; achievements, records, streaks, goals, competitions, player of the
-week, duels and polls show 2–4 lines of details on hover; older plugins get the label only).
+week, duels and polls show 2–4 lines of details on hover; older plugins get the label only). · 3.21 the live
+play time is named `play_time` on the year versions (26.x) too; 3.3–3.20 sent `play_one_minute` there, which was
+stored next to the `play_time` of the stats file and counted twice (fixed on the server by `stats.ALIASES` and
+migration 27 for every plugin version).
 
 Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss the newer features.
 
@@ -112,6 +115,18 @@ Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss 
   3.15) the time since MCConnect's first sight is the fallback. This went wrong several times (schema 19,
   21, 23, 24: players who joined while the plugin was disconnected, partial first live updates) – keep the
   tests in `tests/test_metrics.py` green.
+- **One source for every number.** Rankings, comparison, player list, player page cards, records, stat card and
+  `/stats` all use the metrics of `database/metrics.py` (`get_server_metrics` / `get_player_metrics`). Do not read
+  single `actions` rows for a value that is also a metric. Stat names are stored canonical (`stats.canonical_name`:
+  namespaced, old names via `stats.ALIASES`), so a value can never be stored twice. Records show the current best
+  value (`record_holders`), `record_history` only knows who took a record when. Metrics that add several objects say
+  so (`Metric.note`, e.g. ores "inkl. Deepslate"); the single values on the player page and in the comparison
+  details are per object and all time. `tests/test_mobile.py` checks this across the pages.
+- **Mobile.** The header becomes a bar with a menu panel below 900px (`responsiveHeader.css`); `css/mobile.css`
+  (loaded by `header.html` after the page styles) holds the shared phone rules: tap targets of 40–44px, 16px
+  inputs, wrapping segmented controls, tables with class `mcc-stack` become one card per row (every `<td>` needs a
+  `data-label`). `tests/test_mobile.py` renders the pages in Chrome at 375px (Playwright from
+  `requirements-dev.txt`, uses the installed Chrome; skipped without) and fails if anything runs out of the screen.
 - **"Dabei seit"**, veterans, anniversaries, new players per week/month and the reward condition "days" use
   the game's first join if known (`COALESCE(first_played, first_seen)`).
 - **Live values.** The plugin sends custom stats and changed block/item/mob stats every 5 s, all blocks once

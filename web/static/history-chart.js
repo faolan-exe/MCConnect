@@ -125,11 +125,11 @@
         class: i === 0 ? "cmp-axis" : "cmp-grid" }, svg);
       el("text", { x: pad.left - 8, y: y(t) + 4, "text-anchor": "end", class: "cmp-tick" }, svg).textContent = labels[i];
     });
-    // x axis: about 6 date labels
-    const every = Math.max(1, Math.round(dates.length / 6));
+    // x axis: up to 6 date labels, at least 64px apart (fewer on phones)
+    const every = Math.max(1, Math.ceil(dates.length / Math.min(6, Math.max(2, Math.floor(plotW / 64)))));
     dates.forEach((d, i) => {
-      if ((dates.length - 1 - i) % every !== 0) return;
-      el("text", { x: x(i), y: height - 8, "text-anchor": i === 0 ? "start" : "middle", class: "cmp-tick" }, svg)
+      if ((dates.length - 1 - i) % every !== 0 || x(i) - pad.left < 20) return;  // the first one would touch the axis labels
+      el("text", { x: x(i), y: height - 8, "text-anchor": "middle", class: "cmp-tick" }, svg)
         .textContent = dateLabel(d);
     });
 
@@ -196,12 +196,14 @@
       cross.setAttribute("visibility", "hidden");
       markers.forEach((m) => m.setAttribute("visibility", "hidden"));
     }
-    hit.addEventListener("pointermove", (event) => {
+    // pointerdown: a tap on a touch screen shows the value too
+    for (const type of ["pointermove", "pointerdown"]) hit.addEventListener(type, (event) => {
       const box = svg.getBoundingClientRect();
       const px = event.clientX - box.left;
       show(Math.round(((px - pad.left) / plotW) * (dates.length - 1)));
     });
-    hit.addEventListener("pointerleave", hide);
+    // on touch screens the value stays until the next tap elsewhere (blur)
+    hit.addEventListener("pointerleave", (event) => { if (event.pointerType !== "touch") hide(); });
     hit.addEventListener("focus", () => show(dates.length - 1));
     hit.addEventListener("blur", hide);
     hit.addEventListener("keydown", (event) => {

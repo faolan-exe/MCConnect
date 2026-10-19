@@ -364,3 +364,93 @@ def test_old_player_zeroed_by_a_guess_is_restored(db, server, plugin):
     connection = plugin().auth(server["key"])
     assert connection.request(f"!JOIN~{PLAYER_UUID}|_Tobias4444|0|{epoch_ms(timedelta(days=-300))}") == "success|101"
     assert db.get_metrics_between(server["id"], today, today)[str(player)]["blocks_mined"] == 0
+
+
+# ------------------------------------------------------------------ play time stored once (plugin on Minecraft 26.x)
+
+HOUR = 72000  # ticks
+
+
+def test_old_play_time_name_is_stored_as_play_time(db, two_players):
+    _, b = two_players  # STATS_B uses the name before 1.17
+    rows = db._fetchall("SELECT object, value FROM actions WHERE player_id = %s AND category = %s AND object LIKE '%%play%%'",
+                        (b, stats.CUSTOM))
+    assert rows == [("minecraft:play_time", 36000)]
+
+
+def test_live_play_time_with_the_old_name_is_not_added(client, db, server, two_players):
+    """The stats file says play_time, the live stats of plugins up to 3.20 on 26.x said play_one_minute: one value."""
+    a, _ = two_players
+    db.update_player_stats(a, {"stats": {"minecraft:custom": {"minecraft:play_one_minute": 75000}}})
+    assert db.get_player_metrics(a)["play_time"] == 75000
+    db.update_player_stats(a, STATS_A)  # the stats file again (saved a bit earlier)
+    assert db.get_player_metrics(a)["play_time"] == 72000
+    count = db._fetchvalue("SELECT count(*) FROM actions WHERE player_id = %s AND category = %s AND object LIKE '%%play%%'",
+                           (a, stats.CUSTOM))
+    assert count == 1
+
+
+def test_same_stat_twice_in_one_upload_counts_once(db, two_players):
+    a, _ = two_players
+    db.update_player_stats(a, {"stats": {"minecraft:custom": {"minecraft:play_time": 80000, "minecraft:play_one_minute": 79000,
+                                                              "deaths": 9}}})
+    values = db.get_player_metrics(a)
+    assert values["play_time"] == 80000 and values["deaths"] == 9
+
+
+def test_player_page_cards_match_rankings_and_comparison(client, db, server, two_players):
+    """The same play time and deaths on the player page cards, in the player list, ranking and comparison."""
+    a, _ = two_players
+    db.update_player_stats(a, {"stats": {"minecraft:custom": {"minecraft:play_one_minute": 7 * HOUR + 30 * 1200}}})
+    expected = metrics.format_value(metrics.METRICS_BY_KEY["play_time"], 7 * HOUR + 30 * 1200)
+    assert expected == "7 Std. 30 Min."
+    card = client.get("/api/player_info/_Tobias4444", **on("testdomain")).json
+    assert card[6] == expected and card[2] == "5"
+    compare = client.get("/vergleich?spieler=_Tobias4444,Notch", **on("testdomain")).get_data(as_text=True)
+    ranking = client.get("/rangliste?kennzahl=play_time", **on("testdomain")).get_data(as_text=True)
+    player_list = client.get("/spieler", **on("testdomain")).get_data(as_text=True)
+    for html in (compare, ranking, player_list):
+        assert expected in html
+        assert "15 Std." not in html
+
+
+@pytest.mark.parametrize("migration", [27])
+def test_migration_stores_play_time_once(db, server, migration):
+    """Migration 27: play_time + play_one_minute rows become one, doubled snapshots, records and achievements
+    are corrected."""
+    from database.databaseManagerV2 import MIGRATIONS
+    a = db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
+    b = db.register_player_join(server["id"], OTHER_UUID, "Notch")
+    with db._cursor() as cur:
+        # a: 12 h in the stats file, 12.1 h live; played 2 h today (sessions), 1 h yesterday
+        cur.execute("DELETE FROM player_sessions")
+        cur.execute("""INSERT INTO player_sessions (player_id, started_at, ended_at) VALUES
+                       (%s, current_date + interval '1 hour', current_date + interval '3 hours'),
+                       (%s, current_date - interval '1 day' + interval '1 hour', current_date - interval '1 day' + interval '2 hours')""",
+                    (a, a))
+        cur.execute("""INSERT INTO actions (player_id, category, object, value) VALUES
+                       (%s, 21, 'minecraft:play_time', %s), (%s, 21, 'minecraft:play_one_minute', %s),
+                       (%s, 21, 'minecraft:play_one_minute', %s)""", (a, 12 * HOUR, a, 12 * HOUR + 7200, b, 3 * HOUR))
+        # snapshots: 3 days ago before the live stats (right), then doubled
+        for days_ago, value in ((3, 9 * HOUR), (2, 18 * HOUR), (1, 20 * HOUR), (0, 24 * HOUR + 7200)):
+            cur.execute("INSERT INTO stat_snapshots (player_id, metric, day, value) VALUES (%s, 'play_time', current_date - %s, %s)",
+                        (a, days_ago, value))
+        cur.execute("INSERT INTO stat_snapshots (player_id, metric, day, value) VALUES (%s, 'play_time', current_date, %s)",
+                    (b, 3 * HOUR))
+        cur.execute("INSERT INTO record_history (server_id, metric, player_id, value, since) VALUES (%s, 'play_time', %s, %s, now())",
+                    (server["id"], a, 24 * HOUR + 7200))
+        cur.execute("""INSERT INTO player_achievements (player_id, achievement, tier) VALUES
+                       (%s, 'regular', 0), (%s, 'regular', 1)""", (a, a))
+        cur.execute("""INSERT INTO player_achievements (player_id, achievement, tier) VALUES (%s, 'regular', 1)""", (b,))
+        for statement in MIGRATIONS[migration]:
+            cur.execute(statement)
+    plays = db._fetchall("""SELECT player_id::text, object, value FROM actions WHERE category = 21 AND object LIKE '%%play%%'
+                            ORDER BY value""")
+    assert plays == [(str(b), "minecraft:play_time", 3 * HOUR), (str(a), "minecraft:play_time", 12 * HOUR + 7200)]
+    snapshots = [v for (v,) in db._fetchall("""SELECT value FROM stat_snapshots WHERE player_id = %s AND metric = 'play_time'
+                                               ORDER BY day""", (a,))]
+    assert snapshots == [9 * HOUR, 9 * HOUR, 10 * HOUR, 12 * HOUR + 7200]  # never above the real value, never falling
+    assert db._fetchvalue("SELECT value FROM stat_snapshots WHERE player_id = %s", (b,)) == 3 * HOUR  # b had one row only
+    assert db._fetchvalue("SELECT value FROM record_history WHERE player_id = %s", (a,)) == 12 * HOUR + 7200
+    assert db.get_player_achievements(a).keys() == {("regular", 0)}  # 10 hours yes, 50 no
+    assert db.get_player_achievements(b).keys() == {("regular", 1)}  # not affected (only one row)

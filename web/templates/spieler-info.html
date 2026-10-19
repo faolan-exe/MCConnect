@@ -1,1148 +1,339 @@
+{% extends "server_base.html" %}
 {% from "_components.html" import prefix_chip %}
-<!DOCTYPE html>
-<html id="top" lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta content="IE=edge" http-equiv="X-UA-Compatible" />
-    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
-    <title>Spieler Übersicht</title>
+{% block title %}{{ user_name }} · {{ server_name }}{% endblock %}
+{% block head %}
+<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>
+<link href="{{ url_for('static', filename='css/minecraft.css') }}" rel="stylesheet"/>
+{% if not hidden %}
+<meta property="og:title" content="{{ user_name }} auf {{ server_name }}"/>
+<meta property="og:image" content="{{ card_url }}"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta name="twitter:card" content="summary_large_image"/>
+{% endif %}
+{% endblock %}
+{% block page_class %}srv-page-wide pi-page{% endblock %}
+{% block content %}
+{% if banned %}
+<p class="pi-banned" role="status">{% if enddate == "dauerhaft" %}<b>Dauerhaft gebannt</b> seit {{ startdate }}{% else %}<b>Gebannt</b> vom {{ startdate }} bis {{ enddate }}{% endif %}</p>
+{% endif %}
 
-    <link
-      href="{{ url_for('static', filename='css/header.css') }}"
-      rel="stylesheet"
-    />
-    <link
-      href="{{ url_for('static', filename='css/index.css') }}"
-      rel="stylesheet"
-    />
-
-    <link
-      href="{{ url_for('static', filename='css/player-info.css') }}"
-      rel="stylesheet"
-    />
-    <link
-      rel="stylesheet"
-      href="{{ url_for('static', filename='css/minecraft.css') }}"
-    />
-    <link
-      rel="stylesheet"
-      href="{{ url_for('static', filename='css/responsive-player-info.css') }}"
-    />
-
-    <link
-      href="{{ url_for('static', filename='images/favicon.ico') }}"
-      rel="icon"
-      type="image/vnd.microsoft.icon"
-    />
-
-    <script
-      crossorigin="anonymous"
-      integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8="
-      src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"
-    ></script>
-    <script
-      crossorigin="anonymous"
-      integrity="sha256-NGC9JEuTWN4GhTj091wctgjzftr+8WNDmw0H8J5YPYE="
-      src="https://cdnjs.cloudflare.com/ajax/libs/three.js/94/three.min.js"
-    ></script>
-    <script src="https://cdn.jsdelivr.net/gh/InventivetalentDev/MineRender@1.4.6/dist/skin.min.js"></script>
-
-    <link
-      href="{{ url_for ('static', filename='css/banned-banner.css') }}"
-      rel="stylesheet"
-    />
-    <link href="{{ url_for('static', filename='css/fonts.css') }}" rel="stylesheet" />
-    <link href="{{ url_for('static', filename='css/components.css') }}" rel="stylesheet" />
-    <link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet" />
-
-    <style>
-      :root {
-        --primary: #53ffb1;
-        --secondary: #2435fd;
-        --accent: #ff7a38;
-      }
-
-      .stats_div_outer {
-        border-right: 4px solid var(--accent);
-        border-left: 4px solid var(--accent);
-        width: 100% !important;
-        border-bottom: 4px solid var(--accent);
-        overscroll-behavior: contain;
-      }
-
-      tbody tr:hover {
-        filter: brightness(80%);
-        transition: filter 0.3s ease;
-        z-index: 1;
-      }
-
-      .stats_div_outer table tr:hover td {
-        transform: scale(1.05);
-      }
-
-      .stats_div tr {
-        background-color: rgb(36, 45, 46);
-      }
-
-      .group::after,
-      .tabBlock-tabs::after {
-        clear: both;
-        content: "";
-        display: table;
-      }
-
-      *,
-      ::before,
-      ::after {
-        box-sizing: border-box;
-      }
-
-      @media screen and (min-width: 700px) {
-        body {
-          font-size: 137.5%;
-        }
-      }
-
-      .unstyledList,
-      .tabBlock-tabs {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-        display: flex;
-      }
-
-      .firstColumn {
-        text-align: left !important;
-        padding-left: 6%;
-        width: 33%;
-      }
-
-      .tabBlock {
-        margin: 0;
-        color: var(--accent);
-
-        border-left-width: 4px;
-        border-right-width: 0px;
-      }
-
-      .tabBlock-tab {
-        text-align: center;
-        line-height: 2.5rem;
-        background-color: #e1e8e8;
-        border-left: solid;
-        border-top: solid;
-        border-bottom: solid;
-        border-right: solid;
-        border-left-width: 0px;
-        border-right-width: 0px;
-        border-bottom-width: 4px;
-        color: black;
-        border-color: var(--accent);
-        cursor: pointer;
-        display: inline-block;
-        font-weight: 600;
-        float: left;
-        padding: 10px 0px;
-        position: relative;
-        width: 20%;
-      }
-
-      .tabBlock-tab:last-of-type {
-        border-right-style: solid;
-      }
-
-      .tabBlock-tab::before,
-      .tabBlock-tab::after {
-        content: "";
-        display: block;
-        height: 4px;
-        position: absolute;
-      }
-
-      .tabBlock-tab.is-active::before {
-        text-align: center;
-        background-color: var(--accent);
-        left: -4px;
-        right: -4px;
-        top: -1px;
-      }
-
-      .tabBlock-tab.is-active {
-        text-align: center;
-        position: relative;
-        color: var(--secondary);
-        font-size: 1.5em;
-        border-bottom-color: #d1dfdf;
-        z-index: 100;
-        background-color: #d1dfdf;
-      }
-
-      /* .tabBlock-tab.is-active + .tabBlock-tab {
-        border-left-width: 4px;
-      } */
-      .tabBlock-tab.is-active{
-        border-left-width: 4px;
-        border-right-width: 4px;
-      }
-
-      /* .tabBlock-tab.previous-tab {
-        border-right-width: 4px;
-      } */
-
-      .tabBlock-tab:not(is-active) {
-        border-top-width: 0px;
-        border-right-width: 0px;
-        border-left-width: 0px;
-      }
-
-      .tabBlock-tab.is-active::before {
-        background-color: var(--accent);
-      }
-
-      .tabBlock-tab.is-active::after {
-        background-color: #fff;
-      }
-
-      .current-sort {
-        color: var(--accent);
-      }
-
-      .center2 {
-        display: grid;
-        place-items: center;
-      }
-    </style>
-  <link href="{{ url_for('static', filename='css/fonts.css') }}" rel="stylesheet" />
-    <link href="{{ url_for('static', filename='css/components.css') }}" rel="stylesheet" />
-    {% if not hidden %}
-    <meta property="og:title" content="{{ user_name }} auf {{ server_name }}" />
-    <meta property="og:image" content="{{ card_url }}" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
-    <meta name="twitter:card" content="summary_large_image" />
-    {% endif %}
-  </head>
-
-  <body>
-    {% include 'header.html' %}
-    <div
-      class="banner-container sticky"
-      id="banned-banner"
-      style="--bgcolor: rgb(255, 0, 0); --color: rgb(255, 255, 255)"
-    >
-      <span class="banner-content"
-        >Dieser Spieler wurde vom Servernetzwerk gebannt.<br />Gebannt von
-        {{startdate}} bis {{enddate}}</span
-      >
+<section class="pi-hero">
+  <div class="pi-skin">
+    <div class="pi-skin-view" id="skin-view">
+      <img src="https://mc-heads.net/body/{{ uuid }}/180" alt="Skin von {{ user_name }}" width="90" height="180" data-role="skin-2d"/>
     </div>
-    <div class="content">
-      <h1>
-        {% if player_prefix %}
-        <div style="text-align: center; font-size: 30px; margin-bottom: 4px">
-          {{ prefix_chip(player_prefix.text, player_prefix.color, prefix_colors) }}</div>
-        {% endif %}
-        <strong
-          class="center player-name"
-          style="width: fit-content; margin-bottom: 50px"
-          >{{user_name}}</strong
-        >
-      </h1>
-      <div class="pi-extra pi-top">
-        {% if bio %}<p class="pi-bio">„{{ bio }}“</p>{% endif %}
-        {% if is_self and hidden %}
-        <p class="st-hint">Deine Statistiken sind verborgen: Nur du siehst diese Seite, in Ranglisten und Vergleichen tauchst du nicht auf.
-          Ändern kannst du das in deinem <a href="/profil">Profil</a>.</p>
-        {% endif %}
-        <div class="pi-actions">
-          {% if logged_in and not is_self %}
-          <button class="mcc-btn mcc-btn-secondary mcc-btn-small pi-fav" type="button" data-favorite="{{ user_name }}"
-                  aria-pressed="{{ 'true' if is_favorite else 'false' }}">{{ "★ Favorit" if is_favorite else "☆ Als Favorit merken" }}</button>
-          {% endif %}
-          {% if not hidden %}
-          <a class="mcc-btn mcc-btn-secondary mcc-btn-small" href="{{ card_url }}" target="_blank" rel="noopener">Statistik-Karte</a>
-          <button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" id="share-link">Link teilen</button>
-          <a class="mcc-btn mcc-btn-secondary mcc-btn-small" href="/rueckblick/{{ user_name | urlencode }}">Jahresrückblick</a>
-          {% endif %}
-          {% if is_self %}<a class="mcc-btn mcc-btn-secondary mcc-btn-small" href="/profil">Profil bearbeiten</a>{% endif %}
-        </div>
-      </div>
-      <br />
-      <div class="container-util">
-        <div class="container">
-          <div title="Das erste mal gesehen" class="item item-2">
-            <div class="box bottomLeft">
-              <img
-                width="50%"
-                src="{{ url_for('static', filename='images/b003-calendar-1.png') }}"
-                alt=""
-              />
-              <p id="3"></p>
-            </div>
-          </div>
-          <div title="Gesamtspielzeit" class="item item-1">
-            <div class="box topLeft">
-              <img
-                width="50%"
-                src="{{ url_for('static', filename='images/b005-wall-clock.png') }}"
-                alt=""
-              />
-              <p id="6">Loading</p>
-            </div>
-          </div>
-          <div class="item item-3">
-            <div id="mySkinContainer"></div>
-            <div class="topDiv">
-              <p id="4" style="display: none"><span>Loading</span></p>
-            </div>
-            <div class="bottomDiv" id="bottomDiv">
-              <p id="1"><span>Loading</span></p>
-            </div>
-            <div class="downloadButton">
-              <button
-                data-on-click="forceDownload" data-args='{{ ["https://mc-heads.net/skin/" ~ uuid, "Skin-" ~ user_name ~ ".png"] | tojson | forceescape }}'
-                style="width: 40px; height: 40px"
-              >
-                <svg
-                  fill="#000000"
-                  height="100%"
-                  width="100%"
-                  version="1.1"
-                  id="Capa_1"
-                  xmlns="http://www.w3.org/2000/svg"
-                  xmlns:xlink="http://www.w3.org/1999/xlink"
-                  viewBox="0 0 29.978 29.978"
-                  xml:space="preserve"
-                >
-                  <g>
-                    <path
-                      d="M25.462,19.105v6.848H4.515v-6.848H0.489v8.861c0,1.111,0.9,2.012,2.016,2.012h24.967c1.115,0,2.016-0.9,2.016-2.012   v-8.861H25.462z"
-                    />
-                    <path
-                      d="M14.62,18.426l-5.764-6.965c0,0-0.877-0.828,0.074-0.828s3.248,0,3.248,0s0-0.557,0-1.416c0-2.449,0-6.906,0-8.723   c0,0-0.129-0.494,0.615-0.494c0.75,0,4.035,0,4.572,0c0.536,0,0.524,0.416,0.524,0.416c0,1.762,0,6.373,0,8.742   c0,0.768,0,1.266,0,1.266s1.842,0,2.998,0c1.154,0,0.285,0.867,0.285,0.867s-4.904,6.51-5.588,7.193   C15.092,18.979,14.62,18.426,14.62,18.426z"
-                    />
-                    <g></g>
-                    <g></g>
-                    <g></g>
-                    <g></g>
-                    <g></g>
-                    <g></g>
-                    <g></g>
-                    <g></g>
-                    <g></g>
-                    <g></g>
-                    <g></g>
-                    <g></g>
-                    <g></g>
-                    <g></g>
-                    <g></g>
-                  </g>
-                </svg>
-              </button>
-            </div>
-          </div>
-          <div title="Gesamtanzahl Tode" class="item item-4">
-            <div class="box topRight">
-              <img
-                width="50%"
-                src="{{ url_for('static', filename='images/b007-grave-1.png') }}"
-                alt=""
-              />
-              <p id="2">Loading</p>
-            </div>
-          </div>
-          <div title="Zeit seit letzem Tod" class="item item-5">
-            <div class="box bottomRight">
-              <img
-                width="50%"
-                src="{{ url_for('static', filename='images/b006-grave.png') }}"
-                alt=""
-              />
-              <p id="5">Loading</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- <p id="4" style="display: none">Loading</p> -->
-
-        {% if extras.highlights or extras.places or extras.activity or extras.achievements or extras.cabinet %}
-        <section class="pi-extra">
-          {% if extras.activity %}
-          <h2>Aktivität der letzten 30 Tage</h2>
-          <div class="pi-activity">
-            <div class="pi-activity-sum">
-              <div><strong>{{ extras.activity.total }}</strong>gespielt</div>
-              <div><strong>{{ extras.activity.active_days }} von 30</strong>Tagen aktiv</div>
-            </div>
-            <div class="pi-chart" data-bar-chart="activity-data" data-unit="h" aria-label="Spielzeit pro Tag in den letzten 30 Tagen"></div>
-          </div>
-          {% endif %}
-
-          {% if extras.places %}
-          <h2>Ranglisten-Plätze</h2>
-          <div class="pi-tiles">
-            {% for place in extras.places %}
-            <a class="pi-tile{% if place.rank == 1 %} pi-rank-1{% endif %}" href="/rangliste">
-              <span class="pi-tile-label">{{ place.label }}</span>
-              <span class="pi-rank"><b>Platz {{ place.rank }}</b><span>von {{ place.of }}</span></span>
-              <span class="pi-tile-detail">{{ place.text }}</span>
-            </a>
-            {% endfor %}
-          </div>
-          {% endif %}
-
-          {% if extras.cabinet %}
-          {% set cab = extras.cabinet %}
-          <h2>Trophäenschrank</h2>
-          <div class="tc-grid">
-            {% if cab.streak.best > 1 %}
-            <div class="tc-box">
-              <span class="pi-tile-label">Serie</span>
-              <span class="tc-big">{{ cab.streak.current }} {{ "Tag" if cab.streak.current == 1 else "Tage" }}</span>
-              <span class="pi-tile-detail">in Folge online · Rekord {{ cab.streak.best }} Tage{% if cab.best_range %} ({{ cab.best_range }}){% endif %}</span>
-              {% if cab.next_badge %}<span class="pi-tile-detail">Nächstes Abzeichen bei {{ cab.next_badge }} Tagen</span>{% endif %}
-            </div>
-            {% endif %}
-            {% if cab.badges %}
-            <div class="tc-box">
-              <span class="pi-tile-label">Abzeichen</span>
-              <div class="tc-badges">
-                {% for b in cab.badges %}<span class="pl-badge pl-badge-{{ b.kind }}" title="erreicht am {{ b.date }}">{{ b.label }}</span>{% endfor %}
-              </div>
-            </div>
-            {% endif %}
-            {% if cab.records %}
-            <div class="tc-box">
-              <span class="pi-tile-label">Rekorde · {{ cab.records | length }}</span>
-              <ul class="tc-list">
-                {% for r in cab.records %}<li><span>★</span><span>{{ r.label }}</span><small>{{ r.text }}</small></li>{% endfor %}
-              </ul>
-            </div>
-            {% endif %}
-            {% if cab.competitions %}
-            <div class="tc-box">
-              <span class="pi-tile-label">Wettbewerbe{% if cab.wins %} · {{ cab.wins }} {{ "Sieg" if cab.wins == 1 else "Siege" }}{% endif %}</span>
-              <ul class="tc-list">
-                {% for t in cab.competitions %}<li><span class="hf-medal" style="--medal: {{ t.color }}">{{ t.place }}</span><span>{{ t.title }}</span><small>{{ t.date }}</small></li>{% endfor %}
-              </ul>
-            </div>
-            {% endif %}
-            {% if cab.weeks %}
-            <div class="tc-box">
-              <span class="pi-tile-label">Spieler der Woche · {{ cab.weeks | length }}×</span>
-              <ul class="tc-list">
-                {% for t in cab.weeks[:5] %}<li><span>★</span><span>{{ t.title }}</span><small>{{ t.detail }}</small></li>{% endfor %}
-              </ul>
-            </div>
-            {% endif %}
-          </div>
-          {% endif %}
-
-          {% if notes is not none %}
-          <h2>Moderation · nur für Moderatoren sichtbar</h2>
-          <div class="nt-card" id="notes" data-player="{{ user_name }}">
-            <div data-live="notes">
-            {% for n in notes %}
-            <div class="nt-note">
-              <div class="nt-head"><b>{{ n.author or "Unbekannt" }}</b> <span>{{ n.when }}</span>
-                <button type="button" class="nt-delete" data-note="{{ n.id }}" aria-label="Notiz löschen">Löschen</button></div>
-              <p>{{ n.text }}</p>
-            </div>
-            {% else %}
-            <p class="st-empty">Noch keine Notizen zu {{ user_name }}.</p>
-            {% endfor %}
-            </div>
-            <form class="nt-form">
-              <label class="st-sr" for="note-text">Neue Notiz</label>
-              <textarea class="mcc-input" id="note-text" maxlength="1000" rows="2" placeholder="Notiz zu {{ user_name }} …" required></textarea>
-              <button class="mcc-btn mcc-btn-small" type="submit">Notiz speichern</button>
-            </form>
-            {% if player_log %}
-            <details class="nt-log"><summary>Protokoll zu {{ user_name }} ({{ player_log | length }})</summary>
-              <ul data-live="player-log">{% for e in player_log %}<li><span>{{ e.when }}</span> {{ e.actor or "–" }}: {{ e.label }}{% if e.details %} – {{ e.details }}{% endif %}</li>{% endfor %}</ul>
-            </details>
-            {% endif %}
-          </div>
-          {% if warnings is not none %}
-          <div class="nt-card wn-card" id="discipline" data-player="{{ user_name }}">
-            <div data-live="warnings">
-            <div class="wn-head"><b>Verwarnungen: {{ warnings | length }}</b>{% if muted_until %} · <span class="xr-flag">stumm bis {{ muted_until }}</span>{% endif %}</div>
-            {% if warnings %}
-            <ul class="wn-list">{% for w in warnings %}<li><span>{{ w.when }}</span> {{ w.reason }} <span class="mcc-hint">({{ w.created_by or "–" }})</span>
-              <button type="button" class="nt-delete" data-warning="{{ w.id }}">Löschen</button></li>{% endfor %}</ul>
-            {% endif %}
-            </div>
-            <form class="nt-form" data-discipline="/api/mod/warn">
-              <label class="st-sr" for="wn-reason">Grund der Verwarnung</label>
-              <input class="mcc-input" id="wn-reason" name="reason" maxlength="200" placeholder="Grund der Verwarnung" required/>
-              <button class="mcc-btn mcc-btn-small" type="submit">Verwarnen</button>
-            </form>
-            <form class="nt-form" data-discipline="/api/mod/mute">
-              <label class="st-sr" for="mt-minutes">Stummschalten</label>
-              <select class="mcc-select" id="mt-minutes" name="minutes">
-                {% for minutes, label in ((10, "10 Minuten"), (60, "1 Stunde"), (360, "6 Stunden"), (1440, "1 Tag"), (10080, "7 Tage"), (0, "Aufheben")) %}
-                <option value="{{ minutes }}">{{ label }}</option>{% endfor %}
-              </select>
-              <input class="mcc-input" name="reason" maxlength="200" placeholder="Grund (optional)"/>
-              <button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="submit">Stummschalten</button>
-            </form>
-            <div class="mcc-message" data-role="message"></div>
-          </div>
-          <script nonce="{{ csp_nonce() }}">
-            (() => {
-              const root = document.getElementById("discipline");
-              const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
-                                                       body: JSON.stringify(body) }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }));
-              root.querySelectorAll("[data-discipline]").forEach((form) => form.addEventListener("submit", async (event) => {
-                event.preventDefault();
-                const result = await post(form.dataset.discipline, Object.assign({ name: root.dataset.player }, Object.fromEntries(new FormData(form))));
-                const message = root.querySelector('[data-role="message"]');
-                message.textContent = result.ok ? (result.data.message || "Gespeichert.") : (result.data.error || "Das hat nicht geklappt.");
-                message.className = "mcc-message " + (result.ok ? "success" : "error");
-                if (result.ok) { form.reset(); refreshLiveParts(); }
-              }));
-              root.addEventListener("click", async (event) => {  // delegated: the list is replaced after changes
-                const button = event.target.closest("[data-warning]");
-                if (!button || !confirm("Verwarnung löschen?")) return;
-                if ((await post("/api/mod/warnings/delete", { id: Number(button.dataset.warning) })).ok) refreshLiveParts();
-              });
-            })();
-          </script>
-          {% endif %}
-          {% endif %}
-
-          {% if extras.achievements %}
-          <div id="achievements" data-player="{{ user_name }}" data-count="{{ extras.achievement_count }}">
-            {% include "_achievements.html" %}
-          </div>
-          {% endif %}
-
-          {% if builds %}
-          <h2>Bauten in der Galerie</h2>
-          <div class="bg-grid bg-grid-small">
-            {% for b in builds %}
-            <a class="bg-item" href="/galerie"><img src="{{ b.url }}" alt="{{ b.title }}" loading="lazy"/><span class="bg-caption">{{ b.title }} · ♥ {{ b.likes }}</span></a>
-            {% endfor %}
-          </div>
-          {% endif %}
-
-          {% if extras.highlights %}
-          <h2>Highlights</h2>
-          <div class="pi-tiles">
-            {% for item in extras.highlights %}
-            <div class="pi-tile">
-              <span class="pi-tile-label">{{ item.label }}</span>
-              <span class="pi-tile-value">{{ item.value }}</span>
-              <span class="pi-tile-detail">{{ item.detail }}</span>
-            </div>
-            {% endfor %}
-          </div>
-          {% endif %}
-        </section>
-        {% endif %}
-
-        <section class="pi-extra gb-section" id="guestbook" data-player="{{ user_name }}">
-          <h2>Gästebuch<span data-live="guestbook-count">{% if guestbook %} · {{ guestbook | length }}{% endif %}</span></h2>
-          {% if logged_in and not is_self %}
-          <form class="gb-form">
-            <label class="st-sr" for="gb-text">Eintrag für {{ user_name }}</label>
-            <input class="mcc-input" id="gb-text" name="text" maxlength="{{ guestbook_max }}" required
-                   placeholder="Schreib {{ user_name }} etwas Nettes …"/>
-            <button class="mcc-btn mcc-btn-small" type="submit">Eintragen</button>
-          </form>
-          <div class="mcc-message" data-role="message"></div>
-          {% elif not logged_in %}
-          <p class="mcc-hint"><a href="/login?next=/spieler?player={{ user_name | urlencode }}">Log dich ein</a>, um etwas ins Gästebuch zu schreiben.</p>
-          {% endif %}
-          <div data-live="guestbook">
-          {% if guestbook %}
-          <ul class="gb-list">
-            {% for e in guestbook %}
-            <li class="gb-entry">
-              <img src="https://mc-heads.net/avatar/{{ e.author_uuid }}/32" alt="" width="28" height="28" loading="lazy"/>
-              <div>
-                <div class="gb-head"><a href="/spieler?player={{ e.author | urlencode }}"><b>{{ e.author }}</b></a> <span>{{ e.when }}</span></div>
-                <p>{{ e.text }}</p>
-              </div>
-              <span class="gb-actions">
-                {% if e.can_delete %}<button type="button" data-gb-delete="{{ e.id }}">Löschen</button>{% endif %}
-                {% if logged_in and not e.can_delete %}<button type="button" data-gb-report="{{ e.id }}"{% if e.reported_at %} disabled{% endif %}>{{ "Gemeldet" if e.reported_at else "Melden" }}</button>{% endif %}
-              </span>
-            </li>
-            {% endfor %}
-          </ul>
-          {% elif not (logged_in and not is_self) %}
-          <p class="st-empty">Noch keine Einträge.</p>
-          {% endif %}
-          </div>
-        </section>
-        <script nonce="{{ csp_nonce() }}">
-          (() => {
-            const root = document.getElementById("guestbook");
-            const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
-                                                     body: JSON.stringify(body) }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }));
-            const form = root.querySelector(".gb-form");
-            if (form) form.addEventListener("submit", async (event) => {
-              event.preventDefault();
-              const result = await post("/api/guestbook", { name: root.dataset.player, text: form.elements.text.value });
-              const message = root.querySelector('[data-role="message"]');
-              message.textContent = result.ok ? "" : (result.data.error || "Das hat nicht geklappt.");
-              message.className = "mcc-message" + (result.ok ? "" : " error");
-              if (result.ok) { form.reset(); refreshLiveParts(); }
-            });
-            root.addEventListener("click", async (event) => {  // delegated: the list is replaced after changes
-              const remove = event.target.closest("[data-gb-delete]");
-              const report = event.target.closest("[data-gb-report]");
-              if (remove && confirm("Eintrag wirklich löschen?")) {
-                if ((await post("/api/guestbook/delete", { id: Number(remove.dataset.gbDelete) })).ok) refreshLiveParts();
-              } else if (report && confirm("Diesen Eintrag den Moderatoren melden?")) {
-                if ((await post("/api/guestbook/report", { id: Number(report.dataset.gbReport) })).ok) {
-                  report.textContent = "Gemeldet";
-                  report.disabled = true;
-                }
-              }
-            });
-          })();
-        </script>
-
-        <br />
-        <br />
-        <hr />
-        <br />
-        <div class="center2">
-          <div class="stats_div_outer_outer">
-            <figure class="tabBlock">
-              <ul class="tabBlock-tabs">
-                <li
-                  data-tab="blocks"
-                  class="tabBlock-tab is-active"
-                >
-                  Blöcke
-                </li>
-                <li
-                  data-tab="items"
-                  class="tabBlock-tab"
-                >
-                  Items
-                </li>
-                <li
-                  data-tab="tools"
-                  class="tabBlock-tab"
-                >
-                  Tools
-                </li>
-                <li
-                  data-tab="armor"
-                  class="tabBlock-tab"
-                >
-                  Armor
-                </li>
-                <li
-                  data-tab="mobs"
-                  class="tabBlock-tab"
-                >
-                  Mobs
-                </li>
-                <li
-                  data-tab="other"
-                  class="tabBlock-tab"
-                >
-                  Mehr
-                </li>
-              </ul>
-            </figure>
-            <div
-              class="stats_div_outer"
-              style="
-                background-color: rgb(36, 45, 46);
-                color: white;
-                width: 1600px;
-                height: 600px;
-                overflow-wrap: break-word;
-                overflow-x: hidden;
-              "
-            >
-              <div class="stats_div" id="staticsContentDiv">Loading...</div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <br />
-    </div>
-    <footer>
-      <nav>
-        <ul>
-          <li><a href="/impressum">Impressum</a></li>
-          <li><a href="/datenschutz">Datenschutz</a></li>
-          <li><a href="#">🡅</a></li>
-        </ul>
-      </nav>
-    </footer>
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
-    <script nonce="{{ csp_nonce() }}">
-      (() => {
-        const fav = document.querySelector("[data-favorite]");
-        if (fav) fav.addEventListener("click", async () => {
-          const response = await fetch("/api/favorites/toggle", { method: "POST", headers: { "Content-Type": "application/json" },
-                                                                 body: JSON.stringify({ name: fav.dataset.favorite }) });
-          if (!response.ok) return;
-          const on = (await response.json()).favorite;
-          fav.setAttribute("aria-pressed", String(on));
-          fav.textContent = on ? "★ Favorit" : "☆ Als Favorit merken";
-        });
-        const notes = document.getElementById("notes");
-        if (notes) {
-          const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-          notes.querySelector(".nt-form").addEventListener("submit", async (event) => {
-            event.preventDefault();
-            const text = document.getElementById("note-text").value;
-            if ((await post("/api/mod/notes", { name: notes.dataset.player, text })).ok) {
-              event.target.reset();
-              refreshLiveParts();
-            }
-          });
-          notes.addEventListener("click", async (event) => {  // delegated: the notes are replaced after changes
-            const button = event.target.closest("[data-note]");
-            if (button && confirm("Notiz löschen?") && (await post("/api/mod/notes/delete", { id: Number(button.dataset.note) })).ok) refreshLiveParts();
-          });
-        }
-        // achievements update live (the plugin sends the stats of online players every minute)
-        const achievements = document.getElementById("achievements");
-        if (achievements) setInterval(async () => {
-          if (document.hidden) return;
-          const response = await fetch("/api/spieler/" + encodeURIComponent(achievements.dataset.player) + "/erfolge");
-          if (!response.ok) return;
-          const data = await response.json();
-          if (data.count === Number(achievements.dataset.count)) return;
-          achievements.dataset.count = data.count;
-          achievements.innerHTML = data.html;
-          achievements.classList.add("ac-updated");
-        }, 15000);
-        const share = document.getElementById("share-link");
-        if (share) share.addEventListener("click", async () => {
-          const url = location.origin + "/spieler?player=" + encodeURIComponent({{ user_name | tojson }});
-          if (navigator.share) {
-            try { await navigator.share({ title: {{ user_name | tojson }}, url }); } catch (e) {}
-            return;
-          }
-          await navigator.clipboard.writeText(url);
-          share.textContent = "Link kopiert";
-          setTimeout(() => (share.textContent = "Link teilen"), 2000);
-        });
-      })();
-    </script>
-    {% if extras.activity %}
-    <script id="activity-data" type="application/json">{{ extras.activity.days | tojson }}</script>
-    <script src="{{ url_for('static', filename='bar-chart.js') }}"></script>
+    <button class="pi-skin-download" type="button" title="Skin herunterladen" aria-label="Skin herunterladen"
+            data-on-click="forceDownload" data-args='{{ ["https://mc-heads.net/skin/" ~ uuid, "Skin-" ~ user_name ~ ".png"] | tojson | forceescape }}'>
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3v11m0 0-4.5-4.5M12 14l4.5-4.5M4 16v4h16v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+  <div class="pi-id">
+    {% if player_prefix %}<div class="pi-prefix">{{ prefix_chip(player_prefix.text, player_prefix.color, prefix_colors) }}</div>{% endif %}
+    <h1 class="pi-name">{{ user_name }}</h1>
+    <p class="pi-status" data-card="status">
+      {% if cards[1] == "online" %}<span class="pi-dot pi-dot-on"></span> Gerade online
+      {% else %}<span class="pi-dot"></span> Offline · zuletzt online {{ cards[4] }}{% endif %}
+    </p>
+    {% if bio %}<p class="pi-bio">„{{ bio }}“</p>{% endif %}
+    {% if is_self and hidden %}
+    <p class="st-hint">Deine Statistiken sind verborgen: Nur du siehst diese Seite, in Ranglisten und Vergleichen tauchst du nicht auf.
+      Ändern kannst du das in deinem <a href="/profil">Profil</a>.</p>
     {% endif %}
+    <div class="pi-actions">
+      {% if logged_in and not is_self %}
+      <button class="mcc-btn mcc-btn-secondary mcc-btn-small pi-fav" type="button" data-favorite="{{ user_name }}"
+              aria-pressed="{{ 'true' if is_favorite else 'false' }}">{{ "★ Favorit" if is_favorite else "☆ Als Favorit merken" }}</button>
+      {% endif %}
+      {% if not hidden %}
+      <a class="mcc-btn mcc-btn-secondary mcc-btn-small" href="/vergleich?spieler={{ user_name | urlencode }}">Vergleichen</a>
+      <a class="mcc-btn mcc-btn-secondary mcc-btn-small" href="{{ card_url }}" target="_blank" rel="noopener">Statistik-Karte</a>
+      <button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" id="share-link">Link teilen</button>
+      <a class="mcc-btn mcc-btn-secondary mcc-btn-small" href="/rueckblick/{{ user_name | urlencode }}">Jahresrückblick</a>
+      {% endif %}
+      {% if is_self %}<a class="mcc-btn mcc-btn-secondary mcc-btn-small" href="/profil">Profil bearbeiten</a>{% endif %}
+    </div>
+  </div>
+</section>
 
-    <script nonce="{{ csp_nonce() }}">
-      //Loading player model
-      var skinRender = new SkinRender(
-        {
-          autoResize: true,
-          canvas: {
-            width: 350,
-            height: 350,
-          },
-        },
-        document.getElementById("mySkinContainer")
-      );
-      skinRender.render({ url: "https://mc-heads.net/skin/{{uuid}}" });
-    </script>
+<section class="pi-cards" aria-label="Überblick">
+  <div class="pi-card"><span class="pi-tile-label">Spielzeit gesamt</span><strong data-card="6">{{ cards[6] }}</strong></div>
+  <div class="pi-card"><span class="pi-tile-label">Tode</span><strong data-card="2">{{ cards[2] }}</strong></div>
+  <div class="pi-card"><span class="pi-tile-label">Seit dem letzten Tod</span><strong data-card="5">{{ cards[5] }}</strong></div>
+  <div class="pi-card"><span class="pi-tile-label">Dabei seit</span><strong data-card="3">{{ cards[3].split(", ")[0] }}</strong></div>
+</section>
 
-    <script src="{{ url_for('static', filename='poll.js') }}"></script>
-    <script nonce="{{ csp_nonce() }}">
-      // Loading player stats cards
-      pollJson("/api/player_info/" + encodeURIComponent({{ user_name | tojson }}), 5000, (parsedArray) => {
-        i = 0;
-        for (var element of parsedArray) {
-          if (i == 0) {
-            i += 1;
-            continue;
-          }
-          if (i == 3) {
-            // "27.09.2026, 14:32 Uhr": date and time in two lines, the card is narrow
-            element = String(element).replace(", ", "<br>");
-          }
-          if (i == 1) {
-            if (element == "offline") {
-              document.getElementById("bottomDiv").classList.add("higher");
-              element =
-                `<span style='margin-top: -20px;' class="status status-${element}">` +
-                element +
-                "<br><abc style='color:black;font-size:20px'>" +
-                parsedArray[4] +
-                "</abc></span>";
-            } else {
-              element =
-                `<span class="status status-${element}">` + element + "</span>";
-              document.getElementById("bottomDiv").classList.remove("higher");
-            }
-          }
-          document.getElementById("" + i).innerHTML = element;
-          i += 1;
-        }
-      });
-      // utility functions
+{% if extras.activity %}
+<section class="pi-extra">
+  <h2>Aktivität der letzten 30 Tage</h2>
+  <div class="pi-activity">
+    <div class="pi-activity-sum">
+      <div><strong>{{ extras.activity.total }}</strong>gespielt in 30 Tagen</div>
+      <div><strong>{{ extras.activity.active_days }} von 30</strong>Tagen aktiv</div>
+    </div>
+    <div class="pi-chart" data-bar-chart="activity-data" data-unit="h" aria-label="Spielzeit pro Tag in den letzten 30 Tagen"></div>
+  </div>
+</section>
+{% endif %}
 
-      function forceDownload(url, fileName) {
-        var xhr = new XMLHttpRequest();
-        xhr.open("GET", url, true);
-        xhr.responseType = "blob";
-        xhr.onload = function () {
-          var urlCreator = window.URL || window.webkitURL;
-          var imageUrl = urlCreator.createObjectURL(this.response);
-          var tag = document.createElement("a");
-          tag.href = imageUrl;
-          tag.download = fileName;
-          document.body.appendChild(tag);
-          tag.click();
-          document.body.removeChild(tag);
-        };
-        xhr.send();
-      }
-      function decodeHtmlEntities(text) {
-        const textarea = document.createElement("textarea");
-        textarea.innerHTML = text;
-        return textarea.value;
-      }
+{% if extras.places %}
+<section class="pi-extra">
+  <h2>Ranglisten-Plätze</h2>
+  <div class="pi-tiles">
+    {% for place in extras.places %}
+    <a class="pi-tile{% if place.rank == 1 %} pi-rank-1{% endif %}" href="/rangliste">
+      <span class="pi-tile-label">{{ place.label }}</span>
+      <span class="pi-rank"><b>Platz {{ place.rank }}</b><span>von {{ place.of }}</span></span>
+      <span class="pi-tile-detail">{{ place.text }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 
-      // decode big data string (main tables)
-      function processStats(stats) {
-        return decodeHtmlEntities(stats)
-          .replaceAll("'", '"')
-          .replaceAll("None", null);
-      }
+{% if extras.cabinet %}
+{% set cab = extras.cabinet %}
+<section class="pi-extra">
+  <h2>Trophäenschrank</h2>
+  <div class="tc-grid">
+    {% if cab.streak.best > 1 %}
+    <div class="tc-box">
+      <span class="pi-tile-label">Serie</span>
+      <span class="tc-big">{{ cab.streak.current }} {{ "Tag" if cab.streak.current == 1 else "Tage" }}</span>
+      <span class="pi-tile-detail">in Folge online · Rekord {{ cab.streak.best }} Tage{% if cab.best_range %} ({{ cab.best_range }}){% endif %}</span>
+      {% if cab.next_badge %}<span class="pi-tile-detail">Nächstes Abzeichen bei {{ cab.next_badge }} Tagen</span>{% endif %}
+    </div>
+    {% endif %}
+    {% if cab.badges %}
+    <div class="tc-box">
+      <span class="pi-tile-label">Abzeichen</span>
+      <div class="tc-badges">
+        {% for b in cab.badges %}<span class="pl-badge pl-badge-{{ b.kind }}" title="erreicht am {{ b.date }}">{{ b.label }}</span>{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    {% if cab.records %}
+    <div class="tc-box">
+      <span class="pi-tile-label">Rekorde · {{ cab.records | length }}</span>
+      <ul class="tc-list">
+        {% for r in cab.records %}<li><span>★</span><span>{{ r.label }}</span><small>{{ r.text }}</small></li>{% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+    {% if cab.competitions %}
+    <div class="tc-box">
+      <span class="pi-tile-label">Wettbewerbe{% if cab.wins %} · {{ cab.wins }} {{ "Sieg" if cab.wins == 1 else "Siege" }}{% endif %}</span>
+      <ul class="tc-list">
+        {% for t in cab.competitions %}<li><span class="hf-medal" style="--medal: {{ t.color }}">{{ t.place }}</span><span>{{ t.title }}</span><small>{{ t.date }}</small></li>{% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+    {% if cab.weeks %}
+    <div class="tc-box">
+      <span class="pi-tile-label">Spieler der Woche · {{ cab.weeks | length }}×</span>
+      <ul class="tc-list">
+        {% for t in cab.weeks[:5] %}<li><span>★</span><span>{{ t.title }}</span><small>{{ t.detail }}</small></li>{% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
 
-      // Process stats
-      var stats_tools = processStats("{{tool_stats}}");
-      var stats_armor = processStats("{{armor_stats}}");
-      var stats_mobs = processStats("{{mob_stats}}");
-      var stats_custom = processStats("{{custom_stats}}");
-      var stats_blocks = processStats("{{block_stats}}");
-      var stats_items = processStats("{{item_stats}}");
+{% if notes is not none %}
+<section class="pi-extra">
+  <h2>Moderation · nur für Moderatoren sichtbar</h2>
+  <div class="nt-card" id="notes" data-player="{{ user_name }}">
+    <div data-live="notes">
+    {% for n in notes %}
+    <div class="nt-note">
+      <div class="nt-head"><b>{{ n.author or "Unbekannt" }}</b> <span>{{ n.when }}</span>
+        <button type="button" class="nt-delete" data-note="{{ n.id }}" aria-label="Notiz löschen">Löschen</button></div>
+      <p>{{ n.text }}</p>
+    </div>
+    {% else %}
+    <p class="st-empty">Noch keine Notizen zu {{ user_name }}.</p>
+    {% endfor %}
+    </div>
+    <form class="nt-form">
+      <label class="st-sr" for="note-text">Neue Notiz</label>
+      <textarea class="mcc-input" id="note-text" maxlength="1000" rows="2" placeholder="Notiz zu {{ user_name }} …" required></textarea>
+      <button class="mcc-btn mcc-btn-small" type="submit">Notiz speichern</button>
+    </form>
+    {% if player_log %}
+    <details class="nt-log"><summary>Protokoll zu {{ user_name }} ({{ player_log | length }})</summary>
+      <ul data-live="player-log">{% for e in player_log %}<li><span>{{ e.when }}</span> {{ e.actor or "–" }}: {{ e.label }}{% if e.details %} – {{ e.details }}{% endif %}</li>{% endfor %}</ul>
+    </details>
+    {% endif %}
+  </div>
+  {% if warnings is not none %}
+  <div class="nt-card wn-card" id="discipline" data-player="{{ user_name }}">
+    <div data-live="warnings">
+    <div class="wn-head"><b>Verwarnungen: {{ warnings | length }}</b>{% if muted_until %} · <span class="xr-flag">stumm bis {{ muted_until }}</span>{% endif %}</div>
+    {% if warnings %}
+    <ul class="wn-list">{% for w in warnings %}<li><span>{{ w.when }}</span> {{ w.reason }} <span class="mcc-hint">({{ w.created_by or "–" }})</span>
+      <button type="button" class="nt-delete" data-warning="{{ w.id }}">Löschen</button></li>{% endfor %}</ul>
+    {% endif %}
+    </div>
+    <form class="nt-form" data-discipline="/api/mod/warn">
+      <label class="st-sr" for="wn-reason">Grund der Verwarnung</label>
+      <input class="mcc-input" id="wn-reason" name="reason" maxlength="200" placeholder="Grund der Verwarnung" required/>
+      <button class="mcc-btn mcc-btn-small" type="submit">Verwarnen</button>
+    </form>
+    <form class="nt-form" data-discipline="/api/mod/mute">
+      <label class="st-sr" for="mt-minutes">Stummschalten</label>
+      <select class="mcc-select" id="mt-minutes" name="minutes">
+        {% for minutes, label in ((10, "10 Minuten"), (60, "1 Stunde"), (360, "6 Stunden"), (1440, "1 Tag"), (10080, "7 Tage"), (0, "Aufheben")) %}
+        <option value="{{ minutes }}">{{ label }}</option>{% endfor %}
+      </select>
+      <input class="mcc-input" name="reason" maxlength="200" placeholder="Grund (optional)"/>
+      <button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="submit">Stummschalten</button>
+    </form>
+    <div class="mcc-message" data-role="message"></div>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
 
-      var stats_array = {
-        other: stats_custom ? JSON.parse(stats_custom) : {},
-        blocks: stats_blocks ? JSON.parse(stats_blocks) : {},
-        armor: stats_armor ? JSON.parse(stats_armor) : {},
-        tools: stats_tools ? JSON.parse(stats_tools) : {},
-        mobs: stats_mobs ? JSON.parse(stats_mobs) : {},
-        items: stats_items ? JSON.parse(stats_items) : {},
-      };
-      console.dir(stats_array);
+{% if extras.achievements %}
+<section class="pi-extra" id="achievements" data-player="{{ user_name }}" data-count="{{ extras.achievement_count }}">
+  {% include "_achievements.html" %}
+</section>
+{% endif %}
 
-      // remove "minecraft:" from keys and sort alphabetically
-      function initArrayField(obj) {
-        const newObj = {};
-        Object.keys(obj).forEach((key) => {
-          const newKey = key.replace("minecraft:", "");
-          newObj[newKey] = obj[key];
-        });
-        return Object.keys(newObj)
-          .sort()
-          .reduce((acc, key) => {
-            acc[key] = newObj[key];
-            return acc;
-          }, {});
-      }
+{% if builds %}
+<section class="pi-extra">
+  <h2>Bauten in der Galerie</h2>
+  <div class="bg-grid bg-grid-small">
+    {% for b in builds %}
+    <a class="bg-item" href="/galerie"><img src="{{ b.url }}" alt="{{ b.title }}" loading="lazy"/><span class="bg-caption">{{ b.title }} · ♥ {{ b.likes }}</span></a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 
-      // Process each category in stats
-      stats_array.other = initArrayField(stats_array.other || {});
-      stats_array.blocks = initArrayField(stats_array.blocks || {});
-      stats_array.armor = initArrayField(stats_array.armor || {});
-      stats_array.tools = initArrayField(stats_array.tools || {});
-      stats_array.mobs = initArrayField(stats_array.mobs || {});
-      stats_array.items = initArrayField(stats_array.items || {});
+{% if extras.highlights %}
+<section class="pi-extra">
+  <h2>Highlights</h2>
+  <div class="pi-tiles">
+    {% for item in extras.highlights %}
+    <div class="pi-tile">
+      <span class="pi-tile-label">{{ item.label }}</span>
+      <span class="pi-tile-value">{{ item.value }}</span>
+      <span class="pi-tile-detail">{{ item.detail }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 
-      function sortMasterData(
-        masterData,
-        columnIndex,
-        sortOrder = "asc",
-        sortByName = false
-      ) {
-        // Sort based on the specified column and order
-        masterData.sort((a, b) => {
-          if (sortByName) {
-            return sortOrder === "asc"
-              ? a[0].localeCompare(b[0])
-              : b[0].localeCompare(a[0]);
-          } else {
-            return sortOrder === "asc"
-              ? a[columnIndex] - b[columnIndex]
-              : b[columnIndex] - a[columnIndex];
-          }
-        });
-      }
+<section class="pi-extra pi-details" id="details">
+  <h2>Alle Werte</h2>
+  <p class="pi-note">Jeder Wert aus dem Spiel einzeln, über die gesamte Zeit. Erze stehen hier je Variante für sich (z. B. Iron Ore und
+    Deepslate Iron Ore); Rangliste und Vergleich zählen beide zusammen.</p>
+  <div class="pi-tabs" role="tablist" aria-label="Kategorie">
+    {% for t in tables %}
+    <button type="button" role="tab" id="tab-{{ t.key }}" aria-controls="panel-{{ t.key }}"
+            aria-selected="{{ 'true' if loop.first else 'false' }}"{% if not loop.first %} tabindex="-1"{% endif %} data-tab="{{ t.key }}">{{ t.title }} <span>{{ t.rows | length }}</span></button>
+    {% endfor %}
+  </div>
+  <p class="pi-note pi-swipe" hidden>Seitlich wischen für alle Spalten →</p>
+  <div class="pi-filter">
+    <label class="st-sr" for="detail-search">Suchen</label>
+    <input class="mcc-input" id="detail-search" type="search" placeholder="Suchen, z. B. Diamond …" autocomplete="off"/>
+  </div>
+  {% for t in tables %}
+  <div class="pi-panel" role="tabpanel" id="panel-{{ t.key }}" aria-labelledby="tab-{{ t.key }}"{% if not loop.first %} hidden{% endif %}>
+    {% if t.key == "mobs" %}<p class="pi-note">„Hat dich getötet“ zählt nur Tode durch Mobs. Tode insgesamt (auch durch Stürze, Lava, Ertrinken …): {{ deaths_total }}.</p>{% endif %}
+    {% if t.rows %}
+    <div class="mcc-table-wrap pi-table-wrap">
+      <table class="pi-table" data-table="{{ t.key }}">
+        <thead><tr>
+          <th scope="col"><button type="button" data-sort="0">Name</button></th>
+          {% for c in t.columns %}<th scope="col" class="num"><button type="button" data-sort="{{ loop.index }}"{% if loop.first and t.key != "custom" %} aria-sort="descending"{% endif %}>{{ c }}</button></th>{% endfor %}
+        </tr></thead>
+        <tbody>
+          {% for r in t.rows %}
+          <tr data-name="{{ (r.label ~ ' ' ~ r.object) | lower }}">
+            <th scope="row"><span class="pi-object">{% if t.key != "custom" %}<i class="icon-minecraft icon-minecraft-{{ r.object | replace('_', '-') }}" aria-hidden="true"></i>{% endif %}<span>{{ r.label }}</span></span></th>
+            {% for v in r["values"] %}<td class="num" data-value="{{ v }}">{{ r.texts[loop.index0] if r.texts else ("{:,}".format(v).replace(",", ".") if v else "–") }}</td>{% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="st-empty" data-role="no-match" hidden>Nichts gefunden.</p>
+    {% else %}
+    <p class="st-empty">Noch keine Werte.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
 
-      // tabs and the sort buttons of the table (delegated: the table head is built again on every sort)
-      document.addEventListener("click", (event) => {
-        const tab = event.target.closest("[data-tab]");
-        const sort = event.target.closest("[data-sort]");
-        if (tab) doTabAction(tab.dataset.tab, tab.dataset.tab + "_name", "sort-state-0", 1, true);
-        if (sort) {
-          const [state, column, byName] = sort.dataset.sort.split("|");
-          doTabAction(sort.id.split("_")[0], sort.id, state, Number(column), byName === "true");
-        }
-      });
-      function doTabAction(
-        action,
-        current_sort,
-        sort_state,
-        columnIndexToSortBy,
-        sortByName
-      ) {
-        // sort_state = ((sort_state == "sort-state-0") ? "sort-state-1" : "sort-state-0")
-        html_insert_sort_state =
-          sort_state == "sort-state-0" ? "sort-state-1" : "sort-state-0";
-        htmlString = `
-        <table class="stats_table">
-          <thead>
-          <tr style="background-color: hsl(220, 10%, 15%)">
-        `;
-        if (action == "other") {
-          htmlString += `
-          <th style='width: 50%'>Name<button data-sort="${html_insert_sort_state}|1|true" id="other_name" class="sortButton">&#9650;</button></th>
-          <th >Wert<button data-sort="${html_insert_sort_state}|1|false" id="other_value" class="sortButton">&#9650;</button></th>
-      `;
-        } else if (action == "blocks") {
-          htmlString += `
-          <th>Name <button data-sort="${html_insert_sort_state}|1|true" id="blocks_name" class="sortButton">&#9650;</button></th>
-          <th>Mined <button data-sort="${html_insert_sort_state}|1|false" id="blocks_mined" class="sortButton">&#9650;</button></th>
-          <th>Placed <button data-sort="${html_insert_sort_state}|2|false" id="blocks_placed" class="sortButton">&#9650;</button></th>
-          <th>Dropped <button data-sort="${html_insert_sort_state}|3|false" id="blocks_dropped" class="sortButton">&#9650;</button></th>
-          <th>Picked up <button data-sort="${html_insert_sort_state}|4|false" id="blocks_pickedUp" class="sortButton">&#9650;</button></th>
-          <th>Crafted <button data-sort="${html_insert_sort_state}|5|false" id="blocks_crafted" class="sortButton">&#9650;</button></th>
-      `;
-        } else if (action == "items") {
-          htmlString += `
-          <th>Name <button data-sort="${html_insert_sort_state}|1|true" id="items_name" class="sortButton">&#9650;</button></th>
-          <th>Used<button data-sort="${html_insert_sort_state}|1|false" id="items_mined" class="sortButton">&#9650;</button></th>
-          <th>Dropped<button data-sort="${html_insert_sort_state}|2|false" id="items_dropped" class="sortButton">&#9650;</button></th>
-          <th>Picked up <button data-sort="${html_insert_sort_state}|3|false" id="items_pickedUp" class="sortButton">&#9650;</button></th>
-          <th>Crafted <button data-sort="${html_insert_sort_state}|4|false" id="items_crafted" class="sortButton">&#9650;</button></th>
-      `;
-        } else if (action == "armor") {
-          htmlString += `
-          <th>Name <button data-sort="${html_insert_sort_state}|1|true" id="armor_name" class="sortButton">&#9650;</button></th>
-          <th>Used <button data-sort="${html_insert_sort_state}|1|false" id="armor_used" class="sortButton">&#9650;</button></th>
-          <th>Broken <button data-sort="${html_insert_sort_state}|2|false" id="armor_broken" class="sortButton">&#9650;</button></th>
-          <th>Dropped <button data-sort="${html_insert_sort_state}|3|false" id="armor_dropped" class="sortButton">&#9650;</button></th>
-          <th>Picked up <button data-sort="${html_insert_sort_state}|4|false" id="armor_pickedUp" class="sortButton">&#9650;</button></th>                    
-          <th>Crafted <button data-sort="${html_insert_sort_state}|5|false" id="armor_crafted" class="sortButton">&#9650;</button></th>
-      `;
-        } else if (action == "tools") {
-          htmlString += `
-          <th>Name <button data-sort="${html_insert_sort_state}|1|true" id="tools_name" class="sortButton">&#9650;</button></th>
-          <th>Used <button data-sort="${html_insert_sort_state}|1|false" id="tools_used" class="sortButton">&#9650;</button></th>
-          <th>Broken <button data-sort="${html_insert_sort_state}|2|false" id="tools_broken" class="sortButton">&#9650;</button></th>
-          <th>Dropped <button data-sort="${html_insert_sort_state}|3|false" id="tools_dropped" class="sortButton">&#9650;</button></th>
-          <th>Picked up <button data-sort="${html_insert_sort_state}|4|false" id="tools_pickedUp" class="sortButton">&#9650;</button></th>
-          <th>Crafted <button data-sort="${html_insert_sort_state}|5|false" id="tools_crafted" class="sortButton">&#9650;</button></th>
-      `;
-        } else if (action == "mobs") {
-          htmlString += `
-          <th>Name <button data-sort="${html_insert_sort_state}|1|true" id="mobs_name" class="sortButton">&#9650;</button></th>
-          <th>Killed <button data-sort="${html_insert_sort_state}|1|false" id="mobs_killed" class="sortButton">&#9650;</button></th>
-          <th>Killed By <button data-sort="${html_insert_sort_state}|2|false" id="mobs_killedBy" class="sortButton">&#9650;</button></th>`;
-        }
-        htmlString += `</tr>
-      </thead>
-      <tbody>`;
+<section class="pi-extra gb-section" id="guestbook" data-player="{{ user_name }}">
+  <h2>Gästebuch<span data-live="guestbook-count">{% if guestbook %} · {{ guestbook | length }}{% endif %}</span></h2>
+  {% if logged_in and not is_self %}
+  <form class="gb-form">
+    <label class="st-sr" for="gb-text">Eintrag für {{ user_name }}</label>
+    <input class="mcc-input" id="gb-text" name="text" maxlength="{{ guestbook_max }}" required
+           placeholder="Schreib {{ user_name }} etwas Nettes …"/>
+    <button class="mcc-btn mcc-btn-small" type="submit">Eintragen</button>
+  </form>
+  <div class="mcc-message" data-role="message"></div>
+  {% elif not logged_in %}
+  <p class="mcc-hint"><a href="/login?next=/spieler?player={{ user_name | urlencode }}">Log dich ein</a>, um etwas ins Gästebuch zu schreiben.</p>
+  {% endif %}
+  <div data-live="guestbook">
+  {% if guestbook %}
+  <ul class="gb-list">
+    {% for e in guestbook %}
+    <li class="gb-entry">
+      <img src="https://mc-heads.net/avatar/{{ e.author_uuid }}/32" alt="" width="28" height="28" loading="lazy"/>
+      <div>
+        <div class="gb-head"><a href="/spieler?player={{ e.author | urlencode }}"><b>{{ e.author }}</b></a> <span>{{ e.when }}</span></div>
+        <p>{{ e.text }}</p>
+      </div>
+      <span class="gb-actions">
+        {% if e.can_delete %}<button type="button" data-gb-delete="{{ e.id }}">Löschen</button>{% endif %}
+        {% if logged_in and not e.can_delete %}<button type="button" data-gb-report="{{ e.id }}"{% if e.reported_at %} disabled{% endif %}>{{ "Gemeldet" if e.reported_at else "Melden" }}</button>{% endif %}
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% elif not (logged_in and not is_self) %}
+  <p class="st-empty">Noch keine Einträge.</p>
+  {% endif %}
+  </div>
+</section>
+{% endblock %}
 
-        // Initialize the set to collect unique item names
-        let uniqueItemNames = new Set();
-
-        // Collect unique item names
-        for (let subcategory in stats_array[action]) {
-          let subcategoryData = stats_array[action][subcategory];
-          console.info("SUB: " + subcategoryData)
-          // Ensure subcategoryData is an array; if not, skip the iteration
-          if (Array.isArray(subcategoryData)) {
-            subcategoryData.forEach(function (item) {
-              uniqueItemNames.add(item.object);
-            });
-          }
-        }
-        console.dir(uniqueItemNames);
-        // Convert the Set to an Array
-        uniqueItemNames = Array.from(uniqueItemNames);
-
-        master_data = [];
-        let sub_array_count = Object.keys(stats_array[action]).length;
-        // Iterate over each unique item name
-        uniqueItemNames.forEach((itemName) => {
-          let row = [itemName];
-          // Collect values from each subcategory
-          for (let i = 0; i < sub_array_count; i++) {
-            console.info("MASTERDATA: " + master_data);
-            // Safely get the subcategoryData or default to an empty array
-            let subcategoryData = Array.isArray(stats_array[action][i])
-              ? stats_array[action][i]
-              : [];
-
-            // Find the item in the subcategoryData
-            let foundItem = subcategoryData.find(
-              (item) => item.object === itemName
-            );
-            let value = foundItem ? foundItem.value : 0;
-            row.push(value);
-          }
-
-          master_data.push(row);
-        });
-
-        // Sort master_data
-        sortOrder = sort_state == "sort-state-0" ? "asc" : "desc";
-        console.info("MASTERDATA: " + master_data);
-        sortMasterData(master_data, columnIndexToSortBy, sortOrder, sortByName);
-
-        console.info("MASTERDATA: " + master_data);
-
-        // Generate HTML from master_data (the names come from the plugin: escaped)
-        for (let i = 0; i < master_data.length; i++) {
-          htmlString += "<tr>";
-          htmlString += `<td class="firstColumn"><i class="icon-minecraft icon-minecraft-${escapeHtml(master_data[
-            i
-          ][0]
-            .replaceAll("_", "-")
-            .replace("minecraft:", ""))}"></i>  ${escapeHtml(transformToTitleCase(
-            master_data[i][0]
-          ))}</td>`;
-          for (let j = 1; j < master_data[i].length; j++) {
-            htmlString += "<td>" + escapeHtml(master_data[i][j]) + "</td>";
-          }
-          htmlString += "</tr>";
-        }
-        htmlString += `</tr>
-</tbody>
-</table>`;
-
-        document.getElementById("staticsContentDiv").innerHTML = htmlString;
-        document.getElementById(current_sort).classList.add("current-sort");
-        document.getElementById(current_sort).classList.add(sort_state);
-        if (sort_state == "sort-state-0") {
-          document.getElementById(current_sort).innerHTML = "&#9650;";
-        } else {
-          document.getElementById(current_sort).innerHTML = "&#9660";
-        }
-      }
-      function escapeHtml(value) {
-        return String(value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-      }
-      function transformToTitleCase(inputString) {
-        if (typeof inputString != typeof "") {
-          return inputString;
-        }
-        const words = inputString.replaceAll("minecraft:", "").split("_");
-        const capitalizedWords = words.map(
-          (word) => word.charAt(0).toUpperCase() + word.slice(1)
-        );
-        const titleCaseString = capitalizedWords.join(" ");
-
-        return titleCaseString;
-      }
-    </script>
-    <script nonce="{{ csp_nonce() }}">
-      window.onload = function () {
-        console.debug("BANNED: {{banned}}");
-        if ("{{banned}}" == "True") {
-          console.log("banned");
-          document.getElementById("banned-banner").classList.add("active");
-        }
-        doTabAction("blocks", "blocks_name", "sort-state-0", 1, true);
-      };
-    </script>
-
-    <script nonce="{{ csp_nonce() }}">
-      const div = document.querySelector(".tabBlock");
-      var TabBlock = {
-        init: function () {
-          TabBlock.bindUIActions();
-          TabBlock.updatePreviousTab($(div)); // Initially set the previous tab class
-        },
-
-        bindUIActions: function () {
-          $(".tabBlock-tabs").on("click", ".tabBlock-tab", function () {
-            TabBlock.switchTab($(this));
-          });
-        },
-
-        switchTab: function ($tab) {
-          var $context = $tab.closest(".tabBlock");
-
-          if (!$tab.hasClass("is-active")) {
-            $tab.siblings().removeClass("is-active");
-            $tab.addClass("is-active");
-
-            TabBlock.updatePreviousTab($context); // Update previous tab after switching
-            TabBlock.triggerTabFunctions($context); // Check for first/last tab triggers
-          }
-        },
-
-        updatePreviousTab: function ($context = $(div)) {
-          $context = $($context); // Ensure $context is a jQuery object
-
-          if (!$context || $context.length === 0) {
-            return;
-          }
-
-          // Get the current active tab
-          var $activeTab = $context.find(".tabBlock-tab.is-active");
-
-          // Remove 'previous-tab' class from all tabs
-          $context.find(".tabBlock-tab").removeClass("previous-tab");
-
-          // Add 'previous-tab' class to the tab before the active one, if it exists
-          if ($activeTab.prev().length) {
-            $activeTab.prev().addClass("previous-tab");
-          }
-        },
-
-        triggerTabFunctions: function ($context = $(div)) {
-          $context = $($context); // Ensure $context is a jQuery object
-
-          if (!$context || $context.length === 0) {
-            return;
-          }
-
-          var $activeTab = $context.find(".tabBlock-tab.is-active");
-
-          // Triggers for the first tab
-          if ($activeTab.is(":first-child")) {
-            TabBlock.firstTabFunction(); // Call your specific function for the first tab
-          } else if ($activeTab.prev().hasClass("first-tab")) {
-            // If active tab was previously the first tab
-            TabBlock.firstTabRemovedFunction(); // Call a function when is-active is removed from first tab
-          }
-
-          // Triggers for the last tab
-          if ($activeTab.is(":last-child")) {
-            TabBlock.lastTabFunction(); // Call your specific function for the last tab
-          } else if ($activeTab.next().hasClass("last-tab")) {
-            // If active tab was previously the last tab
-            TabBlock.lastTabRemovedFunction(); // Call a function when is-active is removed from last tab
-          }
-        },
-
-        // Replace these with your actual functions for first and last tabs
-
-        firstTabFunction: function () {
-          div.style.borderLeftWidth = "4px";
-        },
-        firstTabRemovedFunction: function () {
-          div.style.borderLeftWidth = "0px";
-        },
-        lastTabFunction: function () {
-          div.style.borderRightWidth = "4px";
-        },
-        lastTabRemovedFunction: function () {
-          div.style.borderRightWidth = "0px";
-        },
-      };
-
-      TabBlock.init();
-    </script>
-
-  </body>
-</html>
+{% block scripts %}
+{% if extras.activity %}
+<script id="activity-data" type="application/json">{{ extras.activity.days | tojson }}</script>
+<script src="{{ url_for('static', filename='bar-chart.js') }}"></script>
+{% endif %}
+<script src="{{ url_for('static', filename='poll.js') }}"></script>
+<script src="{{ url_for('static', filename='player-page.js') }}"></script>
+<script nonce="{{ csp_nonce() }}">
+  mccPlayerPage({ name: {{ user_name | tojson }}, uuid: {{ uuid | tojson }} });
+</script>
+{# MineRender (3D skin) needs jQuery and three.js #}
+<script crossorigin="anonymous" integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8="
+        src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js" defer></script>
+<script crossorigin="anonymous" integrity="sha256-NGC9JEuTWN4GhTj091wctgjzftr+8WNDmw0H8J5YPYE="
+        src="https://cdnjs.cloudflare.com/ajax/libs/three.js/94/three.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/InventivetalentDev/MineRender@1.4.6/dist/skin.min.js" defer></script>
+<script nonce="{{ csp_nonce() }}">
+  // 3D skin (MineRender) once the libraries are there; until then and without them the 2D picture stays
+  window.addEventListener("load", () => {
+    const view = document.getElementById("skin-view");
+    if (!window.SkinRender || !view) return;
+    try {
+      const size = Math.min(260, view.clientWidth || 260);
+      const render = new SkinRender({ autoResize: true, canvas: { width: size, height: view.clientHeight || size } }, view);
+      view.addEventListener("skinRender", () => view.querySelector('[data-role="skin-2d"]')?.remove());
+      render.render({ url: "https://mc-heads.net/skin/{{ uuid }}" }, () => view.querySelector('[data-role="skin-2d"]')?.remove());
+    } catch (e) {}
+  });
+</script>
+{% endblock %}

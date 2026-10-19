@@ -1,3 +1,5 @@
+/* Header: the desktop menu is in header.css. Below 900px a bar with the logo, the server name and a menu
+   button; the menu opens as a panel under it with all links (no hover dropdowns, which touch screens lack). */
 .container-util-wide {
   max-width: 100%;
   margin-left: 0;
@@ -6,190 +8,170 @@
   padding-right: 0;
 }
 
-@media (max-width: 750px) {
-  .container-util-wide {
-    nav .dropbtn {
-      font-size: 18px !important;
-    }
-  }
+.mh-bar, .mh-account, .mh-theme-label { display: none; }
+
+@media (min-width: 901px) and (max-width: 1100px) {
+  .container-util-wide nav .dropbtn { font-size: 17px !important; }
+  .mainHeader { padding-left: 12px; padding-right: 12px; }
 }
 
-@media (max-width: 605px) {
-  .container-util-wide {
-    nav .dropbtn {
-      font-size: 16px !important;
-    }
-  }
-}
+@media (max-width: 900px) {
+  header.sticky { margin-top: 0; }
+  header nav { margin: 0; padding: 0; }
+  .mainHeader { display: block; padding: 0; }
+  .normal-icon, .login-group { display: none !important; }
 
-/* xs */
-@media (max-width: 575px) {
-  .container-util-wide {
-    #nav-bar {
-      width: 90%;
-      margin: 0 auto !important;
-      /* font-size: 29px; */
-    }
-    nav .dropbtn {
-      font-size: 20px !important;
-    }
-    nav {
-      font-size: 28px !important;
-    }
-    .normal-icon {
-      display: none;
-    }
-    .login-group {
-      display: none;
-    }
-    .profile-image {
-      display: none;
-    }
-    li {
-      text-align: center;
-    }
-    li .dropdown {
-      
-      width:fit-content !important;
-    }
-    li.mobile-view-only > a:nth-child(1) {
-      color: red;
-      padding-top: 6px;
-      padding-bottom: 6px;
-      .current {
-        margin-top: 0px;
-      }
-      position: absolute; /* Position the first list item absolutely */
-      right: 80px; /* Position it to the right */
-      top: 83px;
-    }
-    #nav-bar > li:nth-child(2) {
-      margin-top: -5px;
-    }
-    #nav-bar > li:nth-child(2) > div:nth-child(1) {
-      margin-top: 0px;
-    }
+  .mh-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 56px;
+    padding: 0 8px 0 16px;
+    box-sizing: border-box;
+  }
+  .mh-logo { display: flex; flex: none; }
+  .mh-logo img { width: 40px; height: 40px; }
+  .mh-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+    font-family: var(--font-display, sans-serif);
+    font-weight: 700;
+    font-size: 17px;
+  }
+  .mh-toggle {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 48px;
+    height: 44px;
+    padding: 0 10px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 10px;
+    background: transparent;
+    color: #fff;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .mh-toggle-icon { display: flex; flex-direction: column; gap: 4px; }
+  .mh-toggle-icon i { display: block; width: 18px; height: 2px; border-radius: 1px; background: currentColor; }
+  .mh-toggle[aria-expanded="true"] { background: rgba(255, 255, 255, 0.12); }
+  .mh-toggle-icon i { transition: transform 0.15s ease, opacity 0.15s ease; }
+  .mh-toggle[aria-expanded="true"] .mh-toggle-icon i:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+  .mh-toggle[aria-expanded="true"] .mh-toggle-icon i:nth-child(2) { opacity: 0; }
+  .mh-toggle[aria-expanded="true"] .mh-toggle-icon i:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
 
-    .logout2 {
-      cursor: pointer;
-      font-size: 18px;
-      justify-content: end !important;
-      #loginLink {
-        font-size: 18px !important;
-      }
-    }
-    #nav-bar {
-      margin-top: 10px;
-      padding-top: 1px;
-      padding-bottom: 16px;
-      padding-left: 8px;
-      background-color: #5e5e5e;
-    }
-    nav #nav-bar {
-      display: none;
-    }
-    nav .mobile-view-only {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      width: 100%;
-    }
-    .header-icon-mobile {
-      padding-top: 0px;
-      height: 60px;
-    }
-    nav .mobile-view-only span {
-      vertical-align: middle;
-    }
-    .menue-icon {
-      margin-right: 10px;
-      background-color: transparent;
-      border: none;
-    }
-    .menue-icon div {
-      width: 30px;
-      height: 5px;
-      background-color: rgb(255, 255, 255);
-      margin: 4px 0;
-    }
-    .dropbtn {
-      font-size: 20px !important;
-    }
-    li .dropdown {
-      width: 100%;
-      .dropbtn {
-        width: 100%;
-      }
-    }
+  /* the panel */
+  .container-util-wide #nav-bar {
+    display: none;
+    width: 100%;
+    max-height: calc(100vh - 56px);
+    max-height: calc(100dvh - 56px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    margin: 0 !important;
+    padding: 4px 0 20px !important;
+    box-sizing: border-box;
+    background: #0f1512;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  .container-util-wide #nav-bar.menueToggle { display: block !important; }
+  .container-util-wide nav li { display: block; margin: 0; text-align: left; }
+  .container-util-wide nav li .dropdown { display: block; width: 100% !important; }
 
-    nav li {
-      display: block;
-      margin-block-start: 0.5em; /* Adjust margin for spacing as needed */
-      .loginVarMain {
-        display: none !important;
-      }
-    }
+  /* top level entries: links (Startseite, Verwaltung) and group headings */
+  .container-util-wide nav .dropbtn {
+    display: block;
+    width: 100%;
+    min-height: 48px;
+    padding: 12px 20px;
+    text-align: left;
+    font-family: var(--font-display, sans-serif) !important;
+    font-size: 17px !important;
+    font-weight: 700;
+    line-height: 24px !important;
+    color: #fff;
   }
-}
+  .container-util-wide nav .dropbtn.current { text-decoration: none; color: #53ffb1 !important; }
+  .container-util-wide nav .dropbtn.dd-group {
+    min-height: 0;
+    padding: 18px 20px 6px;
+    font-size: 12px !important;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.55) !important;
+    cursor: default;
+    pointer-events: none;
+  }
+  .dd-arrow { display: none; }
 
-@media (max-width: 450px) {
-  .container-util-wide {
-    nav {
-      font-size: 20px !important;
-    }
-    nav .dropbtn {
-      font-size: 18px !important;
-    }
-    .logout2 {
-      font-size: 16px;
-      #loginLink {
-        font-size: 16px !important;
-      }
-    }
-    .header-icon-mobile {
-      padding-top: 0px;
-      height: 50px;
-    }
-    .menue-icon div {
-      width: 15px;
-      height: 3px;
-      margin: 2px 0;
-    }
-    .dropbtn {
-      font-size: 16px !important;
-    }
-    li.mobile-view-only > a:nth-child(1) {
-      top: 73px;
-      right:60px;
-    }
+  /* the links of a group, always open */
+  .container-util-wide nav .dropdown-content,
+  .container-util-wide nav .dropdown:hover .dropdown-content {
+    display: block;
+    position: static;
+    min-width: 0;
+    box-shadow: none;
+    background: transparent !important;
   }
-}
-@media (max-width: 420px) {
-  .container-util-wide {
-    nav {
-      font-size: 17px !important;
-    }
+  .container-util-wide nav .dropdown-content a,
+  .mh-account a {
+    display: flex;
+    align-items: center;
+    min-height: 48px;
+    padding: 0 20px 0 32px;
+    box-sizing: border-box;
+    color: #fff !important;
+    font-family: var(--font-body, sans-serif);
+    font-size: 17px;
+    text-decoration: none;
   }
-  .content {
-    margin-top: 75px;
+  .container-util-wide nav .dropdown-content a:hover,
+  .container-util-wide nav .dropdown-content a:active,
+  .mh-account a:active { background: rgba(255, 255, 255, 0.08) !important; }
+  .container-util-wide nav .dropdown-content a[aria-current="page"] { color: #53ffb1 !important; font-weight: 700; }
+  .container-util-wide nav .dropdown-sep { margin: 4px 20px 4px 32px; background: rgba(255, 255, 255, 0.12); }
+
+  /* account */
+  .mh-account {
+    display: block !important;
+    margin-top: 12px !important;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
   }
-}
-@media (max-width: 368px) {
-  .container-util-wide {
-    nav {
-      font-size: 15px !important;
-    }
-    .logout2 {
-      font-size: 13px;
-      #loginLink {
-        font-size: 13px !important;
-      }
-    }
-    nav .dropbtn {
-      font-size: 13px !important;
-    }li.mobile-view-only > a:nth-child(1) {
-      top: 76px;
-      right:55px;
-    }
+  .mh-me { display: flex; align-items: center; gap: 12px; padding: 10px 20px; font-family: var(--font-display, sans-serif); }
+  .mh-me img { border-radius: 6px; image-rendering: pixelated; }
+  .mh-account a.mh-logout { color: #ff8a8a !important; }
+  .mh-account a.mh-login {
+    justify-content: center;
+    margin: 8px 20px;
+    padding: 0 20px;
+    border-radius: 10px;
+    background: #2fbf62;
+    font-family: var(--font-display, sans-serif);
+    font-weight: 700;
   }
+
+  .container-util-wide nav li.theme-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    min-height: 48px;
+    padding: 4px 20px;
+  }
+  .mh-theme-label { display: inline; color: rgba(255, 255, 255, 0.7); font-size: 15px; }
+  .container-util-wide nav .theme-switch { min-height: 40px; padding: 6px 16px; }
+
+  /* the page behind an open menu does not scroll */
+  html.mh-open, html.mh-open body { overflow: hidden; }
+  @media (prefers-reduced-motion: reduce) { .mh-toggle-icon i { transition: none; } }
+
+  /* old pages without the srv layout (player page) */
+  .content { margin-top: 56px; }
 }

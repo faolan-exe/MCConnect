@@ -33,6 +33,10 @@ STAT_TYPES = (
 OBJECT_NAME_RE = re.compile(r"^(?:[a-z0-9_.-]{1,64}:)?[a-z0-9_./-]{1,128}$")
 MAX_VALUE = 2 ** 63 - 1  # bigint
 
+# Old or Bukkit names of a stat -> the name the current game uses. Stored under one name only, otherwise the
+# same value would be stored twice and sums (rankings, comparison) would count it twice.
+ALIASES = {"minecraft:play_one_minute": "minecraft:play_time"}  # renamed in 1.17, both count ticks
+
 TOOL_SUFFIXES = ("_axe", "_pickaxe", "_shovel", "_hoe", "_sword")
 TOOL_NAMES = {
     "bow", "crossbow", "shield", "flint_and_steel", "brush", "trident", "shears",
@@ -105,9 +109,17 @@ def categorize(name, stat_type, blocks, items):
     return _GROUP_CATEGORIES["item"].get(stat_type)
 
 
+def canonical_name(name):
+    """"stone" -> "minecraft:stone", "minecraft:play_one_minute" -> "minecraft:play_time"."""
+    if ":" not in name:
+        name = "minecraft:" + name
+    return ALIASES.get(name, name)
+
+
 def split_stats(stats, blocks, items):
     """Parse a stats file (json string or dict) into [(object, category, value), ...].
 
+    Names are stored canonical (canonical_name), every (object, category) at most once (the highest value).
     Zero values and objects without a category are skipped, so are invalid names and values.
     Raises ValueError if the file is not a stats object.
     """
@@ -116,7 +128,7 @@ def split_stats(stats, blocks, items):
     all_stats = stats.get("stats", {}) if isinstance(stats, dict) else None
     if not isinstance(all_stats, dict):
         raise ValueError("stats must be an object with a \"stats\" object")
-    result = []
+    result = {}
     for stat_type in STAT_TYPES:
         values = all_stats.get(stat_type, {})
         if not isinstance(values, dict):
@@ -125,10 +137,11 @@ def split_stats(stats, blocks, items):
             if not value or not isinstance(value, (int, float)) or isinstance(value, bool) \
                     or not OBJECT_NAME_RE.match(name) or not 0 < value <= MAX_VALUE:
                 continue
+            name = canonical_name(name)
             category = categorize(name, stat_type, blocks, items)
-            if category is not None:
-                result.append((name, category, int(value)))
-    return result
+            if category is not None and int(value) > result.get((name, category), 0):
+                result[(name, category)] = int(value)
+    return [(name, category, value) for (name, category), value in result.items()]
 
 
 def format_time(seconds):

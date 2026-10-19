@@ -36,7 +36,7 @@ function mccLineChart(root) {
       el("line", { x1: pad.left, x2: width - pad.right, y1: y(step * i), y2: y(step * i), class: i ? "cmp-grid" : "cmp-axis" }, svg);
       el("text", { x: pad.left - 8, y: y(step * i) + 4, "text-anchor": "end", class: "cmp-tick" }, svg).textContent = label;
     });
-    const every = Math.max(1, Math.round(points.length / 5));
+    const every = Math.max(1, Math.ceil(points.length / Math.min(5, Math.max(2, Math.floor((width - pad.left - pad.right) / 56)))));
     points.forEach((p, i) => {
       if ((points.length - 1 - i) % every) return;
       el("text", { x: x(i), y: height - 6, "text-anchor": "middle", class: "cmp-tick" }, svg).textContent = p.t.slice(-5);
@@ -86,11 +86,13 @@ function mccLineChart(root) {
       tip.style.top = `${pad.top}px`;
     }
     const hide = () => { tip.hidden = true; cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); };
-    hit.addEventListener("pointermove", (event) => {
+    // pointerdown: a tap on a touch screen shows the value too
+    for (const type of ["pointermove", "pointerdown"]) hit.addEventListener(type, (event) => {
       const box = svg.getBoundingClientRect();
       show(Math.round(((event.clientX - box.left - pad.left) / plotW) * (points.length - 1)));
     });
-    hit.addEventListener("pointerleave", hide);
+    // on touch screens the value stays until the next tap elsewhere (blur)
+    hit.addEventListener("pointerleave", (event) => { if (event.pointerType !== "touch") hide(); });
     hit.addEventListener("focus", () => show(points.length - 1));
     hit.addEventListener("blur", hide);
     hit.addEventListener("keydown", (event) => {

@@ -49,7 +49,7 @@
 
   <h3 style="margin-top: 28px">Aktive Bans</h3>
   <div class="mcc-table-wrap">
-    <table class="mcc-table">
+    <table class="mcc-table mcc-stack">
       <thead><tr><th>Spieler</th><th>Grund</th><th>Von</th><th>Bis</th><th></th></tr></thead>
       <tbody data-role="list"><tr><td colspan="5" class="mcc-empty">Lade …</td></tr></tbody>
     </table>
@@ -61,6 +61,7 @@
     const form = root.querySelector('[data-role="ban-form"]');
     const message = root.querySelector('[data-role="message"]');
     const list = root.querySelector('[data-role="list"]');
+    const labels = [...root.querySelectorAll("thead th")].map((th) => th.textContent);
     const reason = form.elements.reason_id;
     const days = form.elements.days;
 
@@ -107,6 +108,8 @@
         });
         action.append(button);
         row.append(player, why, cell(ban.banned_by), cell(ban.end || "dauerhaft"), action);
+        // column names for the card layout on phones (mobile.css)
+        row.querySelectorAll("td").forEach((td, i) => (td.dataset.label = labels[i] || ""));
         list.append(row);
       }
     }

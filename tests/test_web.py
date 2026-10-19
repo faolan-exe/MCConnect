@@ -99,7 +99,7 @@ def test_banned_player_page(client, db, online_player):
     db.add_banned_player(online_player, None, reason_id, datetime.now(timezone.utc) + timedelta(days=3))
     response = client.get("/spieler?player=_Tobias4444", **on("testdomain"))
     assert response.status_code == 200
-    assert b'if ("True" == "True")' in response.data
+    assert '<p class="pi-banned" role="status"><b>Gebannt</b> vom' in response.get_data(as_text=True)
     assert (datetime.now(timezone.utc) + timedelta(days=3)).strftime("%d.%m.%Y").encode() in response.data
 
 
@@ -122,7 +122,7 @@ def test_player_info_stream(client, online_player):
     data = live(client.get("/api/player_info/_Tobias4444", **on("testdomain")))
     assert data[0] == PLAYER_UUID
     assert data[1] == "online"
-    assert data[2] == 2
+    assert data[2] == "2"
     assert re.fullmatch(r"\d\d\.\d\d\.\d{4}, \d\d:\d\d Uhr", data[3])  # first seen with time
     assert data[6] == "1 Std."
 
@@ -563,7 +563,7 @@ def test_player_info_without_deaths_shows_dash(client, db, server):
     player_id = db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
     db.update_player_stats(player_id, {"stats": {"minecraft:custom": {"minecraft:time_since_death": 72000}}})
     data = live(client.get("/api/player_info/_Tobias4444", **on("testdomain")))
-    assert data[2] == 0 and data[5] == "-"
+    assert data[2] == "0" and data[5] == "-"
 
 
 # ------------------------------------------------------------------ public / whitelist servers
@@ -839,7 +839,7 @@ def test_permanent_ban_shows_on_player_page(client, db, server):
     player_id = db.ensure_player_on_server(server["id"], OTHER_UUID)
     db.ban_player(server["id"], "Notch", "Admin", days=0)
     body = client.get("/spieler?player=Notch", **on("testdomain")).data.decode()
-    assert "dauerhaft" in body
+    assert "<b>Dauerhaft gebannt</b> seit" in body
 
 
 def test_admin_manages_moderators_and_bans(admin_client, db, server):
