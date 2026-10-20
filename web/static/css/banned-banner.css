@@ -1,0 +1,26 @@
+* ,*::after, *::before {
+    box-sizing: border-box;
+    margin: 0;
+}
+
+.banner-container {
+    z-index: 200;
+    width: 100%;
+    display: none;
+    padding: 0px;
+    margin-top: 4em !important;
+    background-color: var(--bgcolor);
+    color: var(--color);
+}
+
+.banner-container.active {
+    justify-content: center;
+    padding-left: 5em;
+    padding-right: 5em;
+    display: flex;
+}
+
+.banner-content {
+    display: flex;
+    text-align: center;
+}

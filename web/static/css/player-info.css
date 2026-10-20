@@ -1,0 +1,239 @@
+:root {
+  --primary: #53ffb1;
+  --secondary: #2435fd;
+  --accent: #FF7A38;
+}
+#mySkinContainer {
+  width: 400px;
+  height: 400px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* .column {
+    width: 50%;
+    padding-left: 20px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: row;
+} */
+
+.center {
+  margin: auto;
+}
+/* 
+.center-v {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.row:after {
+    content: "";
+    display: table;
+    clear: both;
+}
+
+.column > div {
+    display: block;
+} */
+
+.under-div {
+  display: flex;
+  justify-content: flex-end;
+  align-items: end;
+  align-self: flex-end;
+  margin-left: auto;
+}
+
+.stats_table table {
+  width: 100%; /* Ensure the table takes the full width of its container */
+}
+
+.stats_table thead {
+  position: sticky;
+  background-color: #2b2e30;
+  color: var(--primary);
+  width: 100%;
+  top: 0; /* Stick the header to the top */
+  z-index: 100;
+}
+
+/* Optional styling for the table */
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.stats_div {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.stats_table th,
+td {
+  padding: 8px;
+  text-align: center;
+}
+
+.sortButton {
+  border: none;
+  color: white;
+  background-color: transparent;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 20px;
+  margin: 4px 2px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.sortButton:hover {
+  filter: brightness(80%); /* Darkening filter */
+}
+
+.container{
+  display: grid;
+  grid-template-rows: repeat(2, fit-content);
+  grid-template-columns: 1fr 1fr 1fr;
+
+  justify-items: center;
+  /* align-items: center; */
+
+  grid-template-areas:
+    "stat1 image stat3"
+    "stat2 image stat4";
+
+}
+.item-1 {
+  grid-area: stat1;
+  justify-self: end;
+}
+
+.item-2 {
+  grid-area: stat2;
+  justify-self: end;
+}
+
+.item-3 {
+  grid-area: image;
+}
+
+.item-4 {
+  grid-area: stat3;
+  justify-self: start;
+}
+
+.item-5 {
+  grid-area: stat4;
+  justify-self: start;
+}
+.box {
+  display: block;
+  width: 175px;
+  height: 175px;
+  color: #000;
+  border-radius: 10px;
+  align-items: center;
+  justify-content: center;
+
+  text-align: center;
+  position: relative; /* Add position relative */
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.12), 0 2px 2px rgba(0, 0, 0, 0.12),
+    0 4px 4px rgba(0, 0, 0, 0.12), 0 8px 8px rgba(0, 0, 0, 0.12),
+    0 16px 16px rgba(0, 0, 0, 0.12);
+}
+
+.box img {
+  padding-bottom: 25px;
+}
+
+#mySkinContainer {
+  box-shadow: 0 0 10px 0 rgba(0, 0, 0, 0.45) inset;
+  border-radius: 10px;
+}
+
+.bottomDiv {
+  position: relative;
+  bottom: 40px;
+  text-align: center;
+}
+ .higher {
+  bottom: 57px !important;
+}
+
+/* .topDiv {
+  position: relative;
+  bottom: 70px;
+  text-align: center;
+}  */
+
+
+
+.bottomDiv p {
+  text-transform: capitalize;
+}
+
+.downloadButton {
+  position: relative;
+  bottom: 420px;
+  left: 170px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.bottomDiv p span {
+  background-color: white;
+  border-radius: 100%;
+}
+
+.boxDescription {
+  font-size: 25px;
+  margin-top: 20px;
+  font-weight: bold;
+}
+
+.box span {
+  display: inline-block;
+  vertical-align: middle;
+  line-height: normal;
+}
+
+.player-name {
+  background: linear-gradient(to right, var(--primary), var(--accent), var(--secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-size: 72px;
+  animation: gradientMove 10s linear infinite;
+  background-size: 200% 100%; /* Make sure the background is twice as wide as the text */
+}
+
+@keyframes gradientMove {
+  0% {
+    background-position: left;
+  }
+  50% {
+    background-position: right;
+  }
+  100% {
+    background-position: left;
+  }
+}
+
+.status-online {
+  color: green;
+}
+
+.status-offline {
+  color: red;
+}
+
+.status {
+  text-transform: capitalize;
+}
+.stats_div_outer_outer {
+  width: 100%;
+}

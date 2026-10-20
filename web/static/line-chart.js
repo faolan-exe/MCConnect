@@ -36,7 +36,8 @@ function mccLineChart(root) {
       el("line", { x1: pad.left, x2: width - pad.right, y1: y(step * i), y2: y(step * i), class: i ? "cmp-grid" : "cmp-axis" }, svg);
       el("text", { x: pad.left - 8, y: y(step * i) + 4, "text-anchor": "end", class: "cmp-tick" }, svg).textContent = label;
     });
-    const every = Math.max(1, Math.ceil(points.length / Math.min(5, Math.max(2, Math.floor((width - pad.left - pad.right) / 56)))));
+    // on narrow charts (phones) fewer, so that they do not overlap
+    const every = Math.max(1, Math.round(points.length / 5), plotW < 500 ? Math.ceil(points.length / Math.max(2, Math.floor(plotW / 56))) : 1);
     points.forEach((p, i) => {
       if ((points.length - 1 - i) % every) return;
       el("text", { x: x(i), y: height - 6, "text-anchor": "middle", class: "cmp-tick" }, svg).textContent = p.t.slice(-5);

@@ -46,8 +46,8 @@ function mccBarChart(root) {
     tip.hidden = true;
     root.append(tip);
 
-    // labels at least 48px apart (fewer on phones)
-    const labelEvery = Math.max(every, Math.ceil(days.length * 48 / plotW));
+    // on narrow charts (phones) fewer labels, so that they do not overlap
+    const labelEvery = plotW < 500 ? Math.max(every, Math.ceil(days.length * 48 / plotW)) : every;
     days.forEach((day, i) => {
       const x = pad.left + i * band + (band - barW) / 2;
       if ((days.length - 1 - i) % labelEvery === 0) {

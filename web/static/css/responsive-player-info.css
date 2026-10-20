@@ -1,0 +1,243 @@
+.container-util {
+  max-width: 1536px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+/* 2xl */
+@media (max-width: 1536px) {
+  .container-util {
+    max-width: 1280px;
+  }
+  .box {
+    margin-right: 25px;
+    margin-left: 25px;
+  }
+}
+
+/* xl */
+@media (max-width: 1280px) {
+  .container-util {
+    max-width: 1024px;
+  }
+}
+
+/* lg */
+@media (max-width: 1024px) {
+  .container-util {
+    max-width: 768px;
+  }
+  .box {
+    width: 150px;
+    height: 150px;
+  }
+  #mySkinContainer {
+    width: 350px;
+    height: 350px;
+  }
+
+  .downloadButton {
+    bottom: 352px;
+    left: 139px;
+  }
+
+
+  .tabBlock-tab {
+    font-size: 16px;
+  }
+  .tabBlock-tab.is-active {
+    font-size: 26px !important;
+  }
+  table {
+    font-size: 16px !important;
+  }
+}
+
+/* md */
+@media (max-width: 768px) {
+  .container-util {
+    max-width: 620px;
+  }
+  .container {
+    grid-template-columns: 1fr 1fr !important;
+    grid-template-rows: repeat(3, fit-content) !important;
+    grid-template-areas:
+      "stat1 stat2"
+      "image image"
+      "stat3 stat4" !important;
+    .item-3 {
+      margin-top: 40px;
+    }
+  }
+  .item {
+    justify-self: auto;
+  }.box {
+    margin-right: 0;
+    margin-left: 0;
+  }
+
+
+  .tabBlock-tab {
+    font-size: 17px;
+  }
+  .tabBlock-tab.is-active {
+    font-size: 19px !important;
+  }
+  table {
+    font-size: 17px !important;
+    max-width: 100%;
+  }
+
+}
+
+@media (max-width: 620px) {
+  .container-util {
+    max-width: 375px;
+  }
+  .tabBlock-tab {
+    font-size: 15px;
+  }
+  .tabBlock-tab.is-active {
+    font-size: 17px !important;
+  }
+  table {
+    font-size: 10px !important;
+  }
+  
+  .stats_div_outer_outer {
+    
+    width: 350px;
+    margin-left: -4px;
+  }
+}
+
+@media (max-width: 710px) {
+  .center {
+    font-size: 60px;
+    margin-bottom: 0 !important;
+  }
+  .content {
+    margin-top: 75px;
+  }
+}
+
+@media (max-width: 575px) {
+  .center {
+    font-size: 14vw;
+  }
+  .box {
+    width: 150px;
+    height: 150px;
+  }
+  #mySkinContainer {
+    width: 350px;
+    height: 350px;
+  }
+
+  .box {
+    width: 150px;
+    height: 150px;
+  }
+
+  .topLeft {
+    margin-left: -25px;
+  }
+  .topRight {
+    margin-left: -25px;
+  }
+
+  .bottomLeft {
+    margin-right: -25px;
+  }
+  .bottomRight {
+    margin-right: -25px;
+  }
+  .downloadButton {
+    bottom: 352px;
+    left: 139px;
+  }
+}
+
+@media (max-width:375px) {
+  #mySkinContainer {
+    width: 95vw;
+    height: 95vw;
+  }
+  .stats_div_outer_outer {
+    max-width: 100% !important;
+  }
+  
+}
+
+@media (max-width:348px) {
+  .downloadButton {
+    display: none;
+  }
+}
+
+@media (max-width:1190px) {
+
+}
+/* ---------------------------------------------------------------- phones (only below 600px, the desktop design stays as it is) */
+@media (max-width: 600px) {
+  .content { margin-top: 72px; }
+  .content h1 { margin: 8px 0 0; }
+  .player-name.center {
+    font-size: clamp(28px, 10vw, 44px);
+    margin-bottom: 12px !important;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    text-align: center;
+  }
+  /* the buttons below the name must not slide over it */
+  .pi-extra.pi-top { margin-top: 0; margin-bottom: 20px; }
+  .pi-actions .mcc-btn-small { min-height: 40px; display: inline-flex; align-items: center; }
+
+  /* skin: as wide as the screen allows, download button in its corner */
+  .container-util { max-width: 100%; padding-left: 12px; padding-right: 12px; box-sizing: border-box; }
+  .item-3 { position: relative; width: 100%; display: flex; flex-direction: column; align-items: center; }
+  #mySkinContainer { width: min(350px, 100%); height: min(350px, 88vw); }
+  .downloadButton { position: absolute; top: 10px; right: calc(50% - min(175px, 50%) + 10px); left: auto; bottom: auto; }
+  .downloadButton button { width: 44px !important; height: 44px !important; }
+
+  /* all values: tabs scroll sideways, the table scrolls inside its box with the names fixed on the left */
+  .stats_div_outer_outer { width: 100% !important; max-width: 100% !important; margin-left: 0; }
+  /* (the <style> of the page comes later: these need a more specific selector) */
+  div.center2 { display: block; padding: 0; }
+  .tabBlock .tabBlock-tabs { overflow-x: auto; scrollbar-width: none; }
+  .tabBlock-tabs::-webkit-scrollbar { display: none; }
+  .tabBlock .tabBlock-tab { float: none; flex: 1 0 auto; width: auto; padding: 8px 14px; font-size: 15px; line-height: 1.6rem; }
+  .tabBlock .tabBlock-tab.is-active { font-size: 16px !important; }
+  .stats_div_outer {
+    width: 100% !important;
+    height: auto !important;
+    max-height: 70vh;
+    overflow: auto !important;
+    box-sizing: border-box;
+  }
+  .stats_div { display: block; }
+  table.stats_table { font-size: 14px !important; min-width: 520px; }
+  .stats_table th, .stats_table td { padding: 6px 8px; white-space: nowrap; }
+  .stats_table th:first-child, .stats_table td.firstColumn {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background-color: rgb(36, 45, 46);
+    padding-left: 8px;
+    width: auto;
+  }
+  .stats_table thead th:first-child { z-index: 101; background-color: #2b2e30; }
+  .stats_table .icon-minecraft { zoom: 0.75; }
+  .sortButton { font-size: 16px; min-width: 32px; min-height: 32px; }
+  .stats_div_outer table tr:hover td { transform: none; }
+
+  /* tiles two per row */
+  .pi-extra .pi-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .pi-extra .pi-tile { padding: 12px 14px; min-width: 0; }
+  .pi-extra .pi-tile-value { font-size: 18px; overflow-wrap: anywhere; }
+  .pi-extra .pi-rank b { font-size: 24px; }
+  .ac-head { flex-wrap: wrap; gap: 0 8px; }
+  .ac-name { font-size: 16px; }
+}

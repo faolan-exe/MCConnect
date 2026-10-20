@@ -459,8 +459,8 @@ body.cmp-bar-open { padding-bottom: 64px; }
 @media (max-width: 460px) {
   .st-records { grid-template-columns: 1fr; }
 }
-/* narrower screens: the best value is marked with a star only (the word is read out) */
-@media (max-width: 1000px) {
+/* narrow screens: the best value is marked with a star only (the word is read out) */
+@media (max-width: 800px) {
   .cmp-value { flex-wrap: wrap; gap: 2px 6px; white-space: normal; }
   .cmp-best-mark { padding: 0 4px; font-size: 12px; }
   .cmp-best-mark > span[aria-hidden] { display: inline; }
@@ -674,146 +674,6 @@ a.pi-tile:hover { border-color: var(--srv-green); }
 .pi-chart .cmp-grid { stroke: #eceeeb; }
 .pi-chart .cmp-axis { stroke: #c9cfca; }
 .pi-chart .cmp-tip { top: 0; }
-
-/* ---------------------------------------------------------------- player page (/spieler?player=) */
-.pi-page .pi-extra { max-width: none; margin: 44px 0 0; padding: 0; }
-.pi-banned { margin: 0 0 18px; padding: 12px 16px; border: 1px solid #f3c2c2; border-radius: 10px; background: #fdecec; color: #8f1f1f; }
-.pi-hero { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; align-items: center; }
-.pi-skin {
-  position: relative;
-  height: 300px;
-  border: 1px solid var(--srv-border);
-  border-radius: 16px;
-  background: radial-gradient(circle at 50% 35%, rgba(47, 191, 98, 0.18), transparent 62%), var(--srv-card);
-  overflow: hidden;
-}
-.pi-skin-view { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
-.pi-skin-view img { width: auto; height: 180px; image-rendering: pixelated; }
-.pi-skin-view canvas { display: block; max-width: 100%; }
-.pi-skin-download {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  border: 1px solid var(--srv-border);
-  border-radius: 10px;
-  background: var(--srv-card);
-  color: var(--srv-text);
-  cursor: pointer;
-}
-.pi-skin-download:hover { border-color: var(--srv-green); }
-.pi-prefix { margin-bottom: 8px; font-size: 18px; }
-.srv-page h1.pi-name { font-size: clamp(30px, 5vw, 52px); line-height: 1.05; margin: 0 0 8px; overflow-wrap: anywhere; }
-.pi-status { margin: 0 0 12px; color: var(--srv-muted); font-size: 16px; }
-.pi-dot { display: inline-block; width: 10px; height: 10px; margin-right: 4px; border-radius: 50%; background: #9aa39e; vertical-align: 1px; }
-.pi-dot-on { background: var(--srv-green); box-shadow: 0 0 0 3px rgba(47, 191, 98, 0.22); }
-.pi-page .pi-bio { margin: 0 0 14px; text-align: left; }
-.pi-page .pi-actions { justify-content: flex-start; }
-.pi-page .pi-id .st-hint { margin: 0 0 14px; }
-.pi-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 28px; }
-.pi-card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-  padding: 14px 16px;
-  border: 1px solid var(--srv-border);
-  border-radius: 12px;
-  background: var(--srv-card);
-}
-.pi-card strong { font-family: var(--font-display); font-size: 22px; line-height: 1.2; overflow-wrap: anywhere; }
-.pi-note { margin: -6px 0 14px; color: var(--srv-muted); font-size: 15px; }
-
-/* detail tables */
-.pi-tabs { display: flex; gap: 6px; margin-bottom: 12px; padding-bottom: 2px; overflow-x: auto; scrollbar-width: none; }
-.pi-tabs::-webkit-scrollbar { display: none; }
-.pi-tabs button {
-  flex: none;
-  min-height: 40px;
-  padding: 6px 14px;
-  border: 1px solid var(--srv-border);
-  border-radius: 999px;
-  background: var(--srv-card);
-  color: var(--srv-text);
-  font: inherit;
-  font-size: 15px;
-  font-weight: 700;
-  cursor: pointer;
-}
-.pi-tabs button span { margin-left: 2px; color: var(--srv-muted); font-weight: 400; }
-.pi-tabs button[aria-selected="true"] { border-color: var(--srv-night); background: var(--srv-night); color: #fff; }
-.pi-tabs button[aria-selected="true"] span { color: rgba(255, 255, 255, 0.7); }
-.pi-filter { max-width: 360px; margin-bottom: 12px; }
-.pi-table-wrap { max-height: 70vh; overflow: auto; border: 1px solid var(--srv-border); border-radius: 12px; background: var(--srv-card); }
-.pi-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 15px; font-variant-numeric: tabular-nums; }
-.pi-table th, .pi-table td { padding: 7px 12px; border-bottom: 1px solid var(--srv-border); text-align: left; white-space: nowrap; }
-.pi-table .num { text-align: right; }
-.pi-table tbody tr:last-child > * { border-bottom: 0; }
-.pi-table thead th { position: sticky; top: 0; z-index: 2; padding: 0; background: var(--srv-card); }
-.pi-table thead th:first-child { left: 0; z-index: 3; }
-.pi-table thead button {
-  width: 100%;
-  min-height: 40px;
-  padding: 8px 12px;
-  border: 0;
-  background: none;
-  color: var(--srv-muted);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-align: inherit;
-  text-transform: uppercase;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.pi-table thead button[aria-sort] { color: var(--srv-text); }
-.pi-table thead button[aria-sort="descending"]::after { content: " ↓"; }
-.pi-table thead button[aria-sort="ascending"]::after { content: " ↑"; }
-.pi-table tbody th { position: sticky; left: 0; z-index: 1; background: var(--srv-card); font-weight: 400; }
-.pi-table tbody tr:hover > * { background: var(--srv-bg); }
-.pi-object { display: flex; align-items: center; gap: 10px; }
-.pi-object .icon-minecraft { flex: none; }
-.pi-object span { overflow: hidden; text-overflow: ellipsis; }
-
-@media (max-width: 800px) {
-  /* skin and name side by side, bio, hints and buttons below in the full width */
-  .pi-hero { grid-template-columns: 116px minmax(0, 1fr); gap: 0 16px; align-items: start; }
-  .pi-id { display: contents; }
-  .pi-skin { grid-column: 1; grid-row: 1 / span 4; margin-bottom: 14px; }
-  .pi-id > * { grid-column: 2; }
-  .pi-id > .pi-bio, .pi-id > .st-hint, .pi-id > .pi-actions { grid-column: 1 / -1; }
-  .pi-skin { height: 180px; border-radius: 12px; }
-  .pi-skin-view img { height: 140px; }
-  .pi-skin-download { top: 6px; right: 6px; width: 36px; height: 36px; }
-  .pi-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 20px; }
-  .pi-card { padding: 12px 14px; }
-  .pi-card strong { font-size: 19px; }
-  .pi-page .pi-extra { margin-top: 36px; }
-}
-@media (max-width: 600px) {
-  .pi-prefix { font-size: 15px; margin-bottom: 4px; }
-  .srv-page h1.pi-name { font-size: 28px; }
-  .pi-status { font-size: 14px; }
-  .pi-page .pi-bio { font-size: 16px; }
-  .pi-filter { max-width: none; }
-  .pi-page .pi-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .pi-page .pi-tile { padding: 12px 14px; min-width: 0; }
-  .pi-page .pi-tile-value { font-size: 18px; overflow-wrap: anywhere; }
-  .pi-page .pi-rank b { font-size: 24px; }
-  .pi-swipe { margin: 0 0 8px; font-size: 14px; }
-  .ac-head { flex-wrap: wrap; gap: 0 8px; }
-  .ac-name { font-size: 16px; }
-  .pi-table { font-size: 14px; }
-  .pi-table th, .pi-table td { padding: 7px 10px; }
-  .pi-table tbody th { max-width: 46vw; }
-  .pi-object { gap: 6px; }
-  .pi-object .icon-minecraft { zoom: 0.75; }
-  .pi-table-wrap { max-height: 75vh; }
-}
 
 /* ---------------------------------------------------------------- server statistics (/server-statistik) */
 .ss-numbers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }

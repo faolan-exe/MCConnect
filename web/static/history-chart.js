@@ -125,11 +125,12 @@
         class: i === 0 ? "cmp-axis" : "cmp-grid" }, svg);
       el("text", { x: pad.left - 8, y: y(t) + 4, "text-anchor": "end", class: "cmp-tick" }, svg).textContent = labels[i];
     });
-    // x axis: up to 6 date labels, at least 64px apart (fewer on phones)
-    const every = Math.max(1, Math.ceil(dates.length / Math.min(6, Math.max(2, Math.floor(plotW / 64)))));
+    // x axis: about 6 date labels
+    // on narrow charts (phones) fewer, so that they do not overlap
+    const every = Math.max(1, Math.round(dates.length / 6), plotW < 500 ? Math.ceil(dates.length / Math.max(2, Math.floor(plotW / 70))) : 1);
     dates.forEach((d, i) => {
-      if ((dates.length - 1 - i) % every !== 0 || x(i) - pad.left < 20) return;  // the first one would touch the axis labels
-      el("text", { x: x(i), y: height - 8, "text-anchor": "middle", class: "cmp-tick" }, svg)
+      if ((dates.length - 1 - i) % every !== 0) return;
+      el("text", { x: x(i), y: height - 8, "text-anchor": i === 0 ? "start" : "middle", class: "cmp-tick" }, svg)
         .textContent = dateLabel(d);
     });
 

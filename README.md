@@ -60,7 +60,7 @@ State of 2026-10-19: schema version 27, plugin 3.21. Written as a handoff for th
 | Rankings | `/rangliste` | 19 metrics in 4 groups (`database/metrics.py`), all time / 30 / 7 days; `+` buttons collect players for the comparison (`web/static/compare.js`) |
 | Comparison | `/vergleich` | 2–4 players, best values, history chart, detail tables |
 | Player list | `/spieler` | search, sort, "last online" filters, badges, top places, favourites |
-| Player page | `/spieler?player=` | cards (same values as rankings, `player_card_values`), activity chart, ranking places, highlights, achievements (live), trophy cabinet, bio, stat card (`/spieler/<name>/karte.png`, `og:image`), all single values in tabs with search and sorting (`detail_tables`, `web/static/player-page.js`), guestbook, moderator notes and warnings |
+| Player page | `/spieler?player=` | cards (same values as rankings, `player_card_values`), activity chart, ranking places, highlights, achievements (live), trophy cabinet, bio, stat card (`/spieler/<name>/karte.png`, `og:image`), guestbook, moderator notes and warnings. Tobi's own design: keep the desktop look, phone rules only in the 600px block of `responsive-player-info.css` |
 | Server statistics | `/server-statistik` | online history, peak-time heatmap, totals, new players, fun facts; based on `player_sessions` |
 | Start page | `/` | records, weekly recap, running competitions and goals, events, polls, activity feed (`/api/feed`) |
 | Achievements | `database/achievements.py` | 13 × 4 tiers (`player_achievements`); tiers reached while not playing are `silent` (no feed, no chat) |
@@ -122,7 +122,7 @@ Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss 
   value (`record_holders`), `record_history` only knows who took a record when. Metrics that add several objects say
   so (`Metric.note`, e.g. ores "inkl. Deepslate"); the single values on the player page and in the comparison
   details are per object and all time. `tests/test_mobile.py` checks this across the pages.
-- **Mobile.** The header becomes a bar with a menu panel below 900px (`responsiveHeader.css`); `css/mobile.css`
+- **Mobile.** Never change the desktop design for phones: phone rules go into media queries only. The header becomes a bar with a menu panel below 576px (the original breakpoint) (`responsiveHeader.css`); `css/mobile.css`
   (loaded by `header.html` after the page styles) holds the shared phone rules: tap targets of 40–44px, 16px
   inputs, wrapping segmented controls, tables with class `mcc-stack` become one card per row (every `<td>` needs a
   `data-label`). `tests/test_mobile.py` renders the pages in Chrome at 375px (Playwright from

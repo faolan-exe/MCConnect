@@ -278,8 +278,15 @@ def player_overview_route():
         muted_until=info["muted_until"].strftime("%d.%m. %H:%M") if info.get("muted_until") and
         info["muted_until"] > datetime.now(timezone.utc) else None,
         banned=bool(banned), startdate=startdate, enddate=enddate,
-        cards=player_card_values(db(), player_id), tables=detail_tables(player_id),
-        deaths_total=metrics_mod.format_count(db().get_player_metrics(player_id)["deaths"]))
+        armor_stats=json.dumps(db().get_all_armor_stats(player_id)),
+        tool_stats=json.dumps(db().get_all_tools_stats(player_id)),
+        item_stats=json.dumps(db().get_all_items_stats(player_id)),
+        block_stats=json.dumps(db().get_all_blocks_stats(player_id)),
+        mob_stats=json.dumps(db().get_all_mobs_stats(player_id)),
+        custom_stats=json.dumps(db().get_all_custom_stats(player_id)),
+        # the general values with their unit (play time as time, distances in km, ...), as in rankings and comparison
+        custom_texts={stats_mod.strip_namespace(obj): metrics_mod.format_stat(obj, value)
+                      for obj, value in db().get_stat_values(player_id, stats_mod.CUSTOM).items()})
 
 
 def feature_rankings_required(view):
@@ -766,48 +773,6 @@ def player_list_page():
         })
     return render_template("spieler.html", players=rows, online_count=sum(p["online"] for p in players),
                            logged_in=bool(viewer))
-
-
-# Tabs of the detail tables on the player page: (key, title, [(category, column)])
-DETAIL_TABS = (
-    ("blocks", "Blöcke", [(stats_mod.BLOCK_MINED, "Abgebaut"), (stats_mod.BLOCK_USED, "Platziert"),
-                          (stats_mod.BLOCK_CRAFTED, "Hergestellt"), (stats_mod.BLOCK_PICKED_UP, "Aufgehoben"),
-                          (stats_mod.BLOCK_DROPPED, "Fallen gelassen")]),
-    ("items", "Items", [(stats_mod.ITEM_USED, "Benutzt"), (stats_mod.ITEM_CRAFTED, "Hergestellt"),
-                        (stats_mod.ITEM_PICKED_UP, "Aufgehoben"), (stats_mod.ITEM_DROPPED, "Fallen gelassen")]),
-    ("tools", "Werkzeuge", [(stats_mod.TOOL_USED, "Benutzt"), (stats_mod.TOOL_BROKEN, "Kaputt"),
-                            (stats_mod.TOOL_CRAFTED, "Hergestellt"), (stats_mod.TOOL_PICKED_UP, "Aufgehoben"),
-                            (stats_mod.TOOL_DROPPED, "Fallen gelassen")]),
-    ("armor", "Rüstung", [(stats_mod.ARMOR_USED, "Benutzt"), (stats_mod.ARMOR_BROKEN, "Kaputt"),
-                          (stats_mod.ARMOR_CRAFTED, "Hergestellt"), (stats_mod.ARMOR_PICKED_UP, "Aufgehoben"),
-                          (stats_mod.ARMOR_DROPPED, "Fallen gelassen")]),
-    ("mobs", "Mobs", [(stats_mod.MOB_KILLED, "Getötet"), (stats_mod.MOB_KILLED_BY, "Hat dich getötet")]),
-    ("custom", "Allgemein", [(stats_mod.CUSTOM, "Wert")]),
-)
-
-
-def detail_tables(player_id):
-    """
-    The detail tables of the player page: [{"key", "title", "columns", "rows": [{"object", "label", "values",
-    "texts"}]}]. Every value of the game once, named like in the game (the general ones in German, with units).
-    """
-    database = db()
-    tables = []
-    for key, title, columns in DETAIL_TABS:
-        per_column = [database.get_stat_values(player_id, category) for category, _ in columns]
-        objects = sorted(set().union(*per_column))
-        rows = []
-        for obj in objects:
-            values = [column.get(obj, 0) for column in per_column]
-            row = {"object": stats_mod.strip_namespace(obj), "label": metrics_mod.object_label(obj), "values": values}
-            if key == "custom":
-                row["label"] = metrics_mod.stat_label(obj)
-                row["texts"] = [metrics_mod.format_stat(obj, values[0])]
-            rows.append(row)
-        # most first; the general values have different units, so they are sorted by name
-        rows.sort(key=lambda row: row["label"] if key == "custom" else (-row["values"][0], row["label"]))
-        tables.append({"key": key, "title": title, "columns": [label for _, label in columns], "rows": rows})
-    return tables
 
 
 def player_extras(player_id):

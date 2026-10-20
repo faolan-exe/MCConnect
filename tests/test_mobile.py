@@ -29,28 +29,14 @@ def ore_player(db, server, two_players):
 
 # ------------------------------------------------------------------ the same numbers everywhere
 
-def test_player_page_cards_and_table_show_the_metric_values(client, db, ore_player):
-    html = client.get("/spieler?player=_Tobias4444", **on("testdomain")).get_data(as_text=True)
+def test_player_page_cards_and_values_tab_show_the_metric_values(client, db, ore_player):
     play_time = metrics.format_value(metrics.METRICS_BY_KEY["play_time"], db.get_player_metrics(ore_player)["play_time"])
     assert play_time == "1 Std."
-    assert f'data-card="6">{play_time}<' in html  # card, rendered without waiting for the poll
-    assert f'<td class="num" data-value="{HOUR}">{play_time}</td>' in html  # "Alle Werte": same value and unit
-    assert 'data-card="2">5<' in html
-
-
-def test_general_values_have_units_and_german_names(client, ore_player):
+    card = client.get("/api/player_info/_Tobias4444", **on("testdomain")).json
+    assert card[6] == play_time and card[2] == "5"
     html = client.get("/spieler?player=_Tobias4444", **on("testdomain")).get_data(as_text=True)
-    assert "Spielzeit" in html and "Strecke: Zu Fuß" in html
-    assert ">1,5 km</td>" in html  # walk_one_cm 150000, not "150000"
-    assert ">72000<" not in html and ">150000<" not in html
-
-
-def test_detail_table_columns_are_german(client, ore_player):
-    html = client.get("/spieler?player=_Tobias4444", **on("testdomain")).get_data(as_text=True)
-    for column in ("Abgebaut", "Platziert", "Hergestellt", "Getötet", "Hat dich getötet"):
-        assert column in html
-    for english in (">Mined", ">Placed", ">Killed By"):
-        assert english not in html
+    # tab "Mehr": the general values with units, e.g. the play time as on the card (not 72000 ticks)
+    assert '"play_time": "1 Std."' in html and '"walk_one_cm": "1,5 km"' in html
 
 
 def test_ore_metric_says_it_adds_deepslate(client, ore_player):
@@ -60,8 +46,6 @@ def test_ore_metric_says_it_adds_deepslate(client, ore_player):
     assert "245 normal + 10 Deepslate" in html
     assert re.search(r'<span class="cmp-value">255\b', html)
     assert "Erze stehen hier je Variante für sich" in html  # note of the detail tables
-    page = client.get("/spieler?player=_Tobias4444", **on("testdomain")).get_data(as_text=True)
-    assert "Iron Ore" in page and "Deepslate Iron Ore" in page and "zählen beide zusammen" in page
 
 
 def test_ore_split_only_for_all_time(client, ore_player):
@@ -77,7 +61,6 @@ def test_deaths_by_mobs_are_shown_as_part_of_all_deaths(client, db, server, two_
     html = client.get("/spieler?player=_Tobias4444", **on("testdomain")).get_data(as_text=True)
     assert "Am häufigsten getötet von" in html and "2 von 5 Toden" in html
     assert "Häufigste Todesursache" not in html
-    assert "Tode insgesamt (auch durch Stürze, Lava, Ertrinken …): 5" in html
     compare = client.get("/vergleich?spieler=_Tobias4444,Notch", **on("testdomain")).get_data(as_text=True)
     assert "Getötet von Mobs" in compare and "Nur Tode durch Mobs" in compare
 
@@ -86,9 +69,9 @@ def test_first_join_is_the_same_on_player_page_and_player_list(client, db, serve
     a, _ = two_players
     with db._cursor() as cur:
         cur.execute("UPDATE player_server_info SET first_played = '2025-03-04 12:00+00' WHERE player_id = %s", (a,))
-    page = client.get("/spieler?player=_Tobias4444", **on("testdomain")).get_data(as_text=True)
+    card = client.get("/api/player_info/_Tobias4444", **on("testdomain")).json
     player_list = client.get("/spieler", **on("testdomain")).get_data(as_text=True)
-    assert 'data-card="3">04.03.2025<' in page
+    assert card[3].startswith("04.03.2025")
     assert "Dabei seit 04.03.2025" in player_list
 
 
@@ -142,7 +125,8 @@ def test_server_pages_have_the_mobile_layout(client, two_players, path):
     assert 'name="viewport"' in html and "width=device-width" in html
     assert "css/mobile.css" in html and "css/responsiveHeader.css" in html
     assert 'class="mh-toggle"' in html and 'aria-controls="nav-bar"' in html and 'aria-expanded="false"' in html
-    assert not re.search(r"width:\s*1[0-9]{3}px", html), "fixed widths break small screens"
+    if "player=" not in path:  # the player page keeps its desktop design, phones get responsive-player-info.css
+        assert not re.search(r"width:\s*1[0-9]{3}px", html), "fixed widths break small screens"
 
 
 def test_mobile_menu_lists_account_links(mod_client):
@@ -151,12 +135,6 @@ def test_mobile_menu_lists_account_links(mod_client):
     for link in ("/spieler?player=_Tobias4444", "/profil", "askLogout"):
         assert link in account
     assert 'href="/login"' not in account
-
-
-def test_player_page_needs_no_jquery_from_google(client, two_players):
-    html = client.get("/spieler?player=_Tobias4444", **on("testdomain")).get_data(as_text=True)
-    assert "ajax.googleapis.com" not in html
-    assert html.count("jquery.min.js") == 1  # once, for MineRender (3D skin)
 
 
 # ------------------------------------------------------------------ in a browser at phone width
@@ -277,19 +255,13 @@ def test_comparison_shows_all_players_side_by_side(phone, live_site):
         assert box["x"] >= 0 and box["x"] + box["width"] <= PHONE["width"], "a player column is off screen"
 
 
-def test_player_page_tables_tabs_search_and_sort(phone, live_site):
+def test_player_page_values_on_a_phone(phone, live_site):
+    # not "load": that waits for the 3D skin libraries from the CDN; the tabs work without them
     phone.goto(live_site + "/spieler?player=_Tobias4444", wait_until="domcontentloaded")
-    rows = phone.locator("#panel-blocks tbody tr")
-    assert rows.first.locator("th").inner_text().strip() == "Stone"  # most mined first
-    phone.fill("#detail-search", "iron")
-    visible = [rows.nth(i).locator("th").inner_text().strip() for i in range(rows.count()) if rows.nth(i).is_visible()]
-    assert visible == ["Iron Ore", "Deepslate Iron Ore"]
-    phone.fill("#detail-search", "")
-    phone.locator("#tab-custom").tap()
-    assert phone.locator("#panel-custom").is_visible() and not phone.locator("#panel-blocks").is_visible()
-    assert "1 Std." in phone.locator("#panel-custom").inner_text()
-    phone.locator('#panel-blocks [data-sort="0"]').evaluate("b => b.click()")  # sort by name (panel hidden: no tap)
-    assert phone.locator("#panel-blocks tbody tr").first.locator("th").inner_text().strip() == "Deepslate Diamond Ore"
+    box = phone.locator(".stats_div_outer").bounding_box()
+    assert box["x"] >= 0 and box["x"] + box["width"] <= PHONE["width"]  # the table scrolls inside its box
+    phone.locator('[data-tab="other"]').tap()
+    assert "1 Std." in phone.locator("#staticsContentDiv").inner_text()
 
 
 def test_moderation_rows_become_cards(phone, live_site):
