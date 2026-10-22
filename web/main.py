@@ -28,6 +28,7 @@ import psycopg2.errors
 from colorlogx import get_logger
 from flask import (Blueprint, Flask, Response, abort, current_app, g, redirect, render_template,
                    request, send_file, send_from_directory, session, url_for)
+from itsdangerous import BadSignature, URLSafeTimedSerializer
 from markupsafe import Markup, escape
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -173,10 +174,55 @@ def load_server(endpoint, values):
 
 
 def logged_in_player_id():
-    """The player_id of the logged in player on the current server, or None."""
-    if session.get("server_id") != g.server["id"]:
-        return None
-    return session.get("player_id")
+    """
+    The player_id of the logged in player on the current server, or None. A login is also valid on the other servers
+    of the same owner where the player has played (SSO_COOKIE); logging out on one of them ends all of them.
+    """
+    if session.get("server_id") == g.server["id"] and session.get("player_id"):
+        if not session.get("sso") or sso_identity() == [session.get("uuid"), g.server["owner_id"]]:
+            return session.get("player_id")
+        session.clear()  # logged out (or in as someone else) on another server of the owner
+    identity = sso_identity()
+    if identity and identity[1] == g.server["owner_id"]:
+        player_id = db().get_player_id_from_mojang_uuid_and_server_id(identity[0], g.server["id"])
+        if player_id is not None:
+            start_player_session(player_id, identity[0])
+            return session["player_id"]
+    return None
+
+
+# The PIN goes to the plugin, and the plugin belongs to the server's owner: a modified plugin can log its owner in as
+# anyone. So a login only counts on the servers of that same owner, never on the servers of others (ADR 0004).
+SSO_COOKIE = "mcc_player"
+
+
+def sso_serializer():
+    return URLSafeTimedSerializer(current_app.secret_key, salt="player-sso")
+
+
+def sso_identity():
+    """[mojang uuid, owner id] of the SSO cookie, or None (missing, forged or expired)."""
+    if "sso_identity" not in g:
+        try:
+            g.sso_identity = sso_serializer().loads(request.cookies.get(SSO_COOKIE, ""),
+                                                    max_age=current_app.permanent_session_lifetime.total_seconds())
+        except BadSignature:
+            g.sso_identity = None
+    return g.sso_identity
+
+
+def sso_cookie_domain():
+    """The base domain (without port), so the cookie reaches every server page."""
+    return current_app.config["SERVER_NAME"].split(":")[0]
+
+
+def start_player_session(player_id, mojang_uuid):
+    session.clear()
+    session["player_id"] = str(player_id)
+    session["server_id"] = g.server["id"]
+    session["uuid"] = str(mojang_uuid)
+    session["sso"] = True
+    session.permanent = True
 
 
 @server_bp.context_processor
@@ -236,7 +282,9 @@ def player_login():
         if request.form.get("text_input") != "logout":
             abort(400)
         session.clear()
-        return redirect("/")
+        response = redirect("/")
+        response.delete_cookie(SSO_COOKIE, domain=sso_cookie_domain())  # the other servers of the owner as well
+        return response
 
     if logged_in_player_id():
         return render_template("logout_confirmation.html", uuid=session.get("uuid"))
@@ -2719,12 +2767,15 @@ def minecraft_login_api():
 
     result = db().verify_player_login(player_id, pin)
     if result[0]:
-        session.clear()
-        session["player_id"] = player_id
-        session["server_id"] = g.server["id"]
-        session["uuid"] = str(db().get_mojang_uuid_from_player_id(player_id))
-        session.permanent = True
-        return {"response": "Pin is correct", "status": "success", "info": ""}
+        mojang_uuid = str(db().get_mojang_uuid_from_player_id(player_id))
+        start_player_session(player_id, mojang_uuid)
+        g.sso_identity = [mojang_uuid, g.server["owner_id"]]  # the cookie below, for the rest of this request
+        response = current_app.response_class(json.dumps({"response": "Pin is correct", "status": "success", "info": ""}),
+                                              mimetype="application/json")
+        response.set_cookie(SSO_COOKIE, sso_serializer().dumps([mojang_uuid, g.server["owner_id"]]),
+                            max_age=current_app.permanent_session_lifetime, domain=sso_cookie_domain(), httponly=True,
+                            samesite="Lax", secure=current_app.config["SESSION_COOKIE_SECURE"])
+        return response
 
     reason = result[1]
     if reason == "wrong pin provided":
