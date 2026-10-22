@@ -549,7 +549,9 @@ def apply_warning(db, server_id, player_id, reason, actor, tell, ban):
     if result["ban"]:
         ban(result["ban"])
         db.add_mod_log(server_id, actor, "ban", name, f"automatisch nach {result['count']} Verwarnungen")
-        return f"{name} ist verwarnt{of} und für {db.get_server_settings(server_id)['warn_ban_days']} Tage gebannt."
+        days = db.get_server_settings(server_id)["warn_ban_days"]
+        duration = "dauerhaft" if not days else "für 1 Tag" if days == 1 else f"für {days} Tage"
+        return f"{name} ist verwarnt{of} und {duration} gebannt."
     return f"{name} ist verwarnt{of}."
 
 

@@ -616,6 +616,7 @@ EMAIL_VERIFICATION_VALID_HOURS = 24
 PASSWORD_RESET_VALID_MINUTES = 60
 LOGIN_PIN_CHANNEL = "login_pin"
 EVENTS_CHANNEL = "mcc_events"
+NOTIFY_MAX_BYTES = 7900  # PostgreSQL refuses notification payloads of 8000 bytes and more
 MODERATOR_LEVEL = 1
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -630,6 +631,18 @@ ph = argon2.PasswordHasher()
 def _dummy_hash():
     return ph.hash(secrets.token_hex(16))
 logger = get_logger("databaseManager")
+
+
+def _event_payloads(event):
+    """The JSON of an event, split in halves at its list of players until every part is short enough."""
+    payload = json.dumps(event)
+    if len(payload.encode()) <= NOTIFY_MAX_BYTES:
+        return [payload]
+    key = next((k for k in ("uuids", "names") if len(event.get(k) or ()) > 1), None)
+    if key is None:
+        raise ValueError(f"server event {event.get('type')} is too long for a notification")
+    half = len(event[key]) // 2
+    return _event_payloads(dict(event, **{key: event[key][:half]})) + _event_payloads(dict(event, **{key: event[key][half:]}))
 
 
 def generate_secure_token(length=64):
@@ -1447,9 +1460,11 @@ class DatabaseManager:
                JOIN prefixes p ON p.prefix_id = psi.prefix_id WHERE psi.server_id = %s""", (server_id,))}
 
     def notify_server_event(self, server_id, event_type, **data):
-        """Tell the socket server about a change (prefix, ban, unban) on a minecraft server."""
-        payload = json.dumps(dict(data, type=event_type, server_id=server_id))
-        self._execute("SELECT pg_notify(%s, %s)", (EVENTS_CHANNEL, payload))
+        """Tell the socket server about a change (prefix, ban, unban) on a minecraft server. Long lists of players
+        ("uuids", "names") are split into several events: a notification must stay below NOTIFY_MAX_BYTES."""
+        with self._cursor() as cur:
+            for payload in _event_payloads(dict(data, type=event_type, server_id=server_id)):
+                cur.execute("SELECT pg_notify(%s, %s)", (EVENTS_CHANNEL, payload))
 
     ###----------------------------- Moderation ------------------------------------###
 

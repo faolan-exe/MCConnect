@@ -157,6 +157,10 @@ REGISTRY_RETRY_SECONDS = 3600
 MAX_ANNOUNCED_ACHIEVEMENTS = 2
 # More records taken with one stats update are not announced.
 MAX_ANNOUNCED_RECORDS = 3
+MAX_COORDINATE = 30_000_000
+# Names the plugin reports for players: Java names, Bedrock names with a prefix (Floodgate, e.g. ".Steve"). Others
+# (spaces, markup, protocol separators, too long) are ignored, the stored name stays.
+PLAYER_NAME_RE = re.compile(r"^[A-Za-z0-9_.*+\-]{1,32}$")
 # Handlers of !ADDON messages: addon id -> function(server, server_id, message). The official addons need none yet.
 ADDON_HANDLERS = {}
 
@@ -664,8 +668,10 @@ class SocketServer:
         uuid = parse_uuid(parts[0])
         try:
             location = (parts[1][:64], int(float(parts[2])), int(float(parts[3])), int(float(parts[4])))
-        except ValueError:
+        except (ValueError, OverflowError):
             location = None
+        if location and not all(abs(c) <= MAX_COORDINATE for c in location[1:]):
+            location = None  # the world border is at 30 million blocks
         ctx = commands.CommandContext(
             self.db, server_id, uuid, location if parts[1] else None,
             tell=lambda to, text: self.tell(server_id, to, text),
@@ -1027,8 +1033,8 @@ class SocketServer:
                     first_played = datetime.fromtimestamp(first_played / 1000, timezone.utc) if first_played > 0 else None
                 except (ValueError, OverflowError, OSError):
                     first_played = None
-                player_id, first = self.db.register_player_join_info(client.server_id, player_uuid, name.strip() or None,
-                                                                     first_played)
+                name = name.strip() if PLAYER_NAME_RE.match(name.strip()) else None
+                player_id, first = self.db.register_player_join_info(client.server_id, player_uuid, name, first_played)
                 if is_op.strip() in ("0", "1"):
                     self.db.set_player_op(client.server_id, player_uuid, is_op.strip() == "1")
                 client.send("success|101")

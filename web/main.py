@@ -8,6 +8,7 @@ Run in production:    gunicorn 'web.main:create_app()'
 """
 import functools
 import json
+import math
 import os
 import re
 import secrets
@@ -110,6 +111,17 @@ def live_json(key, compute):
                                           mimetype="application/json")
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+def has_nul(value):
+    """True if a NUL character is in a string anywhere in value (strings, lists and dicts, also in the keys)."""
+    if isinstance(value, str):
+        return "\x00" in value
+    if isinstance(value, dict):
+        return any(has_nul(k) or has_nul(v) for k, v in value.items())
+    if isinstance(value, list):
+        return any(has_nul(v) for v in value)
+    return False
 
 
 def safe_next_path(path):
@@ -877,8 +889,12 @@ DUEL_STATUS = {"pending": "wartet auf Antwort", "running": "läuft", "finished":
 @feature_rankings_required
 def duels_page():
     viewer = logged_in_player_id()
-    duels = [v for v in (duel_view(d) for d in db().list_duels(g.server["id"])) if v]
-    players = [p for p in db().get_server_metrics(g.server["id"]) if not viewer or p["player_id"] != str(viewer)]
+    visible = visible_players(g.server["id"])
+    # a player who hides the stats later: the duel stays visible to the two only
+    duels = [v for v in (duel_view(d) for d in db().list_duels(g.server["id"])
+                         if {d["challenger_id"], d["opponent_id"]} <= visible.keys() or str(viewer) in (d["challenger_id"], d["opponent_id"]))
+             if v]
+    players = [p for p in visible.values() if not viewer or p["player_id"] != str(viewer)]
     return render_template("duelle.html", duels=duels, viewer=str(viewer) if viewer else None,
                            status_labels=DUEL_STATUS, players=players,
                            metrics=[m for m in metrics_mod.METRICS if not m.lower_is_better], metric_groups=metrics_mod.GROUPS,
@@ -1217,6 +1233,9 @@ def build_like_api():
         build_id = int((request.get_json(silent=True) or {}).get("id"))
     except (TypeError, ValueError):
         return {"error": "Unbekanntes Bild."}, 400
+    build = db().get_build(build_id)
+    if build is None or build["server_id"] != g.server["id"] or build["status"] != "approved":
+        return {"error": "Unbekanntes Bild."}, 404
     liked = db().toggle_build_like(g.server["id"], build_id, logged_in_player_id())
     if liked is None:
         return {"error": "Eigene Bilder kannst du nicht liken."}, 409
@@ -2210,9 +2229,12 @@ def mod_event_create_api():
     if description and len(description) > EVENT_TEXT_MAX or place and len(place) > EVENT_PLACE_MAX:
         return {"error": "Beschreibung oder Treffpunkt sind zu lang."}, 400
     try:
-        starts_at = datetime.fromisoformat(str(data.get("starts_at"))).replace(tzinfo=ZoneInfo(config.TIMEZONE))
+        starts_at = datetime.fromisoformat(str(data.get("starts_at")))
     except ValueError:
         return {"error": "Ungültiger Zeitpunkt."}, 400
+    if starts_at.tzinfo is None:  # the form sends local time without offset
+        starts_at = starts_at.replace(tzinfo=ZoneInfo(config.TIMEZONE))
+    starts_at = starts_at.astimezone(ZoneInfo(config.TIMEZONE))
     if starts_at < datetime.now(timezone.utc) or starts_at > datetime.now(timezone.utc) + timedelta(days=365):
         return {"error": "Das Event muss in der Zukunft liegen (höchstens ein Jahr)."}, 400
     event_id = db().create_event(g.server["id"], title, starts_at, description, place, created_by=mod_name())
@@ -2243,7 +2265,9 @@ def mod_event_delete_api():
 def mod_poll_create_api():
     data = request.get_json(silent=True) or {}
     question = " ".join(str(data.get("question") or "").split())
-    options = [" ".join(str(o).split()) for o in (data.get("options") or []) if str(o).strip()]
+    if not isinstance(data.get("options"), list):
+        return {"error": "Die Antworten fehlen."}, 400
+    options = [" ".join(str(o).split()) for o in data["options"] if str(o).strip()]
     if not 5 <= len(question) <= POLL_QUESTION_MAX:
         return {"error": f"Die Frage muss 5-{POLL_QUESTION_MAX} Zeichen lang sein."}, 400
     if not 2 <= len(options) <= 8 or any(len(o) > POLL_OPTION_MAX for o in options) or \
@@ -2515,7 +2539,7 @@ def mod_goal_create_api():
         ends_on = date.fromisoformat(str(data["ends_on"])) if data.get("ends_on") else None
     except ValueError:
         return {"error": "Ungültige Angaben."}, 400
-    target = motivation.goal_target(metric, amount) if amount == amount else 0  # NaN
+    target = motivation.goal_target(metric, amount) if math.isfinite(amount) else 0  # NaN, inf
     if not 0 < target < 10 ** 15:
         return {"error": "Das Ziel muss größer als 0 sein."}, 400
     today = db().get_today()
@@ -2601,6 +2625,8 @@ def do_ban(server_id, data, banned_by):
         return {"error": "Ungültige Angaben."}, 400
     if days is not None and not 0 <= days <= 3650:
         return {"error": "Die Dauer muss zwischen 0 (dauerhaft) und 3650 Tagen liegen."}, 400
+    if reason_id is not None and reason_id not in {reason["id"] for reason in db().get_ban_reasons()}:
+        return {"error": "Unbekannter Grund."}, 400
     comment = str(data.get("comment") or "").strip()[:500] or None
     reason_text = game_commands.clean(" ".join(str(data.get("reason_text") or "").split()))[:BAN_TEXT_MAX] or None
     ban = db().ban_player(server_id, name, banned_by, reason_id=reason_id, days=days, comment=comment,
@@ -2932,9 +2958,9 @@ def download_plugin():
 @main_bp.route("/api/signup", methods=["POST"])
 def signup():
     data = request.get_json(silent=True) or {}
-    username = (data.get("username") or "").strip()
-    email = (data.get("email") or "").strip()
-    password = data.get("password") or ""
+    username = str(data.get("username") or "").strip()
+    email = str(data.get("email") or "").strip()
+    password = str(data.get("password") or "")
     if not USERNAME_RE.match(username):
         return {"error": "Der Benutzername muss 3-32 Zeichen lang sein (Buchstaben, Zahlen, _ . -)."}, 400
     if not EMAIL_RE.match(email):
@@ -3541,6 +3567,19 @@ def create_app(db_manager=None, config_overrides=None):
     @app.errorhandler(413)
     def too_large(error):
         return {"error": f"Die Datei ist zu groß (maximal {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)."}, 413
+
+    @app.before_request
+    def refuse_odd_input():
+        """The JSON APIs read an object: a list, a number or broken JSON is refused here instead of failing in the
+        view. NUL characters cannot be stored in PostgreSQL text, so they are refused everywhere."""
+        if has_nul([request.path, request.args.to_dict(flat=False)]) or \
+                (request.method == "POST" and request.mimetype in ("multipart/form-data", "application/x-www-form-urlencoded")
+                 and has_nul(request.form.to_dict(flat=False))):
+            abort(400)
+        if request.method == "POST" and request.is_json and request.get_data():
+            data = request.get_json(silent=True)
+            if not isinstance(data, dict) or has_nul(data):
+                return {"error": "Ungültige Anfrage."}, 400
 
     @app.after_request
     def add_headers(response):
