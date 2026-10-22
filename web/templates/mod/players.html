@@ -94,7 +94,7 @@
   </div>
   <div class="mcc-table-wrap">
     <table class="mcc-table mcc-stack in-table">
-      <thead><tr><th>Spieler</th><th>Zuletzt online</th><th>Dabei seit</th><th>Spielzeit</th></tr></thead>
+      <thead><tr><th>Spieler</th><th>Zuletzt online</th><th>Dabei seit</th><th>Spielzeit</th><th data-role="wl-col"></th></tr></thead>
       <tbody>
         {% for p in activity %}
         <tr data-name="{{ p.name }}" data-last="{{ p.last_seen.isoformat() if p.last_seen else '' }}"
@@ -104,15 +104,19 @@
           <td data-label="Zuletzt online">{{ "online" if p.online else (p.last_seen.strftime("%d.%m.%Y, %H:%M") if p.last_seen else "nie") }}</td>
           <td data-label="Dabei seit">{{ p.first_seen.strftime("%d.%m.%Y") if p.first_seen else "–" }}</td>
           <td data-label="Spielzeit">{{ p.play_time }}</td>
+          <td data-label="Whitelist" data-role="wl-col"><button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-unwhitelist>Von der Whitelist nehmen</button></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
   <div class="in-commands" data-role="commands">
-    <label for="whitelist-commands"><b>Befehle zum Entfernen von der Whitelist</b> <span class="mcc-hint">(für die angezeigten Spieler, in die Server-Konsole einfügen)</span></label>
-    <textarea id="whitelist-commands" readonly></textarea>
-    <div class="mcc-actions"><button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-role="copy">Kopieren</button></div>
+    {% if unwhitelist %}
+    <div class="mcc-actions"><button class="mcc-btn mcc-btn-small" type="button" data-role="unwhitelist-all">Alle angezeigten von der Whitelist nehmen</button></div>
+    {% else %}
+    <p class="mcc-hint">Von der Whitelist nehmen geht direkt hier, sobald der Server MCDataLink 3.23 hat (kommt mit auto-update beim nächsten Neustart).</p>
+    {% endif %}
+    <div class="mcc-message" data-role="wl-message"></div>
   </div>
 </section>
 {% endblock %}
@@ -123,10 +127,13 @@
     const root = document.getElementById("activity");
     const rows = [...root.querySelectorAll("tbody tr")];
     const buttons = [...root.querySelectorAll("[data-view]")];
-    const commands = root.querySelector("#whitelist-commands");
+    const unwhitelist = {{ "true" if unwhitelist else "false" }};
+    const message = root.querySelector('[data-role="wl-message"]');
+    let view = "30";
     const DAY = 86400000;
 
-    function apply(view) {
+    function apply(next) {
+      view = next;
       buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === view)));
       const shown = rows.filter((row) => {
         if (view === "new") return row.dataset.first && Date.now() - Date.parse(row.dataset.first) <= 7 * DAY;
@@ -135,14 +142,36 @@
       });
       rows.forEach((row) => (row.hidden = !shown.includes(row)));
       root.querySelector('[data-role="count"]').textContent = `${shown.length} Spieler`;
+      // taking players off the whitelist: only for those who were away (not for new players)
       root.querySelector('[data-role="commands"]').hidden = view === "new" || !shown.length;
-      commands.value = shown.map((row) => `whitelist remove ${row.dataset.name}`).join("\n");
+      root.querySelectorAll('[data-role="wl-col"]').forEach((cell) => (cell.hidden = view === "new" || !unwhitelist));
     }
+
+    async function remove(names, done) {
+      const result = await postJson("/api/mod/whitelist/remove", { names });
+      if (!result.ok) {
+        showMessage(message, result.data.error || "Das hat nicht geklappt.", "error");
+        return;
+      }
+      for (const row of rows.filter((r) => names.includes(r.dataset.name))) {
+        row.dataset.removed = "1";
+        const button = row.querySelector("[data-unwhitelist]");
+        button.disabled = true;
+        button.textContent = "Entfernt";
+      }
+      showMessage(message, names.length === 1 ? `${names[0]} ist nicht mehr auf der Whitelist.`
+        : `${names.length} Spieler sind nicht mehr auf der Whitelist.`, "success");
+      if (done) done();
+    }
+
     buttons.forEach((b) => b.addEventListener("click", () => apply(b.dataset.view)));
-    root.querySelector('[data-role="copy"]').addEventListener("click", async (event) => {
-      await navigator.clipboard.writeText(commands.value);
-      event.target.textContent = "Kopiert";
-      setTimeout(() => (event.target.textContent = "Kopieren"), 2000);
+    root.querySelectorAll("[data-unwhitelist]").forEach((button) => button.addEventListener("click", () =>
+      remove([button.closest("tr").dataset.name])));
+    const all = root.querySelector('[data-role="unwhitelist-all"]');
+    if (all) all.addEventListener("click", () => {
+      const names = rows.filter((r) => !r.hidden && !r.dataset.removed).map((r) => r.dataset.name);
+      if (!names.length || !confirm(`${names.length} Spieler von der Whitelist nehmen? Sie können dann nicht mehr joinen.`)) return;
+      remove(names);
     });
     apply("30");
   })();

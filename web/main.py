@@ -1586,6 +1586,7 @@ def moderation_players_page():
     return render_mod("spieler", "mod/players.html", ban_reasons=db().get_ban_reasons(), bans_api="/api/mod",
                       players=db().get_players_overview_from_subdomain(g.subdomain),
                       activity=player_activity(g.server["id"]), settings=db().get_server_settings(g.server["id"]),
+                      unwhitelist="unwhitelist" in db().get_plugin_features(g.server["id"]),
                       xray=xray_hints(g.server["id"]),
                       reports=[dict(r, when=r["created_at"].strftime("%d.%m.%Y, %H:%M"),
                                     handled=r["handled_at"].strftime("%d.%m.%Y, %H:%M") if r["handled_at"] else None)
@@ -1800,7 +1801,7 @@ MOD_LOG_ACTIONS = {
     "application_accept": "Bewerbung angenommen", "application_reject": "Bewerbung abgelehnt",
     "code_create": "Einladungscode angelegt", "code_delete": "Einladungscode gelöscht", "settings": "Einstellungen geändert",
     "rewards": "Belohnungen geändert", "icons": "Icons geändert",
-    "addon_install": "Erweiterung installiert", "addon_remove": "Erweiterung entfernt",
+    "whitelist_remove": "von der Whitelist genommen", "addon_install": "Erweiterung installiert", "addon_remove": "Erweiterung entfernt",
     "addon_approve": "Erweiterung freigegeben", "addon_block": "Erweiterung gesperrt",
     "addon_pause": "Erweiterung pausiert", "addon_resume": "Erweiterung fortgesetzt", "addon_config": "Erweiterung eingestellt",
 }
@@ -2421,6 +2422,27 @@ def web_ban(server_id):
 def web_mute(server_id):
     return lambda uuid, until, reason: db().notify_server_event(
         server_id, "mute", uuid=uuid, until_ms=int(until.timestamp() * 1000) if until else 0, reason=reason)
+
+
+WHITELIST_NAME_RE = re.compile(r"^[A-Za-z0-9_]{1,16}$")
+
+
+@server_bp.route("/api/mod/whitelist/remove", methods=["POST"])
+@moderator_required
+def mod_whitelist_remove_api():
+    """{"names": [...]}: the plugin runs "whitelist remove" for each (plugin 3.23)."""
+    names = (request.get_json(silent=True) or {}).get("names")
+    if not isinstance(names, list) or not names or len(names) > 500 or not all(isinstance(n, str) and WHITELIST_NAME_RE.match(n) for n in names):
+        return {"error": "Ungültige Spielernamen."}, 400
+    server_id = g.server["id"]
+    if "unwhitelist" not in db().get_plugin_features(server_id):
+        return {"error": "Dafür braucht der Server MCDataLink 3.23 oder neuer (kommt mit auto-update beim nächsten Neustart)."}, 409
+    if not db().is_plugin_online(server_id):
+        return {"error": "Der Server ist gerade nicht verbunden. Versuche es, wenn er online ist."}, 409
+    db().notify_server_event(server_id, "whitelist_remove", names=names)
+    db().add_mod_log(server_id, mod_name(), "whitelist_remove", names[0] if len(names) == 1 else None,
+                     None if len(names) == 1 else f"{len(names)} Spieler: " + ", ".join(names)[:250])
+    return {"removed": names}
 
 
 @server_bp.route("/api/mod/warn", methods=["POST"])
@@ -3365,19 +3387,25 @@ def mod_addon_config_api(addon_id):
     return addons_view(server, moderator=True)
 
 
-_items_cache = []
+_items_cache = {}
 
 
 @main_bp.route("/api/minecraft/items")
+@server_bp.route("/api/minecraft/items")  # the moderators' page on the server's subdomain
 def minecraft_items_api():
-    """Item ids for the item picker of the addon settings (blocks and items of database/*.json)."""
+    """{"items": item ids for the item picker of the addon settings (database/*.json), "sprites": the ids that have an
+    icon in css/minecraft.css}. The sprites come from here because the server pages cannot read the stylesheet of the
+    main domain (cross-origin)."""
     if not _items_cache:
-        folder = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "database")
-        with open(os.path.join(folder, "itemlist.json"), encoding="utf-8") as file:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "database", "itemlist.json"), encoding="utf-8") as file:
             names = {item["id"] for item in json.load(file)}
-        with open(os.path.join(folder, "blocks.json"), encoding="utf-8") as file:
+        with open(os.path.join(root, "database", "blocks.json"), encoding="utf-8") as file:
             names |= {block["name"] for block in json.load(file)}
-        _items_cache.extend(sorted(n for n in names if addons.MATERIAL_RE.match(n) and not n.endswith("air")))
+        with open(os.path.join(root, "web", "static", "css", "minecraft.css"), encoding="utf-8") as file:
+            sprites = {m.replace("-", "_") for m in re.findall(r"^\.icon-minecraft-([a-z0-9-]+)\{", file.read(), re.MULTILINE)}
+        _items_cache["items"] = sorted(n for n in names if addons.MATERIAL_RE.match(n) and not n.endswith("air"))
+        _items_cache["sprites"] = sorted(sprites)
     response = current_app.response_class(json.dumps(_items_cache), mimetype="application/json")
     response.headers["Cache-Control"] = "public, max-age=86400"
     return response

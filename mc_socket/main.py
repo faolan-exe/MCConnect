@@ -27,7 +27,8 @@ Plugin -> server:
                                  "update" = installs newer plugin versions itself (3.18, see !update),
                                  "hover" = tooltips ⟦label⇝line¶line⟧ in chat lines (3.20, see database/chat.py;
                                  older plugins get the label only),
-                                 "addons" = other plugins extend MCConnect through MCDataLink (3.22, below)
+                                 "addons" = other plugins extend MCConnect through MCDataLink (3.22, below),
+                                 "unwhitelist" = understands !whitelist~remove (3.23)
     !ADDONS~<json list>          the registered addons (3.22, after auth and on every change): [{"id", "plugin",
                                  "version", "file", "sha256" (of the jar), "manifest" (mcconnect-addon.json),
                                  "commands"}]; answered with !addonstate for each (see database/addons.py)
@@ -55,6 +56,7 @@ Server -> plugin:
     !sidebar~<uuid>|<title>|<line>|...   scoreboard sidebar of a player ("&" color codes); empty title hides it
     !metrics~<name>|<name>|...   metric names for the tab completion of /top and /duell (after auth)
     !whitelist~add|<name>        put a player on the server's whitelist (accepted application or invite code)
+    !whitelist~remove|<name>     take a player off the whitelist (moderators, plugin 3.23 with "unwhitelist")
     !joininfo~<url>              where players who are not on the whitelist can apply (kick message; empty = none)
     !mute~<uuid>|<until ms, 0 = unmuted>|<reason>[|<until text>]   block the chat of a player (plugin 3.6);
                                  the until text is in the local time zone (the server's JVM may run in UTC)
@@ -748,6 +750,9 @@ class SocketServer:
             self.update_sidebar(server_id, event["player_id"])
         elif kind == "whitelist":
             self.sync_whitelist(server_id)
+        elif kind == "whitelist_remove":
+            for name in event.get("names", []):
+                self._send_to_server(server_id, f"!whitelist~remove|{self._clean(name)}")
         elif kind == "mute":
             until = datetime.fromtimestamp(event["until_ms"] / 1000, timezone.utc) if event.get("until_ms") else None
             self.send_mute(server_id, event["uuid"], until, event.get("reason"))

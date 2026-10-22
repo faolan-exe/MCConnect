@@ -16,6 +16,7 @@
   let draft = null;       // the settings being edited (a copy of addon.config)
   let saved = null;       // JSON of the settings as last loaded, to tell changes
   let remoteChanged = false;
+  let devOpen = false;    // "Eigene Erweiterung entwickeln" unfolded (kept across polls)
 
   // Minecraft chat colors for the preview
   const COLORS = {
@@ -54,23 +55,10 @@
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const prettyItem = (id) => id.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 
-  // sprite icons of css/minecraft.css; ids without a sprite get a plain square
-  let spriteIds = null;
-  function hasSprite(id) {
-    if (spriteIds === null) {
-      spriteIds = new Set();
-      for (const sheet of document.styleSheets) {
-        if (!sheet.href || !sheet.href.includes("minecraft.css")) continue;
-        try {
-          for (const rule of sheet.cssRules) {
-            const match = /^\.icon-minecraft-([a-z0-9-]+)$/.exec(rule.selectorText || "");
-            if (match) spriteIds.add(match[1]);
-          }
-        } catch (e) { /* not readable */ }
-      }
-    }
-    return spriteIds.has(id.replace(/_/g, "-"));
-  }
+  // ids with an icon in css/minecraft.css (from /api/minecraft/items: the server pages cannot read the stylesheet of
+  // the main domain); others get a plain square with the first letter
+  let spriteIds = new Set();
+  const hasSprite = (id) => spriteIds.has(id);
 
   function itemIcon(id, small) {
     if (!id) return el("span", { class: "ext-item-empty", "aria-hidden": "true" });
@@ -131,13 +119,19 @@
 
   // ------------------------------------------------------------------ item picker (one popover for all fields)
 
-  let items = null;
+  let catalog = null;
   async function loadItems() {
-    if (items === null) items = getJson("/api/minecraft/items").catch(() => []);
-    return items;
+    if (catalog === null) {
+      catalog = getJson("/api/minecraft/items").catch(() => ({ items: [], sprites: [] })).then((result) => {
+        spriteIds = new Set(result.sprites || []);
+        return result.items || [];
+      });
+    }
+    return catalog;
   }
 
-  const picker = el("div", { class: "ext-picker", role: "dialog", "aria-label": "Item wählen", hidden: true });
+  // in <body>, outside the root: it needs the root's theme classes for its colors
+  const picker = el("div", { class: `ext-picker ${root.className}`, role: "dialog", "aria-label": "Item wählen", hidden: true });
   document.body.append(picker);
   let pickerDone = null;
 
@@ -643,13 +637,18 @@
 
   // ------------------------------------------------------------------ the store
 
+  // "BetterJoinMessages" may break as "BetterJoin / Messages" in narrow tiles, not in the middle of a word
+  function wordBreaks(name) {
+    return name.split(/(?=[A-Z][a-z])/).flatMap((part, index) => (index ? [el("wbr"), part] : [part]));
+  }
+
   function tile(addon) {
     const primary = addon.state === "available" && addon.official ? "Installieren"
       : addon.state === "pending" || addon.state === "changed" ? "Freigeben" : "Einstellen";
     return el("article", { class: `ext-tile${addon.installed ? " ext-installed" : ""}` },
       el("button", { type: "button", class: "ext-tile-open", "aria-label": `${addon.name} öffnen`, onclick: () => navigate(addon.id) }),
       el("div", { class: "ext-tile-head" }, el("div", { class: "ext-icon" }, itemIcon(addon.icon)),
-        el("div", {}, el("b", { text: addon.name }), el("span", { class: "ext-category", text: addon.category }))),
+        el("div", {}, el("b", {}, ...wordBreaks(addon.name)), el("span", { class: "ext-category", text: addon.category }))),
       el("p", { class: "ext-summary", text: addon.summary || addon.description }),
       el("div", { class: "ext-tile-foot" }, stateChip(addon), addon.update ? el("span", { class: "ext-pill ext-pill-ok", text: "Update" }) : null,
         el("span", { class: "ext-tile-go", text: primary + " →" })));
@@ -663,8 +662,9 @@
       parts.push(el("div", { class: "ext-note ext-note-warn" }, "Dein MCDataLink ist älter als 3.22 und kennt noch keine Erweiterungen. ",
         "Lade im Reiter „Plugin“ die neue Version – mit auto-update kommt sie beim nächsten Neustart von selbst."));
     } else if (!data.plugin.online) {
-      parts.push(el("div", { class: "ext-note ext-note-info" }, "Der Server ist gerade nicht verbunden. Du kannst trotzdem installieren und einstellen – ",
-        "es wird übertragen, sobald er online ist."));
+      parts.push(el("div", { class: "ext-note ext-note-info" }, moderator
+        ? "Der Server ist gerade nicht verbunden. Du kannst trotzdem einstellen – es wird übertragen, sobald er online ist."
+        : "Der Server ist gerade nicht verbunden. Du kannst trotzdem installieren und einstellen – es wird übertragen, sobald er online ist."));
     }
     if (!moderator) parts.push(rightsBox());
     if (moderator && !installed.length) parts.push(el("p", { class: "hint", text: "Auf dem Server ist noch keine Erweiterung installiert." }));
@@ -672,7 +672,7 @@
     if (available.length) parts.push(el("h3", { class: "ext-group", text: installed.length ? "Mehr Erweiterungen" : "Store" }),
       el("div", { class: "ext-grid" }, ...available.map(tile)));
     if (!data.addons.length) parts.push(el("p", { class: "hint", text: "Im Store gibt es gerade keine Erweiterungen." }));
-    if (!moderator) parts.push(el("details", { class: "ext-dev" }, el("summary", { text: "Eigene Erweiterung entwickeln" }),
+    if (!moderator) parts.push(el("details", { class: "ext-dev", open: devOpen, ontoggle: (e) => (devOpen = e.target.open) }, el("summary", { text: "Eigene Erweiterung entwickeln" }),
       el("p", { class: "hint" }, "Jedes Bukkit-Plugin kann eine MCConnect-Erweiterung sein: eine ", el("code", { text: "mcconnect-addon.json" }),
         " mit Id, Name und Einstellungen, ", el("code", { text: "depend: [MCDataLink]" }), " und in ", el("code", { text: "onEnable" }), " ",
         el("code", { text: "MCConnect.register(this, addon)" }), ". Sie erscheint dann hier, wartet auf deine Freigabe und bekommt ihre ",
@@ -761,6 +761,7 @@
       return;
     }
     const before = data;
+    if (before && JSON.stringify(before) === JSON.stringify(fresh)) return;  // nothing new: leave the page alone
     data = fresh;
     const addon = openId && data.addons.find((a) => a.id === openId);
     if (addon && draft !== null) {
@@ -799,6 +800,7 @@
   });
 
   (async () => {
+    await loadItems();  // the icons first
     await refresh();
     fromHash();
     setInterval(() => { if (!document.hidden && panelVisible()) refresh(); }, POLL_MS);

@@ -103,7 +103,8 @@ stored next to the `play_time` of the stats file and counted twice (fixed on the
 migration 27 for every plugin version). · 3.22 addons (`AddonManager`, `AddonInstaller`, API in
 `org.tobias.mcdatalink.api`; `!FEATURES~…,addons`, `!ADDONS`, `!addonstate`, `!addon`/`!ADDON`, `!ADDONCONFIG`,
 `!addoninstall`, `!addonremove`, `!ADDONRESULT`, `!ADDONPROBLEMS`; `addon-install: false` switches remote installs off);
-join messages moved into BetterJoinMessages, `/joinmessage` is its command.
+join messages moved into BetterJoinMessages, `/joinmessage` is its command. · 3.23 `!whitelist~remove` (`!FEATURES~…,unwhitelist`): moderators take
+absent players off the whitelist on `/users/spieler` (no console commands any more).
 
 Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss the newer features.
 

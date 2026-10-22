@@ -240,7 +240,7 @@ public final class MCDataLink extends JavaPlugin {
                     getLogger().info("Connected to MCConnect");
                     // chat messages may contain buttons and tooltips (ChatMarkup) and icons (Glyphs); updates (PluginUpdater);
                     // addons (AddonManager, AddonInstaller)
-                    send("!FEATURES~click,glyphs,update,hover,addons");
+                    send("!FEATURES~click,glyphs,update,hover,addons,unwhitelist");
                     runOnMainThread(addons::report);
                     sendOnlinePlayers();
                     runOnMainThread(this::sendBanList);
@@ -347,8 +347,9 @@ public final class MCDataLink extends JavaPlugin {
                 if (uuid != null) nameBadges.set(uuid, value.substring(value.indexOf('|') + 1));
                 break;
             }
-            case "!whitelist":  // add|name
+            case "!whitelist":  // add|name or remove|name
                 if (fields.length >= 2 && fields[0].equals("add")) runOnMainThread(() -> moderation.whitelist(fields[1]));
+                if (fields.length >= 2 && fields[0].equals("remove")) runOnMainThread(() -> moderation.unwhitelist(fields[1]));
                 break;
             case "!joininfo":  // url of the application page (empty: none)
                 moderation.setJoinUrl(value);

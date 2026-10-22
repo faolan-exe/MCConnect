@@ -778,18 +778,8 @@ a.pi-tile:hover { border-color: var(--srv-green); }
 .in-table img { border-radius: 4px; image-rendering: pixelated; vertical-align: middle; margin-right: 8px; }
 .in-table tr[hidden] { display: none; }
 .in-commands { margin-top: 14px; }
-.in-commands textarea {
-  width: 100%;
-  box-sizing: border-box;
-  min-height: 90px;
-  padding: 10px 12px;
-  border: 1px solid var(--srv-border);
-  border-radius: 8px;
-  font-family: var(--font-mono);
-  font-size: 14px;
-  background: #f7f8f7;
-  resize: vertical;
-}
+.in-table [hidden] { display: none !important; }  /* also in the phone layout (mcc-stack cells are blocks) */
+.in-table td[data-role="wl-col"] { text-align: right; }
 
 /* ---------------------------------------------------------------- teams (/teams) */
 .tm-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 4px 0 18px; }
