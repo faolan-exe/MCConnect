@@ -5,6 +5,7 @@ import org.bukkit.ChatColor;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.tobias.mcdatalink.api.MCConnect;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -71,7 +72,8 @@ public final class MCDataLink extends JavaPlugin {
     private InGameCommands commands;
     private Sidebar sidebar;
     private Moderation moderation;
-    private JoinMessages joinMessages;
+    private AddonManager addons;
+    private AddonInstaller addonInstaller;
     private Glyphs glyphs;
     private NameBadges nameBadges;
     private PluginUpdater updater;
@@ -94,6 +96,11 @@ public final class MCDataLink extends JavaPlugin {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
+        // first, so addons (they depend on MCDataLink and are enabled after it) can register
+        addons = new AddonManager(this);
+        MCConnect.setRegistry(addons);
+        getServer().getPluginManager().registerEvents(addons, this);
+        addonInstaller = new AddonInstaller(this, addons, getConfig().getBoolean("addon-install", true));
         prefixDisplay = new PrefixDisplay(this, getConfig().getBoolean("prefix.chat", true),
                 getConfig().getBoolean("prefix.tablist", true), getConfig().getBoolean("prefix.nametag", true));
         banSync = new BanSync(this);
@@ -109,8 +116,6 @@ public final class MCDataLink extends JavaPlugin {
         nameBadges = new NameBadges(this, getConfig().getBoolean("name-badges", true));
         moderation = new Moderation(this);
         getServer().getPluginManager().registerEvents(moderation, this);
-        joinMessages = new JoinMessages(this);
-        getServer().getPluginManager().registerEvents(joinMessages, this);
         commands = new InGameCommands(this);
         for (String name : InGameCommands.COMMANDS) {
             org.bukkit.command.PluginCommand command = getCommand(name);
@@ -145,6 +150,7 @@ public final class MCDataLink extends JavaPlugin {
     @Override
     public void onDisable() {
         running = false;
+        MCConnect.setRegistry(null);
         if (nameBadges != null) nameBadges.disable();
         if (authenticated) trySend("!DISCONNECT");
         closeSocket();
@@ -232,8 +238,10 @@ public final class MCDataLink extends JavaPlugin {
                 case "100":
                     authenticated = true;
                     getLogger().info("Connected to MCConnect");
-                    // chat messages may contain buttons and tooltips (ChatMarkup) and icons (Glyphs); updates (PluginUpdater)
-                    send("!FEATURES~click,glyphs,update,hover");
+                    // chat messages may contain buttons and tooltips (ChatMarkup) and icons (Glyphs); updates (PluginUpdater);
+                    // addons (AddonManager, AddonInstaller)
+                    send("!FEATURES~click,glyphs,update,hover,addons");
+                    runOnMainThread(addons::report);
                     sendOnlinePlayers();
                     runOnMainThread(this::sendBanList);
                     runOnMainThread(healthReporter::report);  // first health sample right away
@@ -312,18 +320,17 @@ public final class MCDataLink extends JavaPlugin {
                         fields.length > 3 ? fields[3] : "");
                 break;
             }
-            case "!joinstyle": {  // uuid|join line|leave line|sound|volume (empty lines: the game's message)
-                UUID uuid = fields.length >= 5 ? parseUuid(fields[0]) : null;
-                if (uuid != null) joinMessages.setStyle(uuid, fields[1], fields[2], fields[3], fields[4]);
+            case "!addonstate":  // id|active 0/1|settings json
+                addons.receiveState(value);
                 break;
-            }
-            case "!joinmutes": {  // uuid|sounds off 0/1|uuid,uuid,...
-                UUID uuid = fields.length >= 3 ? parseUuid(fields[0]) : null;
-                if (uuid != null) joinMessages.setMutes(uuid, "1".equals(fields[1]), JoinMessages.parseUuids(fields[2]));
+            case "!addon":  // id|message for the addon
+                addons.receiveMessage(value);
                 break;
-            }
-            case "!joindefault":  // join line|leave line with {name} (players without an own style)
-                if (fields.length >= 2) joinMessages.setDefault(fields[0], fields[1]);
+            case "!addoninstall":  // id|version|url|sha256|file name
+                addonInstaller.install(value);
+                break;
+            case "!addonremove":  // id|file name
+                addonInstaller.remove(value);
                 break;
             case "!update":  // version|url|sha256 (downloaded off the connection thread, see PluginUpdater)
                 if (fields.length >= 3) {
@@ -340,9 +347,6 @@ public final class MCDataLink extends JavaPlugin {
                 if (uuid != null) nameBadges.set(uuid, value.substring(value.indexOf('|') + 1));
                 break;
             }
-            case "!joinreset":
-                joinMessages.reset();
-                break;
             case "!whitelist":  // add|name
                 if (fields.length >= 2 && fields[0].equals("add")) runOnMainThread(() -> moderation.whitelist(fields[1]));
                 break;
@@ -470,6 +474,17 @@ public final class MCDataLink extends JavaPlugin {
 
     NameBadges nameBadges() {
         return nameBadges;
+    }
+
+    boolean isConnected() {
+        return authenticated;
+    }
+
+    /** Any thread: a message to MCConnect (sent by the worker thread). False if not connected. */
+    boolean sendToMCConnect(String message) {
+        if (!authenticated) return false;
+        sendAsync(message);
+        return true;
     }
 
     /** Main thread: forward an in-game command (see InGameCommands). False if not connected. */

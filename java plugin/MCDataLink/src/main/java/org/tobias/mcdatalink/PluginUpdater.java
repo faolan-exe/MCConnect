@@ -99,7 +99,7 @@ final class PluginUpdater implements Listener {
         }
     }
 
-    private static byte[] download(String url) throws IOException {
+    static byte[] download(String url) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
         connection.setConnectTimeout(TIMEOUT_MS);
         connection.setReadTimeout(TIMEOUT_MS);

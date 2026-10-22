@@ -37,3 +37,10 @@ name-badges: true
 # SHA-256 checksum (sent over the encrypted, pinned connection) and puts it into plugins/update/. The server swaps
 # it in on the next restart; nothing changes while it runs. OPs get a note in the chat. false: only a log line.
 auto-update: true
+
+
+# Addons (plugins that extend MCConnect, e.g. BetterJoinMessages or SpawnProtect) can be installed from the store on the
+# MCConnect website: MCConnect sends the jar's SHA-256 over the encrypted connection, the plugin downloads it, checks it
+# and loads it right away (updates go into plugins/update/). false: install addons only by hand.
+# Every addon needs the owner's approval on the website before it does anything; store addons are approved already.
+addon-install: true

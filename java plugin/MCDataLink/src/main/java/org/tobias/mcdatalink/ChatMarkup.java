@@ -8,8 +8,11 @@ import org.bukkit.ChatColor;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -24,7 +27,14 @@ final class ChatMarkup {
     private static final Pattern PART = Pattern.compile("⟦([^⇒⇝⟧]*)([⇒⇝])([^⟧]*)⟧|(https?://[^\\s⟦]+)");
     private static final Pattern COLOR = Pattern.compile("§[0-9a-fk-or]", Pattern.CASE_INSENSITIVE);
 
+    /** Commands of active addons (set by AddonManager); buttons may run them too. */
+    private static volatile Set<String> addonCommands = Collections.emptySet();
+
     private ChatMarkup() {
+    }
+
+    static void setAddonCommands(Set<String> names) {
+        addonCommands = Collections.unmodifiableSet(new HashSet<>(names));
     }
 
     static boolean hasMarkup(String text) {
@@ -60,11 +70,11 @@ final class ChatMarkup {
         return parts.toArray(new BaseComponent[0]);
     }
 
-    /** True for "/<one of InGameCommands.COMMANDS> ...": the only commands a button may run. */
+    /** True for "/<one of InGameCommands.COMMANDS or an active addon's command> ...": the only commands a button may run. */
     static boolean isOwnCommand(String command) {
         if (!command.startsWith("/")) return false;
         String name = command.substring(1).split(" ", 2)[0].toLowerCase(Locale.ROOT);
-        return Arrays.asList(InGameCommands.COMMANDS).contains(name);
+        return Arrays.asList(InGameCommands.COMMANDS).contains(name) || addonCommands.contains(name);
     }
 
     /** The line without buttons and colors, e.g. for the console. */
