@@ -31,6 +31,7 @@ from markupsafe import Markup, escape
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from database import achievements as achievements_mod
+from database import addons
 from database import badges as badges_mod
 from database import config
 from database import glyphs
@@ -1392,6 +1393,8 @@ def join_style_api():
     """{"field", "value"} changes one part of the own join/leave message."""
     player_id = logged_in_player_id()
     state = rewards.player_state(db(), player_id)
+    if not state["addon"]:
+        return {"error": "Join-Nachrichten gibt es auf diesem Server nicht (die Erweiterung BetterJoinMessages fehlt)."}, 409
     if not state["enabled"]:
         return {"error": "Eigene Join-Nachrichten sind auf diesem Server ausgeschaltet."}, 409
     data = request.get_json(silent=True) or {}
@@ -1684,6 +1687,7 @@ def own_icon(codepoint):
 def moderation_rewards_page():
     enabled, stored, texts = db().get_reward_settings(g.server["id"])
     return render_mod("belohnungen", "mod/rewards.html", rewards_enabled=enabled, editor=reward_editor(stored, texts, server_icons()),
+                      join_addon=db().is_addon_active(g.server["id"], addons.JOIN_ADDON),
                       mod_colors=[rewards.COLOR_LABELS[c] for c in rewards.MOD_COLORS],
                       custom_text_max=rewards.CUSTOM_TEXT_MAX)
 
@@ -1795,6 +1799,9 @@ MOD_LOG_ACTIONS = {
     "application_accept": "Bewerbung angenommen", "application_reject": "Bewerbung abgelehnt",
     "code_create": "Einladungscode angelegt", "code_delete": "Einladungscode gelöscht", "settings": "Einstellungen geändert",
     "rewards": "Belohnungen geändert", "icons": "Icons geändert",
+    "addon_install": "Erweiterung installiert", "addon_remove": "Erweiterung entfernt",
+    "addon_approve": "Erweiterung freigegeben", "addon_block": "Erweiterung gesperrt",
+    "addon_pause": "Erweiterung pausiert", "addon_resume": "Erweiterung fortgesetzt", "addon_config": "Erweiterung eingestellt",
 }
 
 
@@ -3156,6 +3163,178 @@ def admin_ban_api(server_id):
 def admin_unban_api(server_id):
     owned_server_or_404(server_id)
     return do_unban(server_id, request.get_json(silent=True) or {}, unbanned_by=f"Admin {session['admin_username']}")
+
+
+# ------------------------------------------------------------------ addons (the store on /manage/<id>#addons)
+
+ADDON_STATES = {
+    "available": "Nicht installiert", "install": "Wird installiert …", "restart": "Neustart nötig",
+    "remove": "Wird entfernt …", "failed": "Fehlgeschlagen", "pending": "Wartet auf Freigabe",
+    "changed": "Datei geändert – neu freigeben", "paused": "Pausiert", "active": "Aktiv",
+}
+
+
+def addon_view(row, info):
+    """One addon of the store or of the server for the admin page. row: server_addons row or None; info: the store's
+    jar (addons.catalog) or None for an addon that is not in the store."""
+    manifest = (row["manifest"] if row and row["present"] else None) or (info["manifest"] if info else row["manifest"])
+    if row is None or (not row["present"] and row["status"] not in ("install", "restart", "remove", "failed")):
+        state = "available"
+    elif row["status"] in ("install", "restart", "remove", "failed", "changed"):
+        state = row["status"]
+    elif not row["approved"] or row["approved_sha256"] != row["sha256"]:
+        state = "pending"
+    else:
+        state = "active" if row["enabled"] else "paused"
+    installed = bool(row and row["present"])
+    settings = manifest.get("settings", [])
+    store_icon, category = addons.STORE.get(manifest["id"], ("command_block", "Weitere"))
+    return {
+        "id": manifest["id"], "name": manifest["name"], "summary": manifest.get("summary", ""),
+        "description": manifest.get("description", ""), "features": manifest.get("features", []),
+        "commands": manifest.get("commands") or (info["commands"] if info else []),
+        "icon": store_icon, "category": category, "official": info is not None,
+        "store_version": info["version"] if info else None, "size_kb": round(info["size"] / 1024) if info else None,
+        "installed": installed, "version": row["version"] if row else None, "plugin": row["plugin"] if row else None,
+        "file": row["file"] if row else None, "state": state, "state_label": ADDON_STATES[state],
+        "status_text": row["status_text"] if row else None,
+        "verified": bool(installed and row["sha256"] and db().is_official_addon(row["addon_id"], row["sha256"])),
+        "update": bool(installed and info and addons.version_key(info["version"]) > addons.version_key(row["version"])
+                       and row["status"] != "restart"),
+        "approved": bool(row and row["approved"]), "enabled": bool(row["enabled"]) if row else True,
+        "active": bool(row and row["active"]), "problems": row["problems"] if row else [],
+        "settings": settings, "config": addons.normalize(settings, (row["config"] if row else None) or {})[0],
+        "defaults": addons.defaults(settings),
+    }
+
+
+def addons_view(server):
+    catalog = addons.catalog()
+    db().record_addon_releases([(info["sha256"], addon_id, info["version"]) for addon_id, info in catalog.items()])
+    rows = {row["addon_id"]: row for row in db().get_addons(server["id"])}
+    views = [addon_view(rows.get(addon_id), info) for addon_id, info in catalog.items()]
+    # addons of other developers: only while the plugin reports them (or an action is open)
+    views += [addon_view(row, None) for addon_id, row in rows.items()
+              if addon_id not in catalog and (row["present"] or row["status"] in ("remove", "failed"))]
+    features = db().get_plugin_features(server["id"])
+    return {"addons": views, "plugin": {"online": bool(server["plugin_online"]), "supports": "addons" in features,
+                                        "known": bool(features)},
+            "players": [p["name"] for p in db().get_players_overview_from_subdomain(server["subdomain"])][:500]}
+
+
+def _addon_or_404(server_id, addon_id):
+    row = db().get_addon(server_id, addon_id)
+    if row is None:
+        abort(404)
+    return row
+
+
+def _addon_log(server_id, action, name):
+    db().add_mod_log(server_id, f"Admin {session['admin_username']}", action, None, name)
+
+
+@main_bp.route("/api/servers/<int:server_id>/addons")
+@admin_required
+def admin_addons_api(server_id):
+    return addons_view(owned_server_or_404(server_id))
+
+
+@main_bp.route("/api/servers/<int:server_id>/addons/<addon_id>/install", methods=["POST"])
+@admin_required
+def admin_addon_install_api(server_id, addon_id):
+    """Install (or update) an official addon: the plugin downloads it, checks its SHA-256 and loads it."""
+    server = owned_server_or_404(server_id)
+    info = addons.catalog().get(addon_id)
+    if info is None:
+        abort(404)
+    features = db().get_plugin_features(server_id)
+    if features and "addons" not in features:
+        return {"error": "Dein MCDataLink ist zu alt für Erweiterungen. Lade im Reiter „Plugin“ die neue Version herunter "
+                         "(ab 3.22) – mit „auto-update“ kommt sie beim nächsten Neustart von selbst."}, 409
+    db().request_addon_install(server_id, info)
+    db().notify_server_event(server_id, "addon_install", addon_id=addon_id)
+    _addon_log(server_id, "addon_install", f"{info['manifest']['name']} {info['version']}")
+    return addons_view(server)
+
+
+@main_bp.route("/api/servers/<int:server_id>/addons/<addon_id>/remove", methods=["POST"])
+@admin_required
+def admin_addon_remove_api(server_id, addon_id):
+    server = owned_server_or_404(server_id)
+    row = _addon_or_404(server_id, addon_id)
+    db().request_addon_removal(server_id, addon_id)
+    db().notify_server_event(server_id, "addon_remove", addon_id=addon_id)
+    _addon_log(server_id, "addon_remove", row["name"])
+    return addons_view(server)
+
+
+@main_bp.route("/api/servers/<int:server_id>/addons/<addon_id>/approve", methods=["POST"])
+@admin_required
+def admin_addon_approve_api(server_id, addon_id):
+    """{"approved": bool}: allow the addon (exactly the jar the plugin reported) to work, or withdraw it."""
+    server = owned_server_or_404(server_id)
+    row = _addon_or_404(server_id, addon_id)
+    approved = bool((request.get_json(silent=True) or {}).get("approved"))
+    db().set_addon_approved(server_id, addon_id, approved)
+    db().notify_server_event(server_id, "addon", addon_id=addon_id)
+    _addon_log(server_id, "addon_approve" if approved else "addon_block", row["name"])
+    return addons_view(server)
+
+
+@main_bp.route("/api/servers/<int:server_id>/addons/<addon_id>/enabled", methods=["POST"])
+@admin_required
+def admin_addon_enabled_api(server_id, addon_id):
+    """{"enabled": bool}: pause an addon (it stays installed and keeps its settings) or let it work again."""
+    server = owned_server_or_404(server_id)
+    row = _addon_or_404(server_id, addon_id)
+    enabled = bool((request.get_json(silent=True) or {}).get("enabled"))
+    db().set_addon_enabled(server_id, addon_id, enabled)
+    db().notify_server_event(server_id, "addon", addon_id=addon_id)
+    _addon_log(server_id, "addon_resume" if enabled else "addon_pause", row["name"])
+    return addons_view(server)
+
+
+@main_bp.route("/api/servers/<int:server_id>/addons/<addon_id>/config", methods=["POST"])
+@admin_required
+def admin_addon_config_api(server_id, addon_id):
+    """{"config": {...}}: the addon's settings, checked against its description; errors name the field."""
+    server = owned_server_or_404(server_id)
+    row = _addon_or_404(server_id, addon_id)
+    manifest = row["manifest"] or {}
+    settings, errors = addons.normalize(manifest.get("settings", []), (request.get_json(silent=True) or {}).get("config"))
+    if errors:
+        return {"error": "Bitte die markierten Felder prüfen.", "errors": errors}, 400
+    db().set_addon_config(server_id, addon_id, settings)
+    db().notify_server_event(server_id, "addon", addon_id=addon_id)
+    _addon_log(server_id, "addon_config", row["name"])
+    return addons_view(server)
+
+
+_items_cache = []
+
+
+@main_bp.route("/api/minecraft/items")
+def minecraft_items_api():
+    """Item ids for the item picker of the addon settings (blocks and items of database/*.json)."""
+    if not _items_cache:
+        folder = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "database")
+        with open(os.path.join(folder, "itemlist.json"), encoding="utf-8") as file:
+            names = {item["id"] for item in json.load(file)}
+        with open(os.path.join(folder, "blocks.json"), encoding="utf-8") as file:
+            names |= {block["name"] for block in json.load(file)}
+        _items_cache.extend(sorted(n for n in names if addons.MATERIAL_RE.match(n) and not n.endswith("air")))
+    response = current_app.response_class(json.dumps(_items_cache), mimetype="application/json")
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
+
+
+@main_bp.route("/download/addons/<addon_id>.jar")
+def download_addon(addon_id):
+    """An official addon jar: for the plugin's installer (addons.install_message) and manual downloads."""
+    info = addons.catalog().get(addon_id)
+    if info is None:
+        abort(404)
+    return send_file(info["path"], as_attachment=True, download_name=info["file"])
 
 
 def owned_server_or_404(server_id):

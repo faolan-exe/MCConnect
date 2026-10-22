@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% from "_components.html" import bans_panel %}
 {% block title %}{{ server.server_name }} – MCConnect{% endblock %}
+{% block head %}
+<link href="{{ url_for('static', filename='css/minecraft.css') }}" rel="stylesheet" />
+<link href="{{ url_for('static', filename='css/addons.css') }}" rel="stylesheet" />
+{% endblock %}
 {% block content %}
 {% set url = config.PREFERRED_URL_SCHEME ~ "://" ~ server.subdomain ~ "." ~ base_domain %}
 <p class="crumbs"><a href="/manage">Meine Server</a>{% if server_count > 1 %} ({{ server_count }}){% endif %}</p>
@@ -20,6 +24,7 @@
 <nav class="admin-tabs" role="tablist" aria-label="Bereiche">
   <button type="button" role="tab" data-tab="overview">Übersicht</button>
   <button type="button" role="tab" data-tab="plugin">Plugin</button>
+  <button type="button" role="tab" data-tab="addons">Erweiterungen</button>
   <button type="button" role="tab" data-tab="page">Serverseite</button>
   <button type="button" role="tab" data-tab="moderation">Moderation</button>
   <button type="button" role="tab" data-tab="danger">Gefahrenzone</button>
@@ -81,6 +86,14 @@ tls-fingerprint: "{{ plugin_fingerprint }}"{% endif %}</pre>
     </ol>
     <p class="hint">Der Key ist geheim. Wenn er in falsche Hände gerät, erzeuge einen neuen.</p>
   </section>
+
+<section class="card" data-panel="addons" role="tabpanel">
+  <h2>Erweiterungen</h2>
+  <p class="hint ad-intro">Zusätzliche Funktionen für deinen Server. Ein Klick auf „Installieren“ und MCDataLink lädt die
+    Erweiterung herunter, prüft ihre Prüfsumme und schaltet sie ohne Neustart ein. Eingestellt wird alles hier.
+    Erweiterungen, die nicht aus diesem Store kommen, tun erst etwas, wenn du sie freigibst.</p>
+  <div id="addons-{{ server.id }}" class="ad-root" data-server-id="{{ server.id }}"><p class="hint">Lade …</p></div>
+</section>
 
 <section class="card" data-panel="page" role="tabpanel">
   <h2>Serverseite</h2>
@@ -205,10 +218,12 @@ tls-fingerprint: "{{ plugin_fingerprint }}"{% endif %}</pre>
   </section>
 {% endblock %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='addons.js') }}"></script>
 <script nonce="{{ csp_nonce() }}">
   // tabs: switched without reload, the open tab is kept in the address (#plugin, ...)
   const tabs = [...document.querySelectorAll("[data-tab]")];
   function showTab(name) {
+    name = name.split("/")[0];  // #addons/<id> opens an addon on the "addons" tab
     if (!tabs.some((t) => t.dataset.tab === name)) name = tabs[0].dataset.tab;
     tabs.forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === name)));
     document.querySelectorAll("[data-panel]").forEach((p) => (p.hidden = p.dataset.panel !== name));

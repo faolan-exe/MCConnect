@@ -2,6 +2,12 @@
 {% block mod_content %}
 <section class="srv-card" id="rewards">
   <h2>Join-Nachrichten &amp; Belohnungen</h2>
+  {% if not join_addon %}
+  <div class="mcc-message error" data-role="addon-missing">Join-Nachrichten zeigt seit Plugin 3.22 die Erweiterung
+    <b>BetterJoinMessages</b>, und die ist auf diesem Server nicht aktiv. Der Server-Owner installiert sie mit einem Klick im
+    MCConnect-Adminbereich unter <i>Meine Server → Erweiterungen</i>. Bis dahin sehen alle die normale Nachricht des Spiels;
+    die Einstellungen hier bleiben erhalten.</div>
+  {% endif %}
   <p class="mcc-hint">Spieler gestalten ihre Join- und Leave-Nachricht auf <a href="/profil">/profil</a> oder im Spiel mit
     <code>/joinmessage</code> (ab Plugin-Version 3.14). Farben, Symbole, Stile, Texte und Sounds schalten sie mit Stufen frei;
     eine erreichte Stufe bleibt, auch wenn eine Serie reißt. Moderatoren und OPs können zusätzlich {{ mod_colors | join(", ") }} nutzen.</p>

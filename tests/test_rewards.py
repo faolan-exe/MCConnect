@@ -7,7 +7,7 @@ from database import rewards
 from tests.conftest import OTHER_UUID, PLAYER_UUID
 from tests.test_ingame import cmd, tells, until
 from tests.test_metrics import two_players  # noqa: F401 (fixture)
-from tests.test_socket import plugin, socket_server  # noqa: F401 (fixtures)
+from tests.test_socket import activate_join_addon, plugin, socket_server  # noqa: F401 (fixtures)
 from tests.test_web import app, client, login_player, on  # noqa: F401 (fixtures)
 
 TEN_HOURS = 20 * 3600 * 10
@@ -20,13 +20,14 @@ def facts(**values):
 @pytest.fixture
 def me(client, db, server, two_players):
     db.set_plugin_connected(server["id"], True)
+    activate_join_addon(db, server["id"])
     assert login_player(client, db, two_players[0]).json["status"] == "success"
     return client
 
 
 @pytest.fixture
 def game(db, server, plugin, two_players):
-    connection = plugin().auth(server["key"])
+    connection = plugin().auth(server["key"]).with_join_addon(db)
     assert connection.request(f"!JOIN~{PLAYER_UUID}|_Tobias4444") == "success|101"
     assert connection.request(f"!JOIN~{OTHER_UUID}|Notch") == "success|101"
     return connection
@@ -179,9 +180,8 @@ def test_styles_and_mutes_are_sent_on_connect(db, server, plugin, two_players):
     a, b = two_players
     db.set_join_style(a, dict(rewards.DEFAULT_STYLE, join_text="hello"))
     db.set_join_mute(b, "_Tobias4444")
-    connection = plugin()
-    connection.send(f"!AUTH~{server['key']}")
-    messages = until(connection, "!joinmutes~")
+    connection = plugin().auth(server["key"]).with_join_addon(db)
+    messages = connection.join_sync
     assert connection.join_default == "!joindefault~&7&f{name}&r&7 ist da.|&7&f{name}&r&7 ist weg."
     assert f"!joinstyle~{PLAYER_UUID}|&7&f_Tobias4444&r&7 sagt Hallo!|&7&f_Tobias4444&r&7 ist weg.||" in messages
     assert messages[-1] == f"!joinmutes~{OTHER_UUID}|0|{PLAYER_UUID}"
@@ -228,6 +228,7 @@ def test_moderators_add_and_remove_own_texts(me, db, server, two_players, game):
 def test_everyone_gets_the_default_message(db, server, plugin, two_players):
     """Players without an own choice: the default lines of the first level (the plugin fills in the name)."""
     a, _ = two_players
+    activate_join_addon(db, server["id"])
     assert rewards.join_style_message(db, a) == f"!joinstyle~{PLAYER_UUID}|&7&f_Tobias4444&r&7 ist da.|&7&f_Tobias4444&r&7 ist weg.||"
     db.set_reward_settings(server["id"], enabled=False)  # switched off: the game's own message
     assert rewards.join_style_message(db, a) == f"!joinstyle~{PLAYER_UUID}||||"

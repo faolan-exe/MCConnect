@@ -51,7 +51,7 @@ fingerprint of the local socket certificate (`certs/`) for a test plugin's `tls-
 
 ## Status
 
-State of 2026-10-19: schema version 27, plugin 3.21. Written as a handoff for the next development session.
+State of 2026-10-22: schema version 28, plugin 3.22 (addons). Written as a handoff for the next development session.
 
 ### Features
 
@@ -69,7 +69,8 @@ State of 2026-10-19: schema version 27, plugin 3.21. Written as a handoff for th
 | In game | `mc_socket/commands.py` | `/stats`, `/top`, `/wettbewerb`, `/duell`, `/report`, `/seitenleiste`, `/vote`, `/events`, `/joinmessage`, moderators `/verwarnen`, `/stumm`, `/entstummen` (`!CMD` → `!tell`, clickable buttons); scoreboard sidebar |
 | Community | `/events`, `/umfragen`, `/galerie`, `/duelle`, player page | events with sign up and chat reminder, polls, build gallery with approval and likes, duels, guestbook |
 | Access | `/mitmachen`, `/regeln` | whitelist by application and/or invite code (the plugin runs `whitelist add`; the kick message links to `/mitmachen`), optional rules & FAQ page |
-| Join messages & rewards | `database/rewards.py`, `/profil`, `/users/belohnungen`, `/joinmessage` | reward levels (default 6, editable per server; conditions are alternatives ("oder") of groups that must all be met ("und"), unlocks add up, a reached level is stored and never lowered); players choose text, leave text, color, symbol, style and sound from what they unlocked (templates only, moderators add own texts; moderators/OPs also gold/red/dark red); while on, everyone gets an MCConnect message (without a choice the first level's default, `!joindefault`); players can hide others' messages and all sounds |
+| Addons | `database/addons.py`, `/manage/<id>#addons` (owners), `java plugin/addons/` | plug-and-play extensions through MCDataLink (no own key): store with one-click install (download + SHA-256 check + live load), approval by the owner (bound to the jar's checksum, official releases automatically), settings page built from the addon's `mcconnect-addon.json`, in-game changes checked and stored by MCConnect, settings cached by the plugin for offline starts. Official: BetterJoinMessages, EasyHeadDrop, EasyNewCraftingRecipes, SpawnElytra, SpawnProtect. Decision and security limits: `docs/adr/0001-addon-system.md`, writing an addon: `java plugin/addons/README.md` |
+| Join messages & rewards | `database/rewards.py`, `/profil`, `/users/belohnungen`, `/joinmessage` | **only with the addon BetterJoinMessages** (since 3.22; without it everything here is off and the game's message is shown); reward levels (default 6, editable per server; conditions are alternatives ("oder") of groups that must all be met ("und"), unlocks add up, a reached level is stored and never lowered); players choose text, leave text, color, symbol, style and sound from what they unlocked (templates only, moderators add own texts; moderators/OPs also gold/red/dark red); while on, everyone gets an MCConnect message (without a choice the first level's default, `!joindefault`); players can hide others' messages and all sounds |
 | Moderation | `/users` (moderators) | overview (open tasks, server health, newest log entries) and sub pages `spieler` (reports, bans, warnings, X-ray hints, activity), `inhalte` (gallery, guestbook, events, polls, competitions, goals), `zugang` (whitelist, codes, rules/FAQ), `belohnungen`, `protokoll`; templates in `web/templates/mod/` |
 | Admin | `/manage` (server owners) | server tiles; `/manage/<id>` with tabs: overview (health, e-mail alerts), plugin (config with `tls-fingerprint`), server page (texts, images, directory), moderation (moderators, bans), danger zone |
 | Year in review | `/rueckblick/<name>` | year gains from the first/last snapshot of the year (both kept forever), sessions, achievements, trophies |
@@ -99,7 +100,10 @@ lines (`database/chat.py`: `⟦label⇝line¶line⟧`; achievements, records, st
 week, duels and polls show 2–4 lines of details on hover; older plugins get the label only). · 3.21 the live
 play time is named `play_time` on the year versions (26.x) too; 3.3–3.20 sent `play_one_minute` there, which was
 stored next to the `play_time` of the stats file and counted twice (fixed on the server by `stats.ALIASES` and
-migration 27 for every plugin version).
+migration 27 for every plugin version). · 3.22 addons (`AddonManager`, `AddonInstaller`, API in
+`org.tobias.mcdatalink.api`; `!FEATURES~…,addons`, `!ADDONS`, `!addonstate`, `!addon`/`!ADDON`, `!ADDONCONFIG`,
+`!addoninstall`, `!addonremove`, `!ADDONRESULT`, `!ADDONPROBLEMS`; `addon-install: false` switches remote installs off);
+join messages moved into BetterJoinMessages, `/joinmessage` is its command.
 
 Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss the newer features.
 
@@ -186,6 +190,9 @@ Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss 
   check that it compiles (`docker run --rm -v <copy>:/p -w /p maven:3.9-eclipse-temurin-17 mvn -q package`) and
   test it with `tools/e2e/` (bots in a Paper server; `ui-test.js` clicks through the website). Production builds the plugin in the Dockerfile; server owners download it on the
   admin page.
+- Plugins and addons: `mvn package` in `java plugin/` (aggregator; addon jars are reproducible, MCConnect approves
+  official ones by their SHA-256). Paper loads plugins from remapped copies – the addon's original jar is looked up
+  in `plugins/` (`AddonManager.jarOf`).
 - Dev data: the dev database has fake players, sessions, snapshots and health samples on `testdomain`; more can
   be created with `ensure_player_on_server`, `update_player_stats` and by moving `stat_snapshots.day` /
   `player_sessions` into the past.

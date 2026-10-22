@@ -17,3 +17,4 @@ java plugin/MCDataLink/.idea
 sampleData
 tests
 uploads
+java plugin/addons/*/target

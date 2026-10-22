@@ -9,11 +9,14 @@ streak keeps its colors). Moderators and OPs can also use MOD_COLORS. Every serv
 
 A player's choice (player_server_info.join_style) is a dict with the keys of STYLE_FIELDS; render() turns it
 into the chat lines with "&" color codes that the plugin shows.
+
+Since plugin 3.22 the messages are shown by the addon BetterJoinMessages (addons.JOIN_ADDON): without it (not
+installed, not approved or paused) join messages are off on a server, whatever the reward settings say.
 """
 import copy
 import re
 
-from database import glyphs, metrics, motivation
+from database import addons, glyphs, metrics, motivation
 
 # Minecraft chat colors: code and web color (for the preview). Players unlock COLORS, MOD_COLORS are for
 # moderators and OPs only.
@@ -336,11 +339,13 @@ def level_hint(level):
 # ------------------------------------------------------------------ with the database
 
 def player_state(db, player_id):
-    """Everything about a player's rewards: {"enabled", "levels", "level", "new_level" (just reached, or None),
-    "available", "style" (normalized choice; the default one if the player chose nothing), "sounds_off", "moderator"}.
-    A level reached for the first time is stored here."""
+    """Everything about a player's rewards: {"enabled" (switched on and the addon active), "addon" (BetterJoinMessages
+    active), "levels", "level", "new_level" (just reached, or None), "available", "style" (normalized choice; the default
+    one if the player chose nothing), "sounds_off", "moderator"}. A level reached for the first time is stored here."""
     server_id = db.get_server_id_from_player_id(player_id)
     enabled, stored, texts = db.get_reward_settings(server_id)
+    addon = db.is_addon_active(server_id, addons.JOIN_ADDON)
+    enabled = enabled and addon
     catalog = Catalog(texts, glyphs.icon_set(db, server_id))
     levels = levels_of(stored)
     settings = db.get_join_settings(player_id)
@@ -348,7 +353,7 @@ def player_state(db, player_id):
     new_level = level if level > settings["level"] and db.raise_reward_level(player_id, level) else None
     moderator = db.is_moderator(player_id)
     available = unlocked(levels, level, moderator, catalog)
-    return {"enabled": enabled, "levels": levels, "level": level, "new_level": new_level, "available": available,
+    return {"enabled": enabled, "addon": addon, "levels": levels, "level": level, "new_level": new_level, "available": available,
             "catalog": catalog,
             "style": normalized_style(settings["style"], available),
             "sounds_off": settings["sounds_off"], "moderator": moderator}

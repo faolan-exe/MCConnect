@@ -26,7 +26,17 @@ Plugin -> server:
                                  every icon replaced by its Unicode fallback, see database/glyphs.py),
                                  "update" = installs newer plugin versions itself (3.18, see !update),
                                  "hover" = tooltips ⟦label⇝line¶line⟧ in chat lines (3.20, see database/chat.py;
-                                 older plugins get the label only)
+                                 older plugins get the label only),
+                                 "addons" = other plugins extend MCConnect through MCDataLink (3.22, below)
+    !ADDONS~<json list>          the registered addons (3.22, after auth and on every change): [{"id", "plugin",
+                                 "version", "file", "sha256" (of the jar), "manifest" (mcconnect-addon.json),
+                                 "commands"}]; answered with !addonstate for each (see database/addons.py)
+    !ADDON~<id>|<message>        a message of an active addon to MCConnect
+    !ADDONCONFIG~<id>|<player name or empty>|<settings json>   an active addon changes its settings (in-game command);
+                                 checked, stored and sent back with !addonstate
+    !ADDONRESULT~<id>|<installed|restart|removed|failed>|<text>   result of !addoninstall / !addonremove
+                                 (restart: the version waiting in the update folder; failed: the reason)
+    !ADDONPROBLEMS~<id>|<json list of texts>   problems with the settings (shown on the admin page)
     !DISCONNECT                  close the connection
 
 Server -> plugin:
@@ -49,11 +59,19 @@ Server -> plugin:
     !mute~<uuid>|<until ms, 0 = unmuted>|<reason>[|<until text>]   block the chat of a player (plugin 3.6);
                                  the until text is in the local time zone (the server's JVM may run in UTC)
     !joinstyle~<uuid>|<join line>|<leave line>|<sound>|<volume>   own join/leave message of a player
-                                 ("&" colors; empty lines: the game's own message; plugin 3.14)
+                                 ("&" colors; empty lines: the default lines; plugin 3.14)
     !joinmutes~<uuid>|<sounds off 0/1>|<uuid>,<uuid>   whose join/leave messages a player does not see
     !joindefault~<join line>|<leave line>   the lines of players without an own style ("{name}" for the name;
                                  plugin 3.16), sent with every full sync while the feature is on
     !joinreset~                  forget all join styles, mutes and the default lines (sent before a full sync)
+                                 Since 3.22 these four go to the addon BetterJoinMessages (!addon~betterjoinmessages|
+                                 <message>) and only while it is active; plugins before 3.22 only get !joinreset~
+                                 (join messages need the addon now).
+    !addonstate~<id>|<active 0/1>|<settings json>   whether an addon may work, and its settings (3.22)
+    !addon~<id>|<message>        a message for an active addon
+    !addoninstall~<id>|<version>|<url>|<sha256>|<file name>   install an official addon from the store (a running
+                                 one is updated through the update folder); answered with !ADDONRESULT
+    !addonremove~<id>|<file name>   disable an addon and delete its jar; answered with !ADDONRESULT
     !pack~<url>|<sha1>|<icon><fallback>,...   the icon resource pack to offer the players and the Unicode fallback
                                  of each icon for players without it (plugin 3.17, after "glyphs")
     !badge~<uuid>|<line>         the line under a player's name ("&" colors, icons; empty: nothing; plugin 3.17)
@@ -78,6 +96,7 @@ Success codes:
 104: health sample stored
 105: website bans synced
 106: features noted
+107: addons noted
 """
 import html
 import json
@@ -98,7 +117,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from colorlogx import get_logger
-from database import achievements, badges, config, glyphs, metrics, motivation, plugin_jar, rewards
+from database import achievements, addons, badges, config, glyphs, metrics, motivation, plugin_jar, rewards
 from database import chat as chat_markup
 from mc_socket import commands, tlscert
 from database.databaseManagerV2 import DatabaseManager
@@ -126,6 +145,8 @@ LIVE_INTERVAL = 5
 MAX_ANNOUNCED_ACHIEVEMENTS = 2
 # More records taken with one stats update are not announced.
 MAX_ANNOUNCED_RECORDS = 3
+# Handlers of !ADDON messages: addon id -> function(server, server_id, message). The official addons need none yet.
+ADDON_HANDLERS = {}
 
 
 class ProtocolError(Exception):
@@ -442,20 +463,35 @@ class SocketServer:
         uuid = str(self.db.get_mojang_uuid_from_player_id(player_id))
         self.tell(server_id, uuid, f"&6★ Neue Stufe »{commands.clean(level['name'])}«! &7Neue Farben, Symbole und mehr für "
                                    "deine Join-Nachricht: " + commands.button("&a[/joinmessage]", "/joinmessage"))
-        self._send_to_server(server_id, rewards.join_style_message(self.db, player_id, state))
+        self.send_join(server_id, rewards.join_style_message(self.db, player_id, state))
+
+    def send_join(self, server_id, message):
+        """A join message (!joinstyle, !joinmutes, ...) to the addon BetterJoinMessages, only while it is active."""
+        with self._lock:
+            client = self.active_connections.get(server_id)
+        if client is None or "addons" not in client.features or not self.db.is_addon_active(server_id, addons.JOIN_ADDON):
+            return False
+        return self._send_to_server(server_id, f"!addon~{addons.JOIN_ADDON}|{message}")
 
     def sync_join_messages(self, server_id):
-        """All join styles and mutes of a server to its plugin (after the auth or when the feature is switched)."""
-        self._send_to_server(server_id, "!joinreset~")
+        """All join styles and mutes of a server to BetterJoinMessages (after the auth, when the addon becomes active or
+        the feature is switched). Plugins before 3.22 only forget theirs: join messages need the addon now."""
+        with self._lock:
+            client = self.active_connections.get(server_id)
+        if client is not None and "addons" not in client.features:
+            self._send_to_server(server_id, "!joinreset~")
+            return
+        if not self.send_join(server_id, "!joinreset~"):
+            return
         enabled, stored, texts = self.db.get_reward_settings(server_id)
         if not enabled:
             return
-        self._send_to_server(server_id, rewards.join_default_message(stored, texts, self.icons(server_id)))
+        self.send_join(server_id, rewards.join_default_message(stored, texts, self.icons(server_id)))
         styled, mutes = self.db.get_join_sync(server_id)
         for player_id in styled:
-            self._send_to_server(server_id, rewards.join_style_message(self.db, player_id))
+            self.send_join(server_id, rewards.join_style_message(self.db, player_id))
         for uuid, (sounds_off, muted) in mutes.items():
-            self._send_to_server(server_id, rewards.join_mutes_message(uuid, sounds_off, muted))
+            self.send_join(server_id, rewards.join_mutes_message(uuid, sounds_off, muted))
 
     def periodic_checks(self):
         """
@@ -599,7 +635,7 @@ class SocketServer:
             update_sidebar=lambda player_id: self.update_sidebar(server_id, player_id),
             ban=lambda result: self.send_ban(server_id, result),
             mute=lambda uuid, until, reason: self.send_mute(server_id, uuid, until, reason),
-            send=lambda message: self._send_to_server(server_id, message))
+            send=lambda message: self.send_join(server_id, message))
         try:
             lines = commands.handle(ctx, parts[5], parts[6] if len(parts) > 6 else "")
         except Exception:
@@ -716,11 +752,11 @@ class SocketServer:
         elif kind == "joininfo":
             self.send_joininfo(server_id)
         elif kind == "joinstyle":
-            self._send_to_server(server_id, rewards.join_style_message(self.db, event["player_id"]))
+            self.send_join(server_id, rewards.join_style_message(self.db, event["player_id"]))
         elif kind == "joinmutes":
             player_id = event["player_id"]
             settings = self.db.get_join_settings(player_id)
-            self._send_to_server(server_id, rewards.join_mutes_message(
+            self.send_join(server_id, rewards.join_mutes_message(
                 self.db.get_mojang_uuid_from_player_id(player_id), settings["sounds_off"],
                 [m["uuid"] for m in self.db.get_join_mutes(player_id)]))
         elif kind == "icons":  # own icons changed: new pack, fallbacks and prefixes (see /users/icons)
@@ -736,8 +772,81 @@ class SocketServer:
             self.update_badge(server_id, event["player_id"])
         elif kind == "joinsync":
             self.sync_join_messages(server_id)
+        elif kind == "addon":  # approved, paused or new settings on the admin page
+            addon = self.db.get_addon(server_id, event["addon_id"])
+            if addon is not None and addon["present"]:
+                self.send_addon_state(server_id, addon)
+                if addon["addon_id"] == addons.JOIN_ADDON:
+                    self.sync_join_messages(server_id)
+        elif kind in ("addon_install", "addon_remove"):
+            self.send_addon_actions(server_id, only=event.get("addon_id"))
         else:
             logger.warning(f"Unknown server event {kind}")
+
+    # ------------------------------------------------------------------ addons
+    def addons_reported(self, client, value):
+        """!ADDONS: store what the plugin has, then tell every addon whether it may work and its settings."""
+        entries = json.loads(value)
+        if not isinstance(entries, list):
+            raise ValueError("addon list must be a list")
+        official = addons.catalog()  # remember the current official jars, a server may already run them
+        self.db.record_addon_releases([(info["sha256"], addon_id, info["version"]) for addon_id, info in official.items()])
+        checked = []
+        for entry in entries[:50]:
+            try:
+                if not isinstance(entry, dict):
+                    raise addons.ManifestError("entry is no object")
+                manifest = addons.check_manifest(entry.get("manifest"))
+                sha256 = str(entry.get("sha256") or "").lower()
+                if manifest["id"] != entry.get("id") or not addons.SHA256_RE.match(sha256):
+                    raise addons.ManifestError("id or checksum missing")
+            except addons.ManifestError as e:
+                logger.warning(f"Server {client.server_id} reported an invalid addon: {e}")
+                continue
+            manifest["commands"] = addons.clean_commands(entry.get("commands"))  # shown on the admin page
+            checked.append({"id": manifest["id"], "name": manifest["name"], "plugin": str(entry.get("plugin") or "")[:64],
+                            "version": str(entry.get("version") or "")[:32], "file": str(entry.get("file") or "")[:100],
+                            "sha256": sha256, "manifest": manifest})
+        join_active = False
+        for addon in self.db.sync_reported_addons(client.server_id, checked):
+            self.send_addon_state(client.server_id, addon)
+            join_active = join_active or (addon["addon_id"] == addons.JOIN_ADDON and addon["active"])
+        if join_active:
+            self.sync_join_messages(client.server_id)
+
+    def send_addon_state(self, server_id, addon):
+        settings = addons.normalize(addon["manifest"]["settings"], addon["config"] or {})[0] if addon["active"] else {}
+        return self._send_to_server(server_id, addons.state_message(addon["addon_id"], addon["active"], settings))
+
+    def addon_config_changed(self, server_id, value):
+        """!ADDONCONFIG of an active addon (e.g. a region created with /spawnprotect): check, store, send back."""
+        addon_id, actor, data = (value.split("|", 2) + ["", ""])[:3]
+        addon = self.db.get_addon(server_id, addon_id)
+        if addon is None or not addon["active"]:
+            raise ValueError(f"addon {addon_id} is not active")
+        settings, errors = addons.normalize(addon["manifest"]["settings"], json.loads(data))
+        if errors:
+            logger.info(f"Server {server_id}: settings of {addon_id} from the game corrected: {errors[:3]}")
+        self.db.set_addon_config(server_id, addon_id, settings)
+        self.db.add_mod_log(server_id, actor[:16] or "Server", "addon_config", None, f"{addon['name']} (im Spiel)")
+        self.send_addon_state(server_id, dict(addon, config=settings))
+
+    def send_addon_actions(self, server_id, only=None):
+        """Installs and removals from the store that the plugin did not get yet (only: of this addon)."""
+        with self._lock:
+            client = self.active_connections.get(server_id)
+        if client is None or "addons" not in client.features:
+            return
+        catalog = addons.catalog()
+        for addon_id, status, file_name in self.db.get_pending_addon_actions(server_id):
+            if only is not None and addon_id != only:
+                continue
+            if status == "remove":
+                self._send_to_server(server_id, addons.remove_message(addon_id, file_name))
+            elif addon_id in catalog:
+                self._send_to_server(server_id, addons.install_message(catalog[addon_id]))
+            else:
+                self.db.set_addon_result(server_id, addon_id, "failed", "Diese Erweiterung gibt es im Store nicht mehr.")
 
     # ------------------------------------------------------------------ clients
     def handle_client_connection(self, conn, addr):
@@ -886,6 +995,7 @@ class SocketServer:
                 self.stats_received(client.server_id, player_id)
             elif command == "!FEATURES":
                 client.features = {f.strip() for f in value.split(",") if f.strip()}
+                self.db.set_plugin_features(client.server_id, client.features)
                 client.send("success|106")
                 if "update" in client.features:
                     message = plugin_jar.update_message()
@@ -897,6 +1007,35 @@ class SocketServer:
                     self.sync_join_messages(client.server_id)
                     for mojang_uuid, (text, color) in self.db.get_all_worn_prefixes(client.server_id).items():
                         client.send(f"!prefix~{mojang_uuid}|{color}|{self._clean(text)}")  # now with the icons
+                if "addons" in client.features:
+                    self.send_addon_actions(client.server_id)  # installs and removals asked for while offline
+            elif command == "!ADDONS":
+                self.addons_reported(client, value)
+                client.send("success|107")
+            elif command == "!ADDON":
+                addon_id, sep, message = value.partition("|")
+                if not sep:
+                    raise ValueError("addon message needs an id")
+                handler = ADDON_HANDLERS.get(addon_id)
+                if handler and self.db.is_addon_active(client.server_id, addon_id):
+                    handler(self, client.server_id, message)
+                else:
+                    logger.debug(f"{client.addr} message of addon {addon_id!r} ignored")
+            elif command == "!ADDONCONFIG":
+                self.addon_config_changed(client.server_id, value)
+            elif command == "!ADDONRESULT":
+                addon_id, state, text = (value.split("|", 2) + ["", ""])[:3]
+                if state not in ("installed", "restart", "removed", "failed"):
+                    raise ValueError("unknown addon result")
+                self.db.set_addon_result(client.server_id, addon_id, state, text)
+                if state == "failed":
+                    logger.warning(f"Server {client.server_id}: addon {addon_id} failed: {text}")
+            elif command == "!ADDONPROBLEMS":
+                addon_id, sep, problems = value.partition("|")
+                problems = json.loads(problems)
+                if not sep or not isinstance(problems, list):
+                    raise ValueError("addon problems must be a list")
+                self.db.set_addon_problems(client.server_id, addon_id, [str(p)[:200] for p in problems[:20]])
             elif command == "!CMD":
                 self.run_command(client.server_id, value)
             elif command == "!HEALTH":

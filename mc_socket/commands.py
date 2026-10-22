@@ -652,6 +652,8 @@ def _options(state, field, kind, labels):
 def cmd_joinmessage(ctx, args):
     db = ctx.db
     state = rewards.player_state(db, ctx.player_id)
+    if not state["addon"]:
+        return ["&7Join-Nachrichten gibt es auf diesem Server nicht (dafür braucht er die Erweiterung BetterJoinMessages)."]
     if not state["enabled"]:
         return ["&7Eigene Join-Nachrichten sind auf diesem Server ausgeschaltet."]
     if args:
