@@ -185,12 +185,12 @@ Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss 
 
 ### Conventions
 
-- UI texts in German with "du", code/comments/commits in English, **no AI attribution in commits**.
-  Minecraft names the way players say them (Ancient Debris, not "Antiker Schutt"). No "AI look":
-  fonts Chakra Petch / Atkinson Hyperlegible / JetBrains Mono (self-hosted), no external CDNs for new things.
+- UI texts in German with "du", code/comments/commits in English, **no co-author or "generated" lines in commits**.
+  Minecraft names the way players say them (Ancient Debris, not "Antiker Schutt"). A calm, serious look:
+  fonts Chakra Petch / Atkinson Hyperlegible / JetBrains Mono (self-hosted), no playful animations, no external
+  CDNs for new things.
 - Take screenshots before finishing (headless Chrome with `--host-resolver-rules`; pages that need a login are
-  rendered with `app.test_client()` and `session_transaction`, see `docs/HANDOFF_spielervergleich.md`). Load the
-  `dataviz` skill before writing chart code.
+  rendered with `app.test_client()` and `session_transaction`).
 - New migration: add `N: [...]` to `MIGRATIONS` in `database/databaseManagerV2.py` **and** drop the new
   objects in `test_migration_from_version_1` (`tests/test_database.py`).
 - Every new public view must respect `hide_stats` (`get_server_metrics()` leaves hidden players out
