@@ -1,0 +1,59 @@
+{
+  "id": "easynewcraftingrecipes",
+  "name": "EasyNewCraftingRecipes",
+  "summary": "Eigene Crafting- und Ofenrezepte – im Raster zusammenklicken, sofort im Spiel.",
+  "description": "Lege eigene Rezepte an: geformt (wie in der Werkbank), formlos (Zutaten beliebig verteilt) oder für den Ofen. Änderungen gelten sofort, ohne Neustart, und neue Rezepte stehen auf Wunsch gleich im Rezeptbuch.",
+  "features": [
+    "Geformte und formlose Crafting-Rezepte im 3×3-Raster",
+    "Ofenrezepte mit Erfahrung und Brenndauer",
+    "Kleine Rezepte (2×2) gehen auch im Inventar",
+    "Eigener Name für das Ergebnis",
+    "Gilt sofort, ohne Neustart",
+    "Fehler (z. B. ein Item, das die Version nicht kennt) stehen hier"
+  ],
+  "settings": [
+    {
+      "title": "Allgemein",
+      "fields": [
+        {"key": "discover", "type": "toggle", "default": true, "label": "Neue Rezepte im Rezeptbuch freischalten",
+         "help": "Die Spieler sehen die Rezepte sofort in ihrem Rezeptbuch."}
+      ]
+    },
+    {
+      "title": "Rezepte",
+      "fields": [
+        {"key": "recipes", "type": "list", "label": "Rezepte", "item_label": "Rezept", "title_key": "name", "max_items": 100,
+         "fields": [
+           {"key": "name", "type": "text", "max": 40, "required": true, "default": "Neues Rezept", "label": "Name"},
+           {"key": "enabled", "type": "toggle", "default": true, "label": "Aktiv"},
+           {"key": "type", "type": "select", "default": "shaped", "label": "Art",
+            "options": [{"value": "shaped", "label": "Geformt (Werkbank, Position zählt)"},
+                        {"value": "shapeless", "label": "Formlos (Zutaten beliebig verteilt)"},
+                        {"value": "furnace", "label": "Ofen"}]},
+           {"key": "grid", "type": "recipe", "label": "Zutaten", "default": ["", "", "", "", "", "", "", "", ""],
+            "show_if": {"key": "type", "in": ["shaped", "shapeless"]}},
+           {"key": "input", "type": "material", "default": "", "label": "Zutat", "show_if": {"key": "type", "in": ["furnace"]}},
+           {"key": "result", "type": "material", "default": "", "required": true, "label": "Ergebnis"},
+           {"key": "amount", "type": "number", "default": 1, "min": 1, "max": 64, "step": 1, "label": "Anzahl"},
+           {"key": "result_name", "type": "text", "colors": true, "max": 60, "default": "", "label": "Eigener Name des Ergebnisses",
+            "help": "Leer = der normale Name."},
+           {"key": "experience", "type": "number", "default": 0.1, "min": 0, "max": 100, "step": 0.1, "label": "Erfahrung",
+            "show_if": {"key": "type", "in": ["furnace"]}},
+           {"key": "cook_seconds", "type": "number", "default": 10, "min": 1, "max": 600, "step": 1, "unit": "Sekunden",
+            "label": "Brenndauer", "show_if": {"key": "type", "in": ["furnace"]}}
+         ],
+         "default": [
+           {"name": "Licht", "enabled": true, "type": "shaped",
+            "grid": ["glass_pane", "glass_pane", "glass_pane", "glass_pane", "torch", "glass_pane", "glass_pane", "glass_pane", "glass_pane"],
+            "input": "", "result": "light", "amount": 4, "result_name": "", "experience": 0.1, "cook_seconds": 10},
+           {"name": "Sattel", "enabled": false, "type": "shaped",
+            "grid": ["leather", "leather", "leather", "string", "leather", "string", "iron_ingot", "", "iron_ingot"],
+            "input": "", "result": "saddle", "amount": 1, "result_name": "", "experience": 0.1, "cook_seconds": 10},
+           {"name": "Leder aus Zombie-Fleisch", "enabled": false, "type": "furnace",
+            "grid": ["", "", "", "", "", "", "", "", ""],
+            "input": "rotten_flesh", "result": "leather", "amount": 1, "result_name": "", "experience": 0.1, "cook_seconds": 10}
+         ]}
+      ]
+    }
+  ]
+}

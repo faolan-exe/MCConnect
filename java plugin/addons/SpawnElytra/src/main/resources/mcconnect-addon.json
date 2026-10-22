@@ -1,0 +1,49 @@
+{
+  "id": "spawnelytra",
+  "name": "SpawnElytra",
+  "summary": "Am Spawn zweimal Leertaste – und losgleiten, ganz ohne Elytra.",
+  "description": "Rund um den Spawn können Spieler mit doppeltem Sprung losgleiten wie mit einer Elytra. Die Landung ist ohne Fallschaden. Bereich, Startschub, Hinweistext und wer darf, stellst du hier ein; den Mittelpunkt setzt du auch im Spiel mit /spawnelytra setcenter.",
+  "features": [
+    "Doppelsprung am Spawn startet einen Gleitflug",
+    "Einstellbarer Startschub",
+    "Landen ohne Fallschaden",
+    "Mittelpunkt: Weltspawn oder eigener Punkt (/spawnelytra setcenter)",
+    "Hinweis in der Actionbar",
+    "Lässt /fly anderer Plugins in Ruhe"
+  ],
+  "settings": [
+    {
+      "title": "Bereich",
+      "fields": [
+        {"key": "world", "type": "text", "max": 64, "default": "", "label": "Welt", "help": "Leer = die Hauptwelt.", "suggest": "worlds"},
+        {"key": "center_mode", "type": "select", "default": "spawn", "label": "Mittelpunkt",
+         "options": [{"value": "spawn", "label": "Spawnpunkt der Welt"}, {"value": "custom", "label": "Eigener Punkt"}]},
+        {"key": "center", "type": "position", "default": {"x": 0, "y": 64, "z": 0}, "label": "Eigener Punkt",
+         "help": "Im Spiel: /spawnelytra setcenter an der gewünschten Stelle.", "show_if": {"key": "center_mode", "in": ["custom"]}},
+        {"key": "radius", "type": "number", "default": 20, "min": 2, "max": 500, "step": 1, "unit": "Blöcke", "label": "Radius",
+         "help": "Gezählt wird der Abstand in der Waagerechten, die Höhe ist egal."}
+      ]
+    },
+    {
+      "title": "Flug",
+      "fields": [
+        {"key": "boost", "type": "number", "default": 1.0, "min": 0, "max": 5, "step": 0.1, "label": "Startschub",
+         "help": "0 = kein Schub, nur losgleiten."},
+        {"key": "no_fall_damage", "type": "toggle", "default": true, "label": "Landen ohne Fallschaden"},
+        {"key": "allow_rockets", "type": "toggle", "default": false, "label": "Raketen zum Beschleunigen erlauben"},
+        {"key": "gamemodes", "type": "multiselect", "default": ["survival", "adventure"], "label": "Für Spieler im Modus",
+         "options": [{"value": "survival", "label": "Überleben"}, {"value": "adventure", "label": "Abenteuer"}]},
+        {"key": "require_permission", "type": "toggle", "default": false, "label": "Nur mit Berechtigung spawnelytra.use"}
+      ]
+    },
+    {
+      "title": "Hinweis",
+      "fields": [
+        {"key": "actionbar", "type": "toggle", "default": true, "label": "Hinweis in der Actionbar am Spawn"},
+        {"key": "actionbar_text", "type": "text", "colors": true, "max": 80,
+         "default": "&bSpawnElytra bereit &8| &3zweimal Leertaste zum Fliegen", "label": "Text",
+         "show_if": {"key": "actionbar", "is": true}}
+      ]
+    }
+  ]
+}

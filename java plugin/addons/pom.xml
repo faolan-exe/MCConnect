@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- Common settings of the official MCConnect addons. They compile against MCDataLink's API (provided: the server
+         has MCDataLink installed) and, like MCDataLink, against the 1.13 API with Java 8 bytecode. -->
+    <groupId>org.tobias.mcconnect</groupId>
+    <artifactId>addons</artifactId>
+    <version>1</version>
+    <packaging>pom</packaging>
+
+    <modules>
+        <module>BetterJoinMessages</module>
+        <module>EasyHeadDrop</module>
+        <module>EasyNewCraftingRecipes</module>
+        <module>SpawnElytra</module>
+        <module>SpawnProtect</module>
+    </modules>
+
+    <properties>
+        <maven.compiler.release>8</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- reproducible jars: the same sources give the same SHA-256 (MCConnect approves official jars by it) -->
+        <project.build.outputTimestamp>2026-10-22T00:00:00Z</project.build.outputTimestamp>
+    </properties>
+
+    <build>
+        <finalName>${project.artifactId}-${project.version}</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+            </plugin>
+        </plugins>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
+    </build>
+
+    <repositories>
+        <repository>
+            <id>spigotmc-repo</id>
+            <url>https://hub.spigotmc.org/nexus/content/repositories/snapshots/</url>
+        </repository>
+    </repositories>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.spigotmc</groupId>
+            <artifactId>spigot-api</artifactId>
+            <version>1.13.2-R0.1-SNAPSHOT</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.tobias</groupId>
+            <artifactId>MCDataLink</artifactId>
+            <version>3.22</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+</project>

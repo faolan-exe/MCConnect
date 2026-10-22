@@ -1,0 +1,16 @@
+name: BetterJoinMessages
+version: '${project.version}'
+main: org.tobias.mcconnect.betterjoinmessages.BetterJoinMessages
+api-version: '1.13'
+depend: [MCDataLink]
+authors: [Tobias Auer]
+description: Join- und Leave-Nachrichten von MCConnect (Erweiterung)
+website: mc.tobisit.de
+commands:
+  joinmessage:
+    description: Deine Join- und Leave-Nachricht gestalten
+    usage: /joinmessage [text|leave|farbe|symbol|stil|sound] [wert]
+permissions:
+  betterjoinmessages.silent:
+    description: Kommt und geht ohne Nachricht (wenn in MCConnect eingeschaltet)
+    default: false

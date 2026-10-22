@@ -1,0 +1,71 @@
+{
+  "id": "spawnprotect",
+  "name": "SpawnProtect",
+  "summary": "Schützt den Spawn und beliebige Bereiche vor Griefing, PvP, Explosionen und Monstern.",
+  "description": "Lege geschützte Bereiche an – als Quader zwischen zwei Ecken oder als Kreis um den Weltspawn – und wähle pro Bereich, wovor er geschützt ist. Bereiche legst du hier oder im Spiel an: /spawnprotect pos1, pos2 und create <name>; mit /spawnprotect show siehst du die Grenzen.",
+  "features": [
+    "Mehrere Bereiche: Quader oder Kreis um den Weltspawn",
+    "Pro Bereich: Bauen, Benutzen, PvP, Schaden, Hunger, Monster, Explosionen, Feuer, Flüssigkeiten, Kolben, Zertrampeln, Tiere",
+    "Explosionen von außen zerstören drinnen nichts",
+    "OPs und spawnprotect.bypass dürfen alles (abschaltbar)",
+    "Im Spiel: Ecken setzen, Bereiche anlegen, Grenzen anzeigen",
+    "Begrüßung beim Betreten eines Bereichs"
+  ],
+  "settings": [
+    {
+      "title": "Allgemein",
+      "fields": [
+        {"key": "bypass", "type": "toggle", "default": true, "label": "OPs und Spieler mit spawnprotect.bypass dürfen alles"},
+        {"key": "deny_message", "type": "text", "colors": true, "max": 120, "default": "&cHier ist alles geschützt.",
+         "label": "Hinweis, wenn etwas verhindert wurde", "help": "Leer = kein Hinweis."}
+      ]
+    },
+    {
+      "title": "Bereiche",
+      "description": "Im Spiel: /spawnprotect pos1 und pos2 setzen die Ecken (der Block, auf den du schaust, sonst deine Position), /spawnprotect create <name> legt den Bereich an.",
+      "fields": [
+        {"key": "regions", "type": "list", "label": "Bereiche", "item_label": "Bereich", "title_key": "name", "max_items": 50,
+         "fields": [
+           {"key": "name", "type": "text", "max": 32, "required": true, "default": "bereich", "label": "Name",
+            "help": "Für die Befehle im Spiel, ohne Leerzeichen."},
+           {"key": "enabled", "type": "toggle", "default": true, "label": "Aktiv"},
+           {"key": "shape", "type": "select", "default": "cuboid", "label": "Form",
+            "options": [{"value": "cuboid", "label": "Quader zwischen zwei Ecken"},
+                        {"value": "spawn", "label": "Kreis um den Weltspawn"}]},
+           {"key": "world", "type": "text", "max": 64, "default": "", "label": "Welt", "help": "Leer = die Hauptwelt.", "suggest": "worlds"},
+           {"key": "pos1", "type": "position", "default": {"x": -10, "y": 0, "z": -10}, "label": "Ecke 1",
+            "show_if": {"key": "shape", "in": ["cuboid"]}},
+           {"key": "pos2", "type": "position", "default": {"x": 10, "y": 255, "z": 10}, "label": "Ecke 2",
+            "show_if": {"key": "shape", "in": ["cuboid"]}},
+           {"key": "radius", "type": "number", "default": 24, "min": 1, "max": 1000, "step": 1, "unit": "Blöcke", "label": "Radius",
+            "show_if": {"key": "shape", "in": ["spawn"]}},
+           {"key": "protect", "type": "multiselect", "label": "Geschützt vor",
+            "default": ["build", "interact", "pvp", "damage", "hunger", "mobs", "explosions", "fire", "liquids", "pistons", "trample", "animals", "mob_grief"],
+            "options": [
+              {"value": "build", "label": "Bauen und Abbauen (auch Eimer, Rahmen, Rüstungsständer)"},
+              {"value": "interact", "label": "Benutzen von Türen, Truhen, Knöpfen und Co."},
+              {"value": "pvp", "label": "PvP (Spieler greifen sich an)"},
+              {"value": "damage", "label": "Jeder Schaden an Spielern"},
+              {"value": "hunger", "label": "Hunger"},
+              {"value": "mobs", "label": "Spawnende Monster"},
+              {"value": "explosions", "label": "Explosionen"},
+              {"value": "fire", "label": "Feuer und sich ausbreitendes Feuer"},
+              {"value": "liquids", "label": "Wasser und Lava, die von außen hineinfließen"},
+              {"value": "pistons", "label": "Kolben, die von außen Blöcke verschieben"},
+              {"value": "trample", "label": "Zertrampeln von Ackerland"},
+              {"value": "animals", "label": "Angriffe auf Tiere und Dorfbewohner"},
+              {"value": "mob_grief", "label": "Monster, die Blöcke verändern (Enderman, Ravager …)"}
+            ]},
+           {"key": "greeting", "type": "text", "colors": true, "max": 80, "default": "", "label": "Begrüßung beim Betreten",
+            "help": "Erscheint in der Actionbar. Leer = keine."}
+         ],
+         "default": [
+           {"name": "spawn", "enabled": true, "shape": "spawn", "world": "", "pos1": {"x": -10, "y": 0, "z": -10},
+            "pos2": {"x": 10, "y": 255, "z": 10}, "radius": 24,
+            "protect": ["build", "interact", "pvp", "damage", "hunger", "mobs", "explosions", "fire", "liquids", "pistons", "trample", "animals", "mob_grief"],
+            "greeting": "&aSpawn &7– hier bist du sicher"}
+         ]}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+name: SpawnElytra
+version: '${project.version}'
+main: org.tobias.mcconnect.spawnelytra.SpawnElytra
+api-version: '1.13'
+depend: [MCDataLink]
+authors: [Tobias Auer]
+description: Gleiten ohne Elytra rund um den Spawn (MCConnect-Erweiterung)
+website: mc.tobisit.de
+commands:
+  spawnelytra:
+    description: Mittelpunkt und Radius von SpawnElytra setzen
+    usage: /spawnelytra [info|setcenter|radius <blöcke>]
+    permission: spawnelytra.admin
+permissions:
+  spawnelytra.admin:
+    description: SpawnElytra im Spiel einstellen
+    default: op
+  spawnelytra.use:
+    description: Am Spawn gleiten (wenn in MCConnect "Nur mit Berechtigung" an ist)
+    default: true
