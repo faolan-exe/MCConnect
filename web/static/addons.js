@@ -112,9 +112,21 @@
   }
 
   async function getJson(url) {
-    const response = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!response.ok) throw new Error(String(response.status));
-    return response.json();
+    const response = await fetch(url, { headers: { Accept: "application/json" }, credentials: "same-origin" });
+    if (!response.ok) throw new Error(`Der Server antwortet mit Fehler ${response.status}.`);
+    try {
+      return await response.json();
+    } catch (e) {
+      throw new Error("Der Server hat keine gültigen Daten geschickt.");
+    }
+  }
+
+  // instead of an empty panel: what went wrong (also shown on later polls until it works again)
+  function showError(error) {
+    if (data && root.querySelector(".ad-tile, .ad-detail")) return;  // keep a working page, the next poll tries again
+    root.replaceChildren(el("div", { class: "ad-note ad-note-error" },
+      el("b", { text: "Die Erweiterungen konnten nicht geladen werden. " }), String(error && error.message || error),
+      " Lade die Seite neu; bleibt es so, steht der Grund im Server-Log (web)."));
   }
 
   // ------------------------------------------------------------------ item picker (one popover for all fields)
@@ -693,6 +705,15 @@
   // ------------------------------------------------------------------ navigation, polling
 
   function render(resetOpen) {
+    try {
+      draw(resetOpen);
+    } catch (e) {
+      console.error(e);
+      showError(e);
+    }
+  }
+
+  function draw(resetOpen) {
     if (!data) return;
     const addon = openId && data.addons.find((a) => a.id === openId);
     if (openId && !addon) openId = null;
@@ -736,6 +757,7 @@
     try {
       fresh = await getJson(api());
     } catch (e) {
+      showError(e);
       return;
     }
     const before = data;
