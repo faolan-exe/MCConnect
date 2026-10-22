@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timedelta, timezone
 
+import psycopg2.errors
 import pytest
 
 from database import stats
@@ -34,10 +35,82 @@ def test_add_player_looks_up_name_once(db):
     assert str(db.get_mojang_uuid_from_player_name("_tobias4444")) == PLAYER_UUID
 
 
-def test_add_player_with_name_updates_name(db):
+def test_reported_name_change_is_checked_with_mojang(db, monkeypatch):
     db.add_player(PLAYER_UUID)
+    db.add_player(PLAYER_UUID, "NewName")  # Mojang still knows the old name: a server cannot rename the player
+    assert db.get_player_name_from_mojang_uuid(PLAYER_UUID) == "_Tobias4444"
+    monkeypatch.setitem(db.minecraft.names, PLAYER_UUID, "NewName")  # renamed at Mojang
     db.add_player(PLAYER_UUID, "NewName")
     assert db.get_player_name_from_mojang_uuid(PLAYER_UUID) == "NewName"
+
+
+def test_mojang_name_wins_over_the_reported_one(db):
+    db.add_player(PLAYER_UUID, "Notch")
+    assert db.get_player_name_from_mojang_uuid(PLAYER_UUID) == "_Tobias4444"
+
+
+def test_offline_uuid_proves_its_name(db):
+    from database.databaseManagerV2 import offline_uuid
+    notch = offline_uuid("Notch")
+    assert notch == "b50ad385-829d-3141-a216-7e7d7539ba7f"
+    db.add_player(notch, "jeb_")  # not the name the uuid is made from
+    assert db.get_player_name_from_mojang_uuid(notch) == notch
+    db.add_player(notch, "Notch")
+    assert db.get_player_name_from_mojang_uuid(notch) == "Notch"
+
+
+def test_names_mojang_cannot_check_keep_the_first_one(db):
+    bedrock = "00000000-0000-0000-0009-01f64f65c7c3"  # Floodgate (Bedrock), unknown to Mojang
+    db.add_player(bedrock, ".Steve")
+    db.add_player(bedrock, ".Alex")
+    assert db.get_player_name_from_mojang_uuid(bedrock) == ".Steve"
+    unknown = "11111111-2222-4333-8444-555555555555"  # version 4, but Mojang does not answer
+    db.add_player(unknown, "Erster")
+    db.add_player(unknown, "Zweiter")
+    assert db.get_player_name_from_mojang_uuid(unknown) == "Erster"
+
+
+def test_usernames_and_emails_are_unique_regardless_of_case(db):
+    db.add_server_admin("tobi", "testPassword", "tobi@example.com", email_verified=True)
+    for username, email in (("TOBI", "other@example.com"), ("other", "TOBI@EXAMPLE.COM")):
+        with pytest.raises(psycopg2.errors.UniqueViolation):
+            db.add_server_admin(username, "testPassword", email, replace_unverified=True)
+    assert db.authenticate_admin("TOBI", "testPassword") == db.authenticate_admin("tobi", "testPassword") is not None
+
+
+def test_signup_again_replaces_an_unverified_account_regardless_of_case(db):
+    first = db.add_server_admin("neuer", "testPassword", "neu@example.com")
+    second = db.add_server_admin("Neuer", "testPassword", "neu@example.com", replace_unverified=True)
+    assert first != second and db._fetchvalue("SELECT count(*) FROM server_admins") == 1
+
+
+def test_migration_31_drops_unverified_clashes_and_adds_the_index(db):
+    from database.databaseManagerV2 import MIGRATIONS
+    with db._cursor() as cur:
+        cur.execute("DROP INDEX server_admins_username_lower_idx, server_admins_email_lower_idx")
+        cur.execute("""INSERT INTO server_admins (username, password, email, email_verified) VALUES
+                       ('tobi', 'x', 'a@example.com', true), ('TOBI', 'x', 'b@example.com', false),
+                       ('eve', 'x', 'eve@example.com', false), ('Eve', 'x', 'eve2@example.com', false)""")
+        for statement in MIGRATIONS[31]:
+            cur.execute(statement)
+        cur.execute("SELECT username FROM server_admins ORDER BY id")
+        assert [r[0] for r in cur.fetchall()] == ["tobi", "eve"]
+        cur.execute("SELECT count(*) FROM pg_indexes WHERE indexname LIKE 'server_admins_%_lower_idx'")
+        assert cur.fetchone()[0] == 2
+
+
+def test_migration_31_keeps_clashing_verified_accounts(db):
+    from database.databaseManagerV2 import MIGRATIONS
+    with db._cursor() as cur:
+        cur.execute("DROP INDEX server_admins_username_lower_idx, server_admins_email_lower_idx")
+        cur.execute("""INSERT INTO server_admins (username, password, email, email_verified) VALUES
+                       ('tobi', 'x', 'a@example.com', true), ('TOBI', 'x', 'b@example.com', true)""")
+        for statement in MIGRATIONS[31]:
+            cur.execute(statement)  # no failed start: add_server_admin keeps new clashes out
+        cur.execute("SELECT count(*) FROM server_admins")
+        assert cur.fetchone()[0] == 2
+        cur.execute("DELETE FROM server_admins WHERE username = 'TOBI'")
+        cur.execute(MIGRATIONS[31][1])
 
 
 def test_add_player_falls_back_to_uuid_if_lookup_fails(db):
@@ -268,6 +341,7 @@ def test_email_verification_expires(db):
 def test_migration_from_version_1(db):
     with db._cursor() as cur:
         # back to schema version 1
+        cur.execute("DROP INDEX server_admins_username_lower_idx, server_admins_email_lower_idx")
         cur.execute("DROP TABLE server_registry")
         cur.execute("ALTER TABLE servers DROP COLUMN registry_version")
         cur.execute("DROP TABLE server_addons, addon_releases")
@@ -501,7 +575,7 @@ def test_admin_login_with_username_or_email(db, admin_id):
     assert db.authenticate_admin("tobi", "testPassword") == (admin_id, "tobi")
     assert db.authenticate_admin("TOBI@Example.com", "testPassword") == (admin_id, "tobi")
     assert db.authenticate_admin("tobi@example.com", "wrong") is None
-    assert db.authenticate_admin("Tobi", "testPassword") is None  # usernames are exact
+    assert db.authenticate_admin("Tobi", "testPassword") is not None  # usernames regardless of case (schema 31)
     assert db.authenticate_admin("nobody@example.com", "testPassword") is None
 
 

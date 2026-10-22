@@ -352,9 +352,10 @@ def test_odd_player_names_from_the_plugin_are_ignored(db, server, plugin, two_pl
 
 @pytest.mark.parametrize("name", ["Steve", ".BedrockSteve", "*Steve", "a_b", "Q" * 16])
 def test_real_player_names_from_the_plugin_are_stored(db, server, plugin, name):
+    new_player = "6a2f3c1e-0d4b-4c5a-9e7f-1b2c3d4e5f60"  # unknown to Mojang (in the tests): the first name counts
     connection = plugin().auth(server["key"])
-    assert connection.request(f"!JOIN~{PLAYER_UUID}|{name}") == "success|101"
-    assert db.get_player_name_from_mojang_uuid(PLAYER_UUID) == name
+    assert connection.request(f"!JOIN~{new_player}|{name}") == "success|101"
+    assert db.get_player_name_from_mojang_uuid(new_player) == name
 
 
 @pytest.mark.parametrize("where", ["world|1e400|64|0", "world|99999999999|64|0", "world|nan|0|0"])
