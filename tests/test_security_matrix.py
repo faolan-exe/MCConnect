@@ -91,15 +91,18 @@ def test_moderation_pages_need_a_login(client, server):
     assert not wrong
 
 
-def test_a_player_login_is_valid_on_its_server_only(player_client, db, server, other_server):
-    db.register_player_join(other_server["id"], PLAYER_UUID, "_Tobias4444")
+def test_a_player_login_is_not_valid_on_servers_of_other_owners(player_client, db, server):
+    stranger = db.add_server_admin("eve", "evePassword", "eve@example.com", email_verified=True)
+    db.add_server(stranger, "foreign", "foreign.example.com", "Foreign", server_key="f" * 64)
+    db.register_player_join(db.get_server_id_from_subdomain("foreign"), PLAYER_UUID, "_Tobias4444")
     assert player_client.post("/api/sidebar", json={"mode": "off"}, **S).status_code == 200
-    # the same browser on another server's page: not logged in there (the cookie is also bound to the host)
+    assert player_client.post("/api/sidebar", json={"mode": "off"}, **on("foreign")).status_code == 401
+    # not even with the session of the first server copied over (the session holds that server's player)
     with player_client.session_transaction(base_url="http://testdomain.mc.test") as session:
         cookie = dict(session)
-    with player_client.session_transaction(base_url="http://other.mc.test") as session:
+    with player_client.session_transaction(base_url="http://foreign.mc.test") as session:
         session.update(cookie)
-    assert player_client.post("/api/sidebar", json={"mode": "off"}, **on("other")).status_code == 401
+    assert player_client.post("/api/sidebar", json={"mode": "off"}, **on("foreign")).status_code == 401
 
 
 # ------------------------------------------------------------------ rights

@@ -904,3 +904,67 @@ def test_plugin_config_contains_the_certificate_fingerprint(admin_client, server
     cert, _ = tlscert.ensure_certificate(str(tmp_path))
     page = admin_client.get(f"/manage/{server['id']}", **on(None)).data.decode()
     assert f'tls-fingerprint: &#34;{tlscert.fingerprint(cert)}&#34;' in page or f'tls-fingerprint: "{tlscert.fingerprint(cert)}"' in page
+
+
+# ------------------------------------------------------------------ one login for the servers of one owner
+
+@pytest.fixture
+def sso_player(client, db, online_player, other_server):
+    """Logged in on testdomain; also a player of "other" (same owner)."""
+    db.register_player_join(other_server["id"], PLAYER_UUID, "_Tobias4444")
+    assert login_player(client, db, online_player).json["status"] == "success"
+    return client
+
+
+def test_login_counts_on_the_other_servers_of_the_owner(sso_player, db, other_server):
+    assert sso_player.post("/api/sidebar", json={"mode": "playtime"}, **on("other")).status_code == 200
+    other = db.get_player_id_from_mojang_uuid_and_server_id(PLAYER_UUID, other_server["id"])
+    assert db.get_sidebar(other) == "playtime"  # the player of that server, not the one of testdomain
+    assert b'href="/spieler?player=' in sso_player.get("/", **on("other")).data
+
+
+def test_sso_cookie_is_protected(client, db, online_player):
+    login_player(client, db, online_player)
+    cookie = next(c for c in client._cookies.values() if c.key == "mcc_player")
+    assert cookie.domain.lstrip(".") == BASE and cookie.http_only and cookie.same_site == "Lax"
+
+
+def test_no_login_where_the_player_never_played(client, db, online_player, other_server):
+    login_player(client, db, online_player)
+    assert client.post("/api/sidebar", json={"mode": "off"}, **on("other")).status_code == 401
+
+
+def test_logout_on_one_server_logs_out_on_all(sso_player, other_server):
+    assert sso_player.post("/api/sidebar", json={"mode": "off"}, **on("other")).status_code == 200
+    assert sso_player.post("/login", data={"text_input": "logout"}, **on("other")).status_code == 302
+    for subdomain in ("other", "testdomain"):
+        assert sso_player.post("/api/sidebar", json={"mode": "off"}, **on(subdomain)).status_code == 401, subdomain
+
+
+def test_login_as_someone_else_replaces_the_sso_sessions(sso_player, db, server, other_server):
+    assert sso_player.post("/api/sidebar", json={"mode": "off"}, **on("other")).status_code == 200
+    notch = db.register_player_join(server["id"], OTHER_UUID, "Notch")
+    db.register_player_join(other_server["id"], OTHER_UUID, "Notch")
+    assert sso_player.post("/api/login", json={"username": "Notch", "pin": None}, **on("testdomain")).json["status"] == "success"
+    pin = db._fetchvalue("SELECT pin FROM login WHERE player_id = %s", (notch,))
+    assert sso_player.post("/api/login", json={"username": None, "pin": str(pin)}, **on("testdomain")).json["status"] == "success"
+    assert b"Notch" in sso_player.get("/profil", **on("other")).data
+
+
+def test_forged_sso_cookie_is_ignored(client, db, server, other_server):
+    db.register_player_join(other_server["id"], PLAYER_UUID, "_Tobias4444")
+    from itsdangerous import URLSafeTimedSerializer
+    forged = URLSafeTimedSerializer("not the secret", salt="player-sso").dumps([PLAYER_UUID, server["id"]])
+    client.set_cookie("mcc_player", forged, domain=BASE)
+    assert client.post("/api/sidebar", json={"mode": "off"}, **on("other")).status_code == 401
+
+
+def test_sso_cookie_of_another_owner_does_not_count(client, app, db, server):
+    stranger = db.add_server_admin("eve", "evePassword", "eve@example.com", email_verified=True)
+    db.add_server(stranger, "foreign", "foreign.example.com", "Foreign", server_key="f" * 64)
+    db.register_player_join(db.get_server_id_from_subdomain("foreign"), PLAYER_UUID, "_Tobias4444")
+    with app.app_context():
+        from web.main import sso_serializer
+        cookie = sso_serializer().dumps([PLAYER_UUID, db.get_servers_by_owner(1)[0]["owner_id"]])
+    client.set_cookie("mcc_player", cookie, domain=BASE)
+    assert client.post("/api/sidebar", json={"mode": "off"}, **on("foreign")).status_code == 401
