@@ -2,8 +2,9 @@
 FROM maven:3.9-eclipse-temurin-17 AS plugin
 WORKDIR /build
 COPY ["java plugin/", "./"]
-RUN mvn -q -B package && cp MCDataLink/target/MCDataLink-*.jar /build/MCDataLink.jar \
-    && mkdir /build/addons && cp addons/*/target/*.jar /build/addons/
+# the sources of the addons are in /build/addons, the jars go to /out
+RUN mvn -q -B package && mkdir -p /out/addons && cp MCDataLink/target/MCDataLink-*.jar /out/MCDataLink.jar \
+    && cp addons/*/target/*.jar /out/addons/
 
 # --- web server / socket server ---
 FROM python:3.12-slim
@@ -20,8 +21,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY database ./database
 COPY mc_socket ./mc_socket
 COPY web ./web
-COPY --from=plugin /build/MCDataLink.jar ./plugin/MCDataLink.jar
-COPY --from=plugin /build/addons ./addons
+COPY --from=plugin /out/MCDataLink.jar ./plugin/MCDataLink.jar
+COPY --from=plugin /out/addons ./addons
 
 # /tls: the socket server's own certificate (a docker volume takes over the owner on the first start)
 RUN useradd --system --create-home --uid 1000 mcconnect && mkdir -p logs uploads /tls && chown mcconnect logs uploads /tls
