@@ -1,11 +1,14 @@
 // The addon store on /manage/<id>#addons: tiles of all addons, the page of one addon (#addons/<id>) with its actions
 // and a settings form built from the addon's own settings description (database/addons.py). Nothing reloads the
-// page; the state is polled every few seconds while the tab is open.
+// page; the state is polled every few seconds while the tab is open. data-mode="mod" (/users/erweiterungen): the
+// moderators' view, only the settings of installed addons (if the owner allows it).
 (() => {
   const root = document.querySelector(".ad-root");
   if (!root) return;
-  const serverId = root.dataset.serverId;
-  const api = (path) => `/api/servers/${serverId}/addons${path || ""}`;
+  const moderator = root.dataset.mode === "mod";
+  const base = moderator ? "/api/mod/addons" : `/api/servers/${root.dataset.serverId}/addons`;
+  const api = (path) => base + (path || "");
+  const hashBase = moderator ? "erweiterung" : "addons";
   const POLL_MS = 5000;
 
   let data = null;        // the last answer of the API
@@ -46,6 +49,8 @@
 
   // append() turns null into the text "null": leave missing parts out
   const put = (node, ...children) => node.append(...children.filter((c) => c !== null && c !== undefined && c !== false));
+  // own variant: the server pages' showMessage uses other classes
+  const note = (element, text, kind) => { element.textContent = text; element.className = "message " + kind; };
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const prettyItem = (id) => id.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 
@@ -440,7 +445,7 @@
     const message = root.querySelector(".ad-detail .message");
     const result = await postJson(api(`/${addon.id}/${action}`), body || {});
     if (!result.ok) {
-      showMessage(message, result.data.error || "Das hat nicht geklappt.", "error");
+      note(message, result.data.error || "Das hat nicht geklappt.", "error");
       return result;
     }
     data = result.data;
@@ -470,7 +475,7 @@
       }
       const first = root.querySelector(".ad-invalid");
       if (first) first.scrollIntoView({ behavior: "smooth", block: "center" });
-      showMessage(root.querySelector(".ad-savebar .message"), result.data.error || "Speichern fehlgeschlagen.", "error");
+      note(root.querySelector(".ad-savebar .message"), result.data.error || "Speichern fehlgeschlagen.", "error");
       root.querySelector(".ad-savebar").hidden = false;
       return;
     }
@@ -480,8 +485,7 @@
     saved = JSON.stringify(draft);
     remoteChanged = false;
     render(false);
-    const note = root.querySelector(".ad-detail .message");
-    showMessage(note, current.installed ? "Gespeichert – gilt sofort auf dem Server." : "Gespeichert – gilt, sobald die Erweiterung läuft.", "success");
+    note(root.querySelector(".ad-detail .message"), current.installed ? "Gespeichert – gilt sofort auf dem Server." : "Gespeichert – gilt, sobald die Erweiterung läuft.", "success");
   }
 
   function stateChip(addon) {
@@ -490,6 +494,7 @@
 
   function actions(addon) {
     const row = el("div", { class: "btn-row ad-actions" });
+    if (moderator) return row;  // moderators only edit the settings
     const busy = ["install", "remove"].includes(addon.state);
     if (addon.official && (addon.state === "available" || addon.state === "failed")) {
       row.append(el("button", { type: "button", class: "btn", text: "Installieren", disabled: !data.plugin.supports && data.plugin.known,
@@ -520,7 +525,7 @@
         onclick: () => act(addon, "remove", {}, `${addon.name} vom Server entfernen? Die Einstellungen bleiben hier gespeichert.`) }));
     }
     if (addon.official) {
-      row.append(el("a", { class: "btn btn-secondary", href: `/download/addons/${addon.id}.jar`, text: "Jar herunterladen",
+      row.append(el("a", { class: "btn btn-secondary", href: `/download/addons/${addon.id}.jar`, download: "", text: "Jar herunterladen",
         title: "Für die Installation von Hand: in den plugins-Ordner legen und den Server neu starten" }));
     }
     return row;
@@ -528,30 +533,30 @@
 
   function notices(addon) {
     const box = el("div", { class: "ad-notices" });
-    const note = (kind, ...content) => box.append(el("div", { class: `ad-note ad-note-${kind}` }, ...content));
+    const add = (kind, ...content) => box.append(el("div", { class: `ad-note ad-note-${kind}` }, ...content));
     if (!data.plugin.supports && data.plugin.known) {
-      note("warn", "Dein MCDataLink kennt noch keine Erweiterungen. Im Reiter „Plugin“ gibt es Version 3.22+ (mit auto-update kommt sie beim nächsten Neustart von selbst).");
+      add("warn", "Dein MCDataLink kennt noch keine Erweiterungen. Im Reiter „Plugin“ gibt es Version 3.22+ (mit auto-update kommt sie beim nächsten Neustart von selbst).");
     }
     if (addon.state === "install") {
-      note("info", data.plugin.online ? "MCDataLink lädt die Erweiterung gerade herunter …"
+      add("info", data.plugin.online ? "MCDataLink lädt die Erweiterung gerade herunter …"
         : "Der Server ist gerade nicht verbunden. Die Installation startet, sobald er wieder online ist.");
     }
-    if (addon.state === "remove") note("info", data.plugin.online ? "Wird entfernt …" : "Wird entfernt, sobald der Server wieder online ist.");
-    if (addon.state === "restart") note("info", `Version ${addon.status_text || ""} liegt bereit und ist nach dem nächsten Server-Neustart aktiv.`);
-    if (addon.state === "failed") note("error", el("b", { text: "Hat nicht geklappt: " }), addon.status_text || "unbekannter Fehler");
+    if (addon.state === "remove") add("info", data.plugin.online ? "Wird entfernt …" : "Wird entfernt, sobald der Server wieder online ist.");
+    if (addon.state === "restart") add("info", `Version ${addon.status_text || ""} liegt bereit und ist nach dem nächsten Server-Neustart aktiv.`);
+    if (addon.state === "failed") add("error", el("b", { text: "Hat nicht geklappt: " }), addon.status_text || "unbekannter Fehler");
     if (addon.state === "pending") {
-      note(addon.verified ? "info" : "warn", addon.verified
+      add(addon.verified ? "info" : "warn", addon.verified
         ? "Diese Erweiterung ist eine offizielle Version aus dem Store. Gib sie frei, damit sie loslegt."
         : "Diese Erweiterung kommt nicht aus dem MCConnect-Store. Sie tut nichts und bekommt nichts von MCConnect, bis du sie freigibst.");
     }
     if (addon.state === "changed") {
-      note("warn", "Die Datei der Erweiterung hat sich seit deiner Freigabe geändert (andere Prüfsumme). Sie ist deshalb gesperrt, bis du sie neu freigibst.");
+      add("warn", "Die Datei der Erweiterung hat sich seit deiner Freigabe geändert (andere Prüfsumme). Sie ist deshalb gesperrt, bis du sie neu freigibst.");
     }
     if (addon.problems && addon.problems.length) {
-      note("warn", el("b", { text: "Meldungen vom Server:" }), el("ul", {}, ...addon.problems.map((p) => el("li", { text: p }))));
+      add("warn", el("b", { text: "Meldungen vom Server:" }), el("ul", {}, ...addon.problems.map((p) => el("li", { text: p }))));
     }
     if (remoteChanged) {
-      note("info", "Die Einstellungen wurden gerade geändert (z. B. im Spiel). ",
+      add("info", "Die Einstellungen wurden gerade geändert (z. B. im Spiel). ",
         el("button", { type: "button", class: "ad-link", text: "Neu laden und meine Änderungen verwerfen",
           onclick: () => { draft = null; remoteChanged = false; render(true); } }));
     }
@@ -649,16 +654,40 @@
       parts.push(el("div", { class: "ad-note ad-note-info" }, "Der Server ist gerade nicht verbunden. Du kannst trotzdem installieren und einstellen – ",
         "es wird übertragen, sobald er online ist."));
     }
+    if (!moderator) parts.push(rightsBox());
+    if (moderator && !installed.length) parts.push(el("p", { class: "hint", text: "Auf dem Server ist noch keine Erweiterung installiert." }));
     if (installed.length) parts.push(el("h3", { class: "ad-group", text: "Auf deinem Server" }), el("div", { class: "ad-grid" }, ...installed.map(tile)));
     if (available.length) parts.push(el("h3", { class: "ad-group", text: installed.length ? "Mehr Erweiterungen" : "Store" }),
       el("div", { class: "ad-grid" }, ...available.map(tile)));
     if (!data.addons.length) parts.push(el("p", { class: "hint", text: "Im Store gibt es gerade keine Erweiterungen." }));
-    parts.push(el("details", { class: "ad-dev" }, el("summary", { text: "Eigene Erweiterung entwickeln" }),
+    if (!moderator) parts.push(el("details", { class: "ad-dev" }, el("summary", { text: "Eigene Erweiterung entwickeln" }),
       el("p", { class: "hint" }, "Jedes Bukkit-Plugin kann eine MCConnect-Erweiterung sein: eine ", el("code", { text: "mcconnect-addon.json" }),
         " mit Id, Name und Einstellungen, ", el("code", { text: "depend: [MCDataLink]" }), " und in ", el("code", { text: "onEnable" }), " ",
         el("code", { text: "MCConnect.register(this, addon)" }), ". Sie erscheint dann hier, wartet auf deine Freigabe und bekommt ihre ",
         "Einstellungsseite automatisch.")));
     root.replaceChildren(...parts);
+  }
+
+  // the owner's switches: moderators may edit the settings, official addons update themselves
+  function rightsBox() {
+    const message = el("div", { class: "message" });
+    const toggle = (key, label, hint) => el("label", {},
+      el("input", { type: "checkbox", checked: data.rights[key], onchange: async (event) => {
+        const result = await postJson(api("/rights"), { [key]: event.target.checked });
+        if (!result.ok) {
+          event.target.checked = !event.target.checked;
+          note(message, result.data.error || "Speichern fehlgeschlagen.", "error");
+          return;
+        }
+        data = result.data;
+        note(message, "Gespeichert.", "success");
+      } }), el("span", {}, label, " ", el("span", { class: "hint", text: hint })));
+    return el("div", { class: "ad-owner" },
+      toggle("moderators", "Moderatoren dürfen die Erweiterungen einstellen",
+        "– auf der Verwaltungsseite des Servers; installieren, freigeben und entfernen kannst nur du"),
+      toggle("auto_update", "Offizielle Erweiterungen automatisch aktualisieren",
+        "– neue Versionen aus dem Store werden geladen und sind nach dem nächsten Server-Neustart aktiv"),
+      message);
   }
 
   // ------------------------------------------------------------------ navigation, polling
@@ -683,13 +712,13 @@
     draft = null;
     remoteChanged = false;
     openRows.clear();
-    history.replaceState(null, "", id ? `#addons/${id}` : "#addons");
+    history.replaceState(null, "", id ? `#${hashBase}/${id}` : `#${hashBase}`);
     render(true);
-    root.closest("[data-panel]").scrollIntoView({ block: "start" });
+    (root.closest("[data-panel]") || root).scrollIntoView({ block: "start" });
   }
 
   function fromHash() {
-    const match = /^#addons(?:\/([a-z0-9_]+))?$/.exec(location.hash);
+    const match = new RegExp(`^#${hashBase}(?:/([a-z0-9_]+))?$`).exec(location.hash);
     if (!match) return false;
     if ((match[1] || null) !== openId) {
       openId = match[1] || null;
@@ -700,7 +729,7 @@
     return true;
   }
 
-  const panelVisible = () => !root.closest("[data-panel]").hidden;
+  const panelVisible = () => !(root.closest("[data-panel]") || {}).hidden;
 
   async function refresh() {
     let fresh;

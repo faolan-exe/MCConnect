@@ -269,7 +269,7 @@ def test_migration_from_version_1(db):
     with db._cursor() as cur:
         # back to schema version 1
         cur.execute("DROP TABLE server_addons, addon_releases")
-        cur.execute("ALTER TABLE servers DROP COLUMN plugin_features")
+        cur.execute("ALTER TABLE servers DROP COLUMN plugin_features, DROP COLUMN addon_mods, DROP COLUMN addon_auto_update")
         cur.execute("DROP TABLE join_mutes, server_icons")
         cur.execute("ALTER TABLE servers DROP COLUMN icons_next")
         cur.execute("ALTER TABLE servers DROP COLUMN rewards_enabled, DROP COLUMN reward_levels, DROP COLUMN reward_texts, "

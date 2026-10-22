@@ -213,7 +213,8 @@ def connect(plugin, server, features="click,addons"):
 
 def report(connection, *entries):
     connection.send("!ADDONS~" + json.dumps(list(entries)))
-    assert until(connection, "success|107")[-1] == "success|107"
+    messages = until(connection, "success|107")
+    return messages[:-1]
 
 
 def test_reported_addons_get_their_state(db, server, plugin, store):
@@ -323,3 +324,57 @@ def test_moderators_see_that_the_join_addon_is_missing(client, db, server, two_p
     assert "BetterJoinMessages" in client.get("/users/belohnungen", **on("testdomain")).get_data(as_text=True)
     assert 'id="join"' not in client.get("/profil", **on("testdomain")).get_data(as_text=True)
     assert client.post("/api/joinstyle", json={"field": "color", "value": "white"}, **on("testdomain")).status_code == 409
+
+
+# ------------------------------------------------------------------ owner rights: moderators, automatic updates
+
+def test_automatic_updates_only_for_official_older_jars(db, server, admin_id, plugin, store):
+    db.record_addon_releases([("a" * 64, "spawnelytra", "1.9")])  # the server runs the official 1.9
+    connection = connect(plugin, server)
+    report(connection, entry(version="1.9"))  # switch off: nothing
+    assert db.get_addon(server["id"], "spawnelytra")["status"] is None
+    assert db.update_server(server["id"], admin_id, addon_auto_update=True)
+    assert report(connection, entry(version="1.9"))[-1].startswith("!addoninstall~spawnelytra|2.0|")
+    assert db.get_mod_log(server["id"])[0]["actor"] == "Auto-Update"
+    # an own build with the same id (not an official jar) or the newest version: left alone
+    db.set_addon_result(server["id"], "spawnelytra", "installed")
+    db._execute("UPDATE server_addons SET status = NULL")
+    assert not any(m.startswith("!addoninstall") for m in report(connection, entry(sha256="f" * 64, version="1.9")))
+    assert not any(m.startswith("!addoninstall") for m in report(connection, entry(sha256=store, version="2.0")))
+
+
+def test_owner_switches(admin_client, db, server, store):
+    response = admin_client.post(f"/api/servers/{server['id']}/addons/rights", json={"moderators": True}, **on(None))
+    assert response.json["rights"] == {"moderators": True, "auto_update": False, "moderator": False}
+    assert db.get_addon_rights(server["id"]) == (True, False)
+    assert admin_client.post(f"/api/servers/{server['id']}/addons/rights", json={"auto_update": True},
+                             **on(None)).json["rights"]["auto_update"] is True
+
+
+@pytest.fixture
+def mod(client, db, server, two_players):
+    from tests.test_web import login_player
+    db.set_plugin_connected(server["id"], True)
+    login_player(client, db, two_players[0])
+    db.set_moderator(server["id"], "_Tobias4444", True)
+    return client
+
+
+def test_moderators_edit_settings_only_if_allowed(mod, db, server, admin_id, store):
+    db.record_addon_releases([(store, "spawnelytra", "2.0")])
+    db.sync_reported_addons(server["id"], [entry(sha256=store)])
+    assert mod.get("/users/erweiterungen", **on("testdomain")).status_code == 403
+    assert mod.get("/api/mod/addons", **on("testdomain")).status_code == 403
+    assert "/users/erweiterungen" not in mod.get("/users", **on("testdomain")).get_data(as_text=True)  # no tab
+    assert db.update_server(server["id"], admin_id, addon_mods=True)
+    assert "/users/erweiterungen" in mod.get("/users", **on("testdomain")).get_data(as_text=True)
+    view = mod.get("/api/mod/addons", **on("testdomain")).json
+    assert [a["id"] for a in view["addons"]] == ["spawnelytra"] and view["rights"]["moderator"]
+    bad = mod.post("/api/mod/addons/spawnelytra/config", json={"config": {"radius": 1}}, **on("testdomain"))
+    assert bad.status_code == 400
+    assert mod.post("/api/mod/addons/spawnelytra/config", json={"config": {"radius": 40}},
+                    **on("testdomain")).json["addons"][0]["config"]["radius"] == 40
+    assert db.get_mod_log(server["id"])[0]["action"] == "addon_config"
+    # installing, approving and removing stay with the owner
+    assert mod.post("/api/mod/addons/spawnelytra/remove", json={}, **on("testdomain")).status_code in (404, 405)
+    assert mod.post(f"/api/servers/{server['id']}/addons/spawnelytra/remove", json={}, **on(None)).status_code == 401

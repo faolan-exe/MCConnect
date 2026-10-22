@@ -1,6 +1,6 @@
 # ADR 0001: Addons – an open plug-and-play system on top of MCDataLink
 
-Date: 2026-10-22 · Status: accepted · Plugin 3.22, schema 28
+Date: 2026-10-22 · Status: accepted · Plugin 3.22, schema 28/29
 
 ## Context
 
@@ -48,7 +48,10 @@ them needing its own API key, and other developers should be able to extend MCCo
   would need a restart – none of the official addons uses it.
 - A server whose owner does not install BetterJoinMessages loses custom join messages with the update (wanted).
 
-## Open questions
+## Follow-up decisions (2026-10-22, schema 29)
 
-- Should official addons update themselves like MCDataLink (`auto-update`)? Now the owner clicks "Aktualisieren".
-- Should moderators (not only the owner) be allowed to edit addon settings?
+- The owner can let **moderators edit addon settings** (`servers.addon_mods`, page `/users/erweiterungen`). Installing,
+  approving, pausing and removing stay with the owner.
+- The owner can switch on **automatic updates** (`servers.addon_auto_update`): when the plugin reports its addons (or
+  the switch is turned on), newer store versions of *official* jars are installed through the update folder (active
+  after the next restart). Own builds with the same id are never replaced.

@@ -72,6 +72,8 @@ Server -> plugin:
     !addoninstall~<id>|<version>|<url>|<sha256>|<file name>   install an official addon from the store (a running
                                  one is updated through the update folder); answered with !ADDONRESULT
     !addonremove~<id>|<file name>   disable an addon and delete its jar; answered with !ADDONRESULT
+                                 With servers.addon_auto_update the server sends !addoninstall by itself for newer store
+                                 versions of the official addons a server runs (after !ADDONS, schema 29).
     !pack~<url>|<sha1>|<icon><fallback>,...   the icon resource pack to offer the players and the Unicode fallback
                                  of each icon for players without it (plugin 3.17, after "glyphs")
     !badge~<uuid>|<line>         the line under a player's name ("&" colors, icons; empty: nothing; plugin 3.17)
@@ -778,6 +780,8 @@ class SocketServer:
                 self.send_addon_state(server_id, addon)
                 if addon["addon_id"] == addons.JOIN_ADDON:
                     self.sync_join_messages(server_id)
+        elif kind == "addon_autoupdate":
+            self.auto_update_addons(server_id)
         elif kind in ("addon_install", "addon_remove"):
             self.send_addon_actions(server_id, only=event.get("addon_id"))
         else:
@@ -813,6 +817,24 @@ class SocketServer:
             join_active = join_active or (addon["addon_id"] == addons.JOIN_ADDON and addon["active"])
         if join_active:
             self.sync_join_messages(client.server_id)
+        self.auto_update_addons(client.server_id)
+
+    def auto_update_addons(self, server_id):
+        """If the owner allows it: newer store versions of official addons the server runs (not own builds with the
+        same id), through the update folder (active after the next restart)."""
+        if not self.db.get_addon_rights(server_id)[1]:
+            return
+        catalog = addons.catalog()
+        for addon in self.db.get_addons(server_id):
+            info = catalog.get(addon["addon_id"])
+            if (info is None or not addon["present"] or addon["status"] in ("install", "restart", "remove")
+                    or addons.version_key(info["version"]) <= addons.version_key(addon["version"])
+                    or not self.db.is_official_addon(addon["addon_id"], addon["sha256"])):
+                continue
+            self.db.request_addon_install(server_id, info)
+            self.db.add_mod_log(server_id, "Auto-Update", "addon_install", None, f"{info['manifest']['name']} {info['version']}")
+            logger.info(f"Server {server_id}: updating addon {addon['addon_id']} to {info['version']}")
+            self.send_addon_actions(server_id, only=addon["addon_id"])
 
     def send_addon_state(self, server_id, addon):
         settings = addons.normalize(addon["manifest"]["settings"], addon["config"] or {})[0] if addon["active"] else {}

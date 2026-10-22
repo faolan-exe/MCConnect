@@ -543,6 +543,11 @@ MIGRATIONS = {
         # what the connected plugin can do (!FEATURES), e.g. "addons"; the admin page tells owners of older plugins
         "ALTER TABLE servers ADD COLUMN plugin_features text[] NOT NULL DEFAULT '{}'",
     ],
+    29: [
+        # the owner lets moderators edit the addons' settings, and lets the store update official addons by itself
+        "ALTER TABLE servers ADD COLUMN addon_mods boolean NOT NULL DEFAULT false",
+        "ALTER TABLE servers ADD COLUMN addon_auto_update boolean NOT NULL DEFAULT false",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -1567,7 +1572,7 @@ class DatabaseManager:
     def update_server(self, server_id, owner_id, **fields):
         """Update editable server fields; only succeeds for the owner. Returns True if updated."""
         allowed = {"server_name", "mc_server_domain", "discord_url", "whitelist", "auto_mod_ops", "alerts_enabled", "listed",
-                   "server_description_short", "server_description_long"}
+                   "server_description_short", "server_description_long", "addon_mods", "addon_auto_update"}
         fields = {k: v for k, v in fields.items() if k in allowed}
         if not fields:
             return False
@@ -3544,6 +3549,11 @@ class DatabaseManager:
 
     def set_plugin_features(self, server_id, features):
         self._execute("UPDATE servers SET plugin_features = %s WHERE id = %s", (sorted(features), server_id))
+
+    def get_addon_rights(self, server_id):
+        """(moderators may edit addon settings, official addons update themselves)."""
+        row = self._fetchone("SELECT addon_mods, addon_auto_update FROM servers WHERE id = %s", (server_id,))
+        return (bool(row[0]), bool(row[1])) if row else (False, False)
 
     def get_plugin_features(self, server_id):
         return set(self._fetchvalue("SELECT plugin_features FROM servers WHERE id = %s", (server_id,)) or ())

@@ -1545,7 +1545,7 @@ def prefix_join_page():
 
 # Moderation pages: (path below /users, tab label). Every page shows the tabs with the open tasks.
 MOD_PAGES = (("", "Übersicht"), ("spieler", "Spieler"), ("inhalte", "Inhalte"), ("zugang", "Zugang & Regeln"),
-             ("belohnungen", "Belohnungen"), ("icons", "Icons"), ("protokoll", "Protokoll"))
+             ("belohnungen", "Belohnungen"), ("icons", "Icons"), ("erweiterungen", "Erweiterungen"), ("protokoll", "Protokoll"))
 
 
 def mod_tasks(server_id):
@@ -1568,7 +1568,8 @@ MOD_PAGE_TASKS = {"spieler": ("reports", "xray"), "inhalte": ("builds", "guestbo
 
 def render_mod(page, template, **context):
     tasks = mod_tasks(g.server["id"])
-    return render_template(template, mod_page=page, mod_pages=MOD_PAGES, tasks=tasks,
+    pages = MOD_PAGES if db().get_addon_rights(g.server["id"])[0] else tuple(p for p in MOD_PAGES if p[0] != "erweiterungen")
+    return render_template(template, mod_page=page, mod_pages=pages, tasks=tasks,
                            tab_counts={key: sum(tasks[t][0] for t in MOD_PAGE_TASKS.get(key, ())) for key, _ in MOD_PAGES},
                            **context)
 
@@ -3050,7 +3051,7 @@ def _validate_server_fields(data, current=None):
             return None, f"Feld '{key}' enthält ungültige Zeichen."
         optional = key in ("mc_server_domain", "discord_url")
         fields[key] = (value or None) if optional else value
-    for flag in ("whitelist", "auto_mod_ops", "alerts_enabled", "listed"):
+    for flag in ("whitelist", "auto_mod_ops", "alerts_enabled", "listed", "addon_mods", "addon_auto_update"):
         if flag in data or current is None:
             fields[flag] = data.get(flag) in (True, "true", "on", "1", 1)
 
@@ -3208,7 +3209,8 @@ def addon_view(row, info):
     }
 
 
-def addons_view(server):
+def addons_view(server, moderator=False):
+    """The store for the owner; for moderators (moderator=True) only the installed addons, to edit their settings."""
     catalog = addons.catalog()
     db().record_addon_releases([(info["sha256"], addon_id, info["version"]) for addon_id, info in catalog.items()])
     rows = {row["addon_id"]: row for row in db().get_addons(server["id"])}
@@ -3217,8 +3219,12 @@ def addons_view(server):
     views += [addon_view(row, None) for addon_id, row in rows.items()
               if addon_id not in catalog and (row["present"] or row["status"] in ("remove", "failed"))]
     features = db().get_plugin_features(server["id"])
+    mods, auto_update = db().get_addon_rights(server["id"])
+    if moderator:
+        views = [v for v in views if v["state"] not in ("available", "remove")]
     return {"addons": views, "plugin": {"online": bool(server["plugin_online"]), "supports": "addons" in features,
                                         "known": bool(features)},
+            "rights": {"moderators": mods, "auto_update": auto_update, "moderator": moderator},
             "players": [p["name"] for p in db().get_players_overview_from_subdomain(server["subdomain"])][:500]}
 
 
@@ -3308,6 +3314,55 @@ def admin_addon_config_api(server_id, addon_id):
     db().notify_server_event(server_id, "addon", addon_id=addon_id)
     _addon_log(server_id, "addon_config", row["name"])
     return addons_view(server)
+
+
+@main_bp.route("/api/servers/<int:server_id>/addons/rights", methods=["POST"])
+@admin_required
+def admin_addon_rights_api(server_id):
+    """{"moderators": bool} and/or {"auto_update": bool}."""
+    server = owned_server_or_404(server_id)
+    data = request.get_json(silent=True) or {}
+    fields = {column: bool(data[key]) for key, column in (("moderators", "addon_mods"), ("auto_update", "addon_auto_update"))
+              if key in data}
+    if fields:
+        db().update_server(server_id, session["admin_id"], **fields)
+    if fields.get("addon_auto_update"):
+        db().notify_server_event(server_id, "addon_autoupdate")  # update what is behind right away
+    return addons_view(server)
+
+
+def addon_moderation_allowed():
+    if not db().get_addon_rights(g.server["id"])[0]:
+        abort(403)
+    return {"id": g.server["id"], "subdomain": g.subdomain, "plugin_online": db().is_plugin_online(g.server["id"])}
+
+
+@server_bp.route("/users/erweiterungen")
+@moderator_required
+def moderation_addons_page():
+    addon_moderation_allowed()
+    return render_mod("erweiterungen", "mod/addons.html")
+
+
+@server_bp.route("/api/mod/addons")
+@moderator_required
+def mod_addons_api():
+    return addons_view(addon_moderation_allowed(), moderator=True)
+
+
+@server_bp.route("/api/mod/addons/<addon_id>/config", methods=["POST"])
+@moderator_required
+def mod_addon_config_api(addon_id):
+    """Moderators edit the settings of installed addons (if the owner allows it); nothing else."""
+    server = addon_moderation_allowed()
+    row = _addon_or_404(server["id"], addon_id)
+    settings, errors = addons.normalize((row["manifest"] or {}).get("settings", []), (request.get_json(silent=True) or {}).get("config"))
+    if errors:
+        return {"error": "Bitte die markierten Felder prüfen.", "errors": errors}, 400
+    db().set_addon_config(server["id"], addon_id, settings)
+    db().notify_server_event(server["id"], "addon", addon_id=addon_id)
+    db().add_mod_log(server["id"], mod_name(), "addon_config", None, row["name"])
+    return addons_view(server, moderator=True)
 
 
 _items_cache = []
