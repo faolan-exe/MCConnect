@@ -7,6 +7,7 @@ import secrets
 import select
 import string
 import threading
+import uuid as uuid_mod
 from contextlib import contextmanager
 
 import argon2
@@ -559,6 +560,23 @@ MIGRATIONS = {
              PRIMARY KEY (server_id, name))""",
         "ALTER TABLE servers ADD COLUMN registry_version text",
     ],
+    31: [
+        # Usernames and e-mail addresses of admins are unique regardless of case ("tobi" and "TOBI" were two accounts).
+        # Unverified accounts without servers that clash with an older or a verified one are dropped (the same rule as
+        # signing up again, see add_server_admin).
+        """DELETE FROM server_admins sa USING server_admins o
+           WHERE sa.id <> o.id AND NOT sa.email_verified AND (o.email_verified OR o.id < sa.id)
+             AND (lower(sa.username) = lower(o.username) OR lower(sa.email) = lower(o.email))
+             AND NOT EXISTS (SELECT 1 FROM servers s WHERE s.owner_id = sa.id)""",
+        # Clashes between verified accounts cannot be solved here: then add_server_admin alone keeps new ones out.
+        """DO $$ BEGIN
+             IF NOT EXISTS (SELECT 1 FROM server_admins GROUP BY lower(username) HAVING count(*) > 1)
+                AND NOT EXISTS (SELECT 1 FROM server_admins GROUP BY lower(email) HAVING count(*) > 1) THEN
+               CREATE UNIQUE INDEX IF NOT EXISTS server_admins_username_lower_idx ON server_admins (lower(username));
+               CREATE UNIQUE INDEX IF NOT EXISTS server_admins_email_lower_idx ON server_admins (lower(email));
+             END IF;
+           END $$""",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -643,6 +661,14 @@ def _event_payloads(event):
         raise ValueError(f"server event {event.get('type')} is too long for a notification")
     half = len(event[key]) // 2
     return _event_payloads(dict(event, **{key: event[key][:half]})) + _event_payloads(dict(event, **{key: event[key][half:]}))
+
+
+def offline_uuid(name):
+    """The uuid an offline-mode server gives a name (Java: UUID.nameUUIDFromBytes("OfflinePlayer:" + name))."""
+    digest = bytearray(hashlib.md5(f"OfflinePlayer:{name}".encode()).digest())
+    digest[6] = digest[6] & 0x0F | 0x30  # version 3
+    digest[8] = digest[8] & 0x3F | 0x80  # IETF variant
+    return str(uuid_mod.UUID(bytes=bytes(digest)))
 
 
 def generate_secure_token(length=64):
@@ -932,19 +958,37 @@ class DatabaseManager:
 
     def add_player(self, mojang_uuid, name=None):
         """
-        Make sure the player exists. A given name always overwrites the stored
-        one (names can change); without a name it is looked up online once.
+        Make sure the player exists. Names are shared by all servers, so a name a plugin reports is not simply taken
+        (any server could rename any player): see trusted_name. Without a name it is looked up once.
         """
-        if name:
-            self._execute("""INSERT INTO player (uuid, name) VALUES (%s, %s)
-                             ON CONFLICT (uuid) DO UPDATE SET name = EXCLUDED.name""",
-                          (mojang_uuid, name))
+        stored = self._fetchvalue("SELECT name FROM player WHERE uuid = %s", (mojang_uuid,))
+        if stored is not None and (not name or name == stored):
             return
-        if self._fetchvalue("SELECT 1 FROM player WHERE uuid = %s", (mojang_uuid,)):
-            return
-        name = self.minecraft.get_player_name_from_mojang_uuid_online(mojang_uuid) or str(mojang_uuid)
-        self._execute("INSERT INTO player (uuid, name) VALUES (%s, %s) ON CONFLICT (uuid) DO NOTHING",
-                      (mojang_uuid, name))
+        new = self.trusted_name(mojang_uuid, name, stored) if name else \
+            self.minecraft.get_player_name_from_mojang_uuid_online(mojang_uuid)
+        if stored is None:
+            self._execute("INSERT INTO player (uuid, name) VALUES (%s, %s) ON CONFLICT (uuid) DO NOTHING",
+                          (mojang_uuid, new or str(mojang_uuid)))
+        elif new and new != stored:
+            self._execute("UPDATE player SET name = %s WHERE uuid = %s", (new, mojang_uuid))
+
+    def trusted_name(self, mojang_uuid, reported, stored):
+        """
+        The name to store when a plugin reports `reported` for a uuid (stored: the current name or None), or None to
+        keep the stored one. Mojang decides for its accounts. An offline-mode uuid is made from the name, so it proves
+        the name itself. Others (Bedrock players via Floodgate, Mojang not reachable): only the first name is taken.
+        """
+        try:
+            version = uuid_mod.UUID(str(mojang_uuid)).version
+        except ValueError:
+            return None
+        if version == 3:
+            return reported if offline_uuid(reported) == str(mojang_uuid) else None
+        if version == 4:
+            online = self.minecraft.get_player_name_from_mojang_uuid_online(mojang_uuid)
+            if online:
+                return online
+        return reported if stored is None else None
 
     def add_player_server_info(self, server_id, mojang_uuid, web_access_permissions=DEFAULT_WEB_ACCESS_LEVEL):
         """Add the player to the server (if not already there) and return the player_id."""
@@ -988,6 +1032,11 @@ class DatabaseManager:
                                  AND (lower(sa.username) = lower(%s) OR lower(sa.email) = lower(%s))
                                  AND NOT EXISTS (SELECT 1 FROM servers s WHERE s.owner_id = sa.id)""",
                             (username, email))
+            # usernames and addresses are unique regardless of case (also enforced by an index, schema 31)
+            cur.execute("""SELECT 1 FROM server_admins WHERE lower(username) = lower(%s) OR lower(email) = lower(%s)""",
+                        (username, email))
+            if cur.fetchone():
+                raise psycopg2.errors.UniqueViolation("username or email address is taken")
             cur.execute("""INSERT INTO server_admins (username, password, email, email_verified)
                            VALUES (%s, %s, %s, %s) RETURNING id""",
                         (username, ph.hash(password), email, email_verified))
@@ -3738,7 +3787,7 @@ class DatabaseManager:
         the email address (case-insensitive; usernames cannot contain "@").
         Returns (admin_id, username) or None.
         """
-        column = "lower(email) = lower(%s)" if "@" in login else "username = %s"
+        column = "lower(email) = lower(%s)" if "@" in login else "lower(username) = lower(%s)"
         rows = self._fetchall(f"SELECT id, username, password FROM server_admins WHERE {column} AND email_verified",
                               (login,))
         if not rows:  # hash anyway, so the response time does not tell whether the account exists

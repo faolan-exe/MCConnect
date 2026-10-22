@@ -1,7 +1,7 @@
 """Phase 9: year in review, server directory and dark mode."""
 import pytest
 
-from tests.conftest import OTHER_UUID, PLAYER_UUID
+from tests.conftest import OTHER_UUID
 from tests.test_metrics import STATS_A, set_snapshot_day, two_players  # noqa: F401 (fixture)
 from tests.test_web import admin_client, app, client, login_player, on  # noqa: F401 (fixtures)
 

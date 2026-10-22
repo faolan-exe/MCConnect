@@ -1,0 +1,10 @@
+{% extends "server_base.html" %}
+{% block title %}Gebannt · {{ server_name }}{% endblock %}
+{% block content %}
+<div class="srv-card">
+  <h1>Du bist gebannt</h1>
+  <p class="srv-lead">Solange der Bann läuft ({{ until }}), kannst du auf der Website nichts ändern, schreiben oder
+    abstimmen. Grund: {{ reason }}</p>
+  <a class="mcc-btn mcc-btn-secondary" href="/">Zur Startseite</a>
+</div>
+{% endblock %}

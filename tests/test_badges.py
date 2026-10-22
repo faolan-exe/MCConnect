@@ -66,7 +66,7 @@ def test_join_icons_are_white_and_unlocked_by_levels():
 
 def test_preview_shows_icons_as_images():
     from web.main import create_app, mc_html
-    with create_app().test_request_context():
+    with create_app(object(), {"SECRET_KEY": "test"}).test_request_context():  # no database needed
         html = str(mc_html(f"&f{CROWN} &b<x>"))
     assert '<img class="mc-glyph" src="/static/glyphs/crown.svg" alt="Krone"' in html and "&lt;x&gt;" in html
 

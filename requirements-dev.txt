@@ -2,3 +2,5 @@
 pytest
 # browser tests of the mobile layout (tests/test_mobile.py, use the installed Chrome; skipped without)
 playwright
+# lint (ruff.toml), also run by the CI
+ruff==0.17.2

@@ -246,7 +246,7 @@ def test_install_and_remove_from_the_store(db, server, plugin, store, socket_ser
     connection = connect(plugin, server)
     db.request_addon_install(server["id"], addons.catalog()["spawnelytra"])
     socket_server.handle_server_event({"server_id": server["id"], "type": "addon_install", "addon_id": "spawnelytra"})
-    assert connection.recv().startswith(f"!addoninstall~spawnelytra|2.0|")
+    assert connection.recv().startswith("!addoninstall~spawnelytra|2.0|")
     connection.send("!ADDONRESULT~spawnelytra|failed|Kein Platz")
     wait_for(lambda: db.get_addon(server["id"], "spawnelytra")["status"] == "failed")
     assert db.get_addon(server["id"], "spawnelytra")["status_text"] == "Kein Platz"

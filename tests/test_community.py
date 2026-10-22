@@ -1,6 +1,7 @@
 """Phase 7: events, polls, build gallery and guestbook."""
 import io
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 from PIL import Image
@@ -250,8 +251,9 @@ def test_community_pages_render(client, server):
 
 def test_new_event_is_announced_at_once(mod_client, db, server, plugin, socket_server):
     connection = plugin().auth(server["key"])
-    soon_local = (datetime.now() + timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M")
-    later_local = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%dT20:00")
+    local = datetime.now(ZoneInfo(config.TIMEZONE))  # the form sends the server's local time (not the machine's)
+    soon_local = (local + timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M")
+    later_local = (local + timedelta(days=2)).strftime("%Y-%m-%dT20:00")
     assert mod_client.post("/api/mod/events", json={"title": "Spontan", "starts_at": soon_local},
                            **on("testdomain")).status_code == 200
     first = until(connection, "!broadcast~")[-1]

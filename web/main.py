@@ -313,7 +313,7 @@ def feature_rankings_required(view):
 
 def player_required(view=None, *, allow_upload=False):
     """
-    Server pages that need a logged in player; POST API calls must be JSON (CSRF protection).
+    Server pages that need a logged in player who is not banned; POST API calls must be JSON (CSRF protection).
     Upload endpoints (allow_upload) accept multipart forms instead and check the Origin header.
     """
     if view is None:
@@ -322,8 +322,16 @@ def player_required(view=None, *, allow_upload=False):
     @functools.wraps(view)
     def wrapper(*args, **kwargs):
         is_api = request.path.startswith("/api/")
-        if not logged_in_player_id():
+        player_id = logged_in_player_id()
+        if not player_id:
             return ({"error": "Bitte zuerst einloggen."}, 401) if is_api else redirect(f"/login?next={quote(request.path, safe='/')}")
+        reason = db().get_ban_reason_from_player_id(player_id)
+        if reason:  # a banned player may look, but not take part (also with a login from before the ban)
+            if is_api:
+                return {"error": "Du bist auf diesem Server gebannt."}, 403
+            end = db().get_ban_start_and_ban_end_by_player_id(player_id)[1]
+            return render_template("gebannt.html", reason=reason,
+                                   until=end.strftime("bis %d.%m.%Y %H:%M Uhr") if end else "dauerhaft"), 403
         if is_api and request.method == "POST":
             if allow_upload and request.mimetype == "multipart/form-data":
                 origin = request.headers.get("Origin")
@@ -1308,10 +1316,9 @@ BIO_MAX_LENGTH = 160
 
 
 @server_bp.route("/profil")
+@player_required
 def profile_page():
     player_id = logged_in_player_id()
-    if not player_id:
-        return redirect("/login?next=/profil")
     return render_template("profil.html", profile=db().get_profile(player_id), bio_max=BIO_MAX_LENGTH,
                            favorites=db().get_favorites(player_id), sidebar=db().get_sidebar(player_id),
                            join=join_view(player_id), badges=badges_view(player_id))
@@ -2143,6 +2150,8 @@ def mod_bans_api():
 @server_bp.route("/api/mod/ban", methods=["POST"])
 @moderator_required
 def mod_ban_api():
+    if is_self(request.get_json(silent=True) or {}):
+        return {"error": "Du kannst dich nicht selbst bannen."}, 400
     return do_ban(g.server["id"], request.get_json(silent=True) or {},
                   banned_by=db().get_player_name_from_player_id(logged_in_player_id()))
 
@@ -2207,6 +2216,12 @@ POLL_QUESTION_MAX, POLL_OPTION_MAX, POLL_MAX_DAYS = 120, 60, 60
 
 def mod_name():
     return db().get_player_name_from_player_id(logged_in_player_id())
+
+
+def is_self(data):
+    """True if data["name"] is the logged in moderator (other moderators may be banned, oneself not)."""
+    target = db().get_player_id_from_player_name_and_server_id(str(data.get("name") or "").strip(), g.server["id"])
+    return target is not None and str(target) == str(logged_in_player_id())
 
 
 def json_id(message):
@@ -2473,6 +2488,8 @@ def mod_whitelist_remove_api():
 @moderator_required
 def mod_warn_api():
     data = request.get_json(silent=True) or {}
+    if is_self(data):  # the warnings can end in a ban
+        return {"error": "Du kannst dich nicht selbst verwarnen."}, 400
     reason = " ".join(str(data.get("reason") or "").split())[:game_commands.WARN_REASON_MAX]
     player_id = db().get_player_id_from_player_name_and_server_id(str(data.get("name") or ""), g.server["id"])
     if player_id is None:

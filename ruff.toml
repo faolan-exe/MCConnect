@@ -1,0 +1,10 @@
+# Only real mistakes (undefined names, unused imports and variables, syntax errors), no style rules.
+target-version = "py312"
+exclude = ["java plugin", "sampleData"]
+
+[lint]
+select = ["F", "E9"]
+
+[lint.per-file-ignores]
+# fixtures are imported from other test modules and then used as parameters of the same name
+"tests/*" = ["F811"]

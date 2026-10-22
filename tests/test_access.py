@@ -1,5 +1,5 @@
 """Phase 8: whitelist access, warnings and mutes, X-ray hints, alerts, rules and FAQ."""
-import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -250,3 +250,58 @@ def test_own_ban_reason_is_shown_to_the_player(mod_client, db, server, two_playe
     notch = db.get_player_id_from_mojang_uuid_and_server_id(OTHER_UUID, server["id"])
     assert db.get_ban_reason_from_player_id(notch) == "Griefing am Hafen"
     assert db.list_active_bans(server["id"])[0]["comment"] == "intern"
+
+
+# ------------------------------------------------------------------ banned players, banning oneself
+
+def test_moderators_cannot_ban_or_warn_themselves(mod_client, db, server):
+    for path, body in (("/api/mod/ban", {"name": "_tobias4444"}), ("/api/mod/warn", {"name": "_Tobias4444", "reason": "Test"})):
+        response = mod_client.post(path, json=body, **on("testdomain"))
+        assert response.status_code == 400 and "selbst" in response.json["error"]
+    me = db.get_player_id_from_mojang_uuid_and_server_id(PLAYER_UUID, server["id"])
+    assert db.list_active_bans(server["id"]) == [] and db.get_warnings(me) == []
+
+
+def test_moderators_may_ban_other_moderators(mod_client, db, server):
+    db.set_moderator(server["id"], "Notch", True)
+    assert mod_client.post("/api/mod/ban", json={"name": "Notch"}, **on("testdomain")).status_code == 200
+
+
+def test_no_self_warning_in_game(db, server, game):
+    db.set_moderator(server["id"], "_Tobias4444", True)
+    cmd(game, PLAYER_UUID, "verwarnen", "_Tobias4444 Test")
+    assert tells(game, 1) == ["&cDu kannst dich nicht selbst verwarnen."]
+
+
+def test_banned_player_cannot_take_part_despite_the_login(mod_client, db, server):
+    db.ban_player(server["id"], "_Tobias4444", "Admin", days=1)
+    for path, body in (("/api/guestbook", {"name": "Notch", "text": "hallo"}), ("/api/profile", {"bio": "x"}),
+                       ("/api/sidebar", {"mode": "off"}), ("/api/mod/ban", {"name": "Notch"})):
+        response = mod_client.post(path, json=body, **on("testdomain"))
+        assert response.status_code == 403 and response.json["error"] == "Du bist auf diesem Server gebannt.", path
+    for page in ("/profil", "/melden", "/add_pref", "/users"):
+        response = mod_client.get(page, **on("testdomain"))
+        assert response.status_code == 403 and "Du bist gebannt" in response.get_data(as_text=True), page
+    assert mod_client.get("/rangliste", **on("testdomain")).status_code == 200  # looking is fine
+    assert db.list_active_bans(server["id"])[0]["name"] == "_Tobias4444"  # the moderator did not ban Notch
+    # when the ban ends everything works again
+    db.unban_player(server["id"], db.get_player_id_from_mojang_uuid_and_server_id(PLAYER_UUID, server["id"]))
+    assert mod_client.post("/api/sidebar", json={"mode": "off"}, **on("testdomain")).status_code == 200
+
+
+def test_expired_ban_does_not_block(mod_client, db, server):
+    me = db.get_player_id_from_mojang_uuid_and_server_id(PLAYER_UUID, server["id"])
+    db.add_banned_player(me, None, None, datetime.now(timezone.utc) - timedelta(minutes=1))
+    assert mod_client.post("/api/sidebar", json={"mode": "off"}, **on("testdomain")).status_code == 200
+
+
+def test_ingame_ban_blocks_the_website_too(mod_client, db, server):
+    db.sync_ingame_bans(server["id"], [{"name": "_Tobias4444", "reason": "Griefing", "source": "Console"}])
+    response = mod_client.get("/profil", **on("testdomain"))
+    assert response.status_code == 403 and "Griefing" in response.get_data(as_text=True)
+
+
+def test_ban_on_another_server_does_not_block(mod_client, db, server, other_server):
+    db.register_player_join(other_server["id"], PLAYER_UUID, "_Tobias4444")
+    db.ban_player(other_server["id"], "_Tobias4444", "Admin", days=0)
+    assert mod_client.post("/api/sidebar", json={"mode": "off"}, **on("testdomain")).status_code == 200
