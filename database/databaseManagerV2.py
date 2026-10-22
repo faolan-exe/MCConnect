@@ -557,7 +557,7 @@ SESSION_MERGE_SECONDS = 120
 ACHIEVEMENT_ACTIVE_MINUTES = 10
 # A record that changes hands again within this time is not announced (two players passing
 # each other while playing together); taking it straight back undoes the change.
-RECORD_COOLDOWN_MINUTES = 60
+RECORD_COOLDOWN_MINUTES = 30
 # A player's first stats count completely if their play time is at most this much longer than the time since
 # their first join (a new player); otherwise the stats are older and count from then on.
 NEW_PLAYER_SLACK_SECONDS = 300
