@@ -185,6 +185,8 @@ Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss 
   objects in `test_migration_from_version_1` (`tests/test_database.py`).
 - Every new public view must respect `hide_stats` (`get_server_metrics()` leaves hidden players out
   unless `include_hidden=True`).
+- No CSS class or id may start with `ad-`, `ads-` or contain `-ad-`/`banner-ad`: ad blockers hide such elements
+  (the addon store was invisible behind uBlock with its first `ad-` prefix; it uses `ext-` now).
 - New CSS uses the `--srv-*` / `--st-*` tokens (or gets a rule in `dark.css`), otherwise it stays light in dark mode.
 - Plugin changes: bump the version in `pom.xml`, document new messages in the docstring of `mc_socket/main.py`,
   check that it compiles (`docker run --rm -v <copy>:/p -w /p maven:3.9-eclipse-temurin-17 mvn -q package`) and

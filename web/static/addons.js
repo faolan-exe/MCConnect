@@ -3,7 +3,7 @@
 // page; the state is polled every few seconds while the tab is open. data-mode="mod" (/users/erweiterungen): the
 // moderators' view, only the settings of installed addons (if the owner allows it).
 (() => {
-  const root = document.querySelector(".ad-root");
+  const root = document.querySelector(".ext-root");
   if (!root) return;
   const moderator = root.dataset.mode === "mod";
   const base = moderator ? "/api/mod/addons" : `/api/servers/${root.dataset.serverId}/addons`;
@@ -73,16 +73,16 @@
   }
 
   function itemIcon(id, small) {
-    if (!id) return el("span", { class: "ad-item-empty", "aria-hidden": "true" });
+    if (!id) return el("span", { class: "ext-item-empty", "aria-hidden": "true" });
     if (hasSprite(id)) {
       return el("i", { class: `icon-minecraft${small ? "-sm" : ""} icon-minecraft-${id.replace(/_/g, "-")}`, title: prettyItem(id) });
     }
-    return el("span", { class: "ad-item-letter", title: prettyItem(id), text: id.charAt(0).toUpperCase() });
+    return el("span", { class: "ext-item-letter", title: prettyItem(id), text: id.charAt(0).toUpperCase() });
   }
 
   // "&a" colors and formats as HTML (text nodes only, nothing is parsed as HTML)
   function chatPreview(text) {
-    const line = el("span", { class: "ad-chat-line" });
+    const line = el("span", { class: "ext-chat-line" });
     let style = { color: COLORS.f };
     const parts = String(text).split(/(&[0-9a-fk-or])/i);
     for (const part of parts) {
@@ -112,9 +112,21 @@
   }
 
   async function getJson(url) {
-    const response = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!response.ok) throw new Error(String(response.status));
-    return response.json();
+    const response = await fetch(url, { headers: { Accept: "application/json" }, credentials: "same-origin" });
+    if (!response.ok) throw new Error(`Der Server antwortet mit Fehler ${response.status}.`);
+    try {
+      return await response.json();
+    } catch (e) {
+      throw new Error("Der Server hat keine gültigen Daten geschickt.");
+    }
+  }
+
+  // instead of an empty panel: what went wrong (also shown on later polls until it works again)
+  function showError(error) {
+    if (data && root.querySelector(".ext-tile, .ext-detail")) return;  // keep a working page, the next poll tries again
+    root.replaceChildren(el("div", { class: "ext-note ext-note-error" },
+      el("b", { text: "Die Erweiterungen konnten nicht geladen werden. " }), String(error && error.message || error),
+      " Lade die Seite neu; bleibt es so, steht der Grund im Server-Log (web)."));
   }
 
   // ------------------------------------------------------------------ item picker (one popover for all fields)
@@ -125,7 +137,7 @@
     return items;
   }
 
-  const picker = el("div", { class: "ad-picker", role: "dialog", "aria-label": "Item wählen", hidden: true });
+  const picker = el("div", { class: "ext-picker", role: "dialog", "aria-label": "Item wählen", hidden: true });
   document.body.append(picker);
   let pickerDone = null;
 
@@ -133,12 +145,12 @@
     pickerDone = done;
     const list = await loadItems();
     const search = el("input", { type: "search", placeholder: "Item suchen, z. B. glass", value: current || "", "aria-label": "Item suchen" });
-    const results = el("div", { class: "ad-picker-results" });
+    const results = el("div", { class: "ext-picker-results" });
     const render = () => {
       const query = search.value.trim().toLowerCase().replace(/\s+/g, "_");
       const matches = list.filter((id) => !query || id.includes(query))
         .sort((a, b) => (a.startsWith(query) ? 0 : 1) - (b.startsWith(query) ? 0 : 1) || a.length - b.length).slice(0, 60);
-      results.replaceChildren(...matches.map((id) => el("button", { type: "button", class: "ad-picker-item", title: id,
+      results.replaceChildren(...matches.map((id) => el("button", { type: "button", class: "ext-picker-item", title: id,
         onclick: () => choose(id) }, itemIcon(id), el("span", { text: prettyItem(id) }))));
       if (!matches.length) results.append(el("p", { class: "hint", text: "Nichts gefunden. Du kannst die ID auch direkt eintippen." }));
     };
@@ -147,14 +159,14 @@
     search.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
-        const first = results.querySelector(".ad-picker-item");
+        const first = results.querySelector(".ext-picker-item");
         choose(first ? first.title : search.value.trim().toLowerCase());
       } else if (event.key === "Escape") {
         closePicker();
       }
     });
     picker.replaceChildren(
-      el("div", { class: "ad-picker-head" }, search,
+      el("div", { class: "ext-picker-head" }, search,
         el("button", { type: "button", class: "btn btn-secondary", onclick: () => choose(""), text: "Leeren" })),
       results);
     render();
@@ -191,7 +203,7 @@
 
   // Calls back with the new value; rerender() rebuilds the object (for show_if and list changes).
   function fieldNode(field, scope, path, rerender) {
-    const id = "ad-f-" + path.replace(/[^a-z0-9]/gi, "-");
+    const id = "ext-f-" + path.replace(/[^a-z0-9]/gi, "-");
     const set = (value, rebuild) => {
       scope[field.key] = value;
       changed();
@@ -199,16 +211,16 @@
     };
     const value = scope[field.key];
     const label = el("label", { for: id, text: field.label });
-    const help = field.help ? el("p", { class: "hint ad-help", text: field.help }) : null;
-    const wrap = el("div", { class: `ad-field ad-field-${field.type}`, dataset: { path } });
-    const error = el("p", { class: "ad-error", hidden: true });
+    const help = field.help ? el("p", { class: "hint ext-help", text: field.help }) : null;
+    const wrap = el("div", { class: `ext-field ext-field-${field.type}`, dataset: { path } });
+    const error = el("p", { class: "ext-error", hidden: true });
 
     switch (field.type) {
       case "toggle": {
-        const input = el("input", { type: "checkbox", id, class: "ad-switch-input", checked: value === true,
+        const input = el("input", { type: "checkbox", id, class: "ext-switch-input", checked: value === true,
           onchange: (e) => set(e.target.checked, true) });
-        put(wrap, el("label", { class: "ad-switch", for: id }, input, el("span", { class: "ad-switch-track", "aria-hidden": "true" }),
-          el("span", { class: "ad-switch-label", text: field.label })), help);
+        put(wrap, el("label", { class: "ext-switch", for: id }, input, el("span", { class: "ext-switch-track", "aria-hidden": "true" }),
+          el("span", { class: "ext-switch-label", text: field.label })), help);
         break;
       }
       case "number": {
@@ -220,7 +232,7 @@
           ? el("input", { type: "range", min: field.min, max: field.max, step, value, "aria-label": field.label,
             oninput: (e) => { number.value = e.target.value; set(Number(e.target.value)); } })
           : null;
-        put(wrap, label, el("div", { class: "ad-number" }, range,
+        put(wrap, label, el("div", { class: "ext-number" }, range,
           el("div", { class: "input-suffix" }, number, field.unit ? el("span", { text: field.unit }) : null)), help);
         break;
       }
@@ -228,19 +240,19 @@
       case "lines": {
         put(wrap, label, help);
         const lines = field.type === "lines" ? value.slice() : [value];
-        const preview = field.colors ? el("div", { class: "ad-chat", "aria-label": "Vorschau im Chat" }) : null;
+        const preview = field.colors ? el("div", { class: "ext-chat", "aria-label": "Vorschau im Chat" }) : null;
         const updatePreview = () => {
           if (!preview) return;
           preview.replaceChildren(...lines.filter((l) => l !== "")
             .map((l) => el("div", {}, chatPreview(withExamples(l, field)))));
-          if (!preview.childNodes.length) preview.append(el("span", { class: "ad-chat-empty", text: "(leer)" }));
+          if (!preview.childNodes.length) preview.append(el("span", { class: "ext-chat-empty", text: "(leer)" }));
         };
         let lastInput = null;
-        const inputs = el("div", { class: "ad-lines" });
+        const inputs = el("div", { class: "ext-lines" });
         const renderLines = () => {
           inputs.replaceChildren(...lines.map((line, index) => {
             const input = el("input", { type: "text", maxlength: field.max, value: line, id: index === 0 ? id : null,
-              list: field.suggest ? `ad-suggest-${field.suggest}` : null,
+              list: field.suggest ? `ext-suggest-${field.suggest}` : null,
               placeholder: field.type === "lines" ? `Zeile ${index + 1}` : null,
               onfocus: (e) => (lastInput = e.target),
               oninput: (e) => {
@@ -249,12 +261,12 @@
                 updatePreview();
               } });
             if (field.type === "text") return input;
-            return el("div", { class: "ad-line" }, input,
-              el("button", { type: "button", class: "ad-icon-btn", title: "Zeile entfernen", "aria-label": "Zeile entfernen", text: "×",
+            return el("div", { class: "ext-line" }, input,
+              el("button", { type: "button", class: "ext-icon-btn", title: "Zeile entfernen", "aria-label": "Zeile entfernen", text: "×",
                 onclick: () => { lines.splice(index, 1); set(lines.slice()); renderLines(); updatePreview(); } }));
           }));
           if (field.type === "lines" && lines.length < field.max_items) {
-            inputs.append(el("button", { type: "button", class: "btn btn-secondary ad-small", text: "+ Zeile",
+            inputs.append(el("button", { type: "button", class: "btn btn-secondary ext-small", text: "+ Zeile",
               onclick: () => { lines.push(""); set(lines.slice()); renderLines(); updatePreview(); inputs.querySelectorAll("input")[lines.length - 1].focus(); } }));
           }
         };
@@ -269,18 +281,18 @@
           input.focus();
           input.setSelectionRange(start + text.length, start + text.length);
         };
-        const tools = el("div", { class: "ad-tools" });
+        const tools = el("div", { class: "ext-tools" });
         if (field.colors) {
           tools.append(...Object.entries(COLORS).map(([code, color]) => {
-            const swatch = el("button", { type: "button", class: "ad-swatch", title: `${COLOR_NAMES[code]} (&${code})`,
+            const swatch = el("button", { type: "button", class: "ext-swatch", title: `${COLOR_NAMES[code]} (&${code})`,
               "aria-label": COLOR_NAMES[code], onmousedown: (e) => e.preventDefault(), onclick: () => insert("&" + code) });
             swatch.style.background = color;
             return swatch;
-          }), ...Object.entries(FORMATS).map(([code, name]) => el("button", { type: "button", class: "ad-format", title: `${name} (&${code})`,
+          }), ...Object.entries(FORMATS).map(([code, name]) => el("button", { type: "button", class: "ext-format", title: `${name} (&${code})`,
             onmousedown: (e) => e.preventDefault(), onclick: () => insert("&" + code), text: code.toUpperCase() })));
         }
         for (const p of field.placeholders || []) {
-          tools.append(el("button", { type: "button", class: "ad-chip", title: p.label, onmousedown: (e) => e.preventDefault(),
+          tools.append(el("button", { type: "button", class: "ext-chip", title: p.label, onmousedown: (e) => e.preventDefault(),
             onclick: () => insert(p.name), text: p.name }));
         }
         put(wrap, inputs, tools.childNodes.length ? tools : null, preview);
@@ -289,12 +301,12 @@
       }
       case "select": {
         if (field.options.length <= 4 && field.options.every((o) => o.label.length <= 34)) {
-          const group = el("div", { class: "ad-segmented", role: "radiogroup", "aria-label": field.label });
+          const group = el("div", { class: "ext-segmented", role: "radiogroup", "aria-label": field.label });
           for (const option of field.options) {
             group.append(el("button", { type: "button", role: "radio", "aria-checked": String(option.value === value), text: option.label,
               onclick: () => set(option.value, true) }));
           }
-          put(wrap, el("span", { class: "ad-label", text: field.label }), group, help);
+          put(wrap, el("span", { class: "ext-label", text: field.label }), group, help);
         } else {
           const select = el("select", { id, onchange: (e) => set(e.target.value, true) },
             ...field.options.map((o) => el("option", { value: o.value, selected: o.value === value, text: o.label })));
@@ -303,7 +315,7 @@
         break;
       }
       case "multiselect": {
-        const box = el("div", { class: "ad-checks", role: "group", "aria-label": field.label });
+        const box = el("div", { class: "ext-checks", role: "group", "aria-label": field.label });
         for (const option of field.options) {
           const input = el("input", { type: "checkbox", checked: value.includes(option.value),
             onchange: (e) => {
@@ -311,16 +323,16 @@
               if (e.target.checked) chosen.add(option.value); else chosen.delete(option.value);
               set(field.options.map((o) => o.value).filter((v) => chosen.has(v)));
             } });
-          box.append(el("label", { class: "ad-check" }, input, el("span", { text: option.label })));
+          box.append(el("label", { class: "ext-check" }, input, el("span", { text: option.label })));
         }
-        const all = el("button", { type: "button", class: "ad-link", text: "alle",
+        const all = el("button", { type: "button", class: "ext-link", text: "alle",
           onclick: () => set(field.options.map((o) => o.value), true) });
-        const none = el("button", { type: "button", class: "ad-link", text: "keine", onclick: () => set([], true) });
-        put(wrap, el("div", { class: "ad-label-row" }, el("span", { class: "ad-label", text: field.label }), all, none), box, help);
+        const none = el("button", { type: "button", class: "ext-link", text: "keine", onclick: () => set([], true) });
+        put(wrap, el("div", { class: "ext-label-row" }, el("span", { class: "ext-label", text: field.label }), all, none), box, help);
         break;
       }
       case "material": {
-        const button = el("button", { type: "button", class: "ad-material", id, dataset: { picker: "1" },
+        const button = el("button", { type: "button", class: "ext-material", id, dataset: { picker: "1" },
           onclick: (e) => openPicker(e.currentTarget, scope[field.key], (picked) => set(picked, true)) },
           itemIcon(value), el("span", { text: value ? prettyItem(value) : "Item wählen …" }),
           value ? el("code", { text: value }) : null);
@@ -328,9 +340,9 @@
         break;
       }
       case "recipe": {
-        const grid = el("div", { class: "ad-recipe", role: "group", "aria-label": field.label });
+        const grid = el("div", { class: "ext-recipe", role: "group", "aria-label": field.label });
         value.forEach((slot, index) => {
-          grid.append(el("button", { type: "button", class: "ad-slot", dataset: { picker: "1" },
+          grid.append(el("button", { type: "button", class: "ext-slot", dataset: { picker: "1" },
             title: slot ? prettyItem(slot) : "Leeres Feld – klicken zum Füllen",
             "aria-label": `Feld ${index + 1}: ${slot ? prettyItem(slot) : "leer"}`,
             onclick: (e) => openPicker(e.currentTarget, slot, (picked) => {
@@ -345,15 +357,15 @@
               set(slots, true);
             } }, itemIcon(slot)));
         });
-        const clear = el("button", { type: "button", class: "ad-link", text: "Raster leeren", onclick: () => set(Array(9).fill(""), true) });
-        put(wrap, el("div", { class: "ad-label-row" }, el("span", { class: "ad-label", text: field.label }), clear),
-          grid, el("p", { class: "hint ad-help", text: "Feld anklicken zum Füllen, Rechtsklick leert es." }), help);
+        const clear = el("button", { type: "button", class: "ext-link", text: "Raster leeren", onclick: () => set(Array(9).fill(""), true) });
+        put(wrap, el("div", { class: "ext-label-row" }, el("span", { class: "ext-label", text: field.label }), clear),
+          grid, el("p", { class: "hint ext-help", text: "Feld anklicken zum Füllen, Rechtsklick leert es." }), help);
         break;
       }
       case "position": {
-        const axes = el("div", { class: "ad-position" });
+        const axes = el("div", { class: "ext-position" });
         for (const axis of ["x", "y", "z"]) {
-          axes.append(el("label", { class: "ad-axis" }, el("span", { text: axis.toUpperCase() }),
+          axes.append(el("label", { class: "ext-axis" }, el("span", { text: axis.toUpperCase() }),
             el("input", { type: "number", step: 1, value: value[axis], id: axis === "x" ? id : null, "aria-label": `${field.label} ${axis}`,
               oninput: (e) => { if (e.target.value !== "") set(Object.assign({}, scope[field.key], { [axis]: Math.trunc(Number(e.target.value)) })); } })));
         }
@@ -371,7 +383,7 @@
   }
 
   function fieldsNode(fields, scope, path) {
-    const box = el("div", { class: "ad-fields" });
+    const box = el("div", { class: "ext-fields" });
     const render = () => {
       box.replaceChildren(...fields.filter((f) => visible(f, scope)).map((f) => fieldNode(f, scope, path + f.key, render)));
     };
@@ -382,15 +394,15 @@
   const openRows = new Set();  // "path.index" of list rows that are unfolded
 
   function listNode(field, rows, path, update) {
-    const box = el("div", { class: "ad-list" });
-    const head = el("div", { class: "ad-label-row" }, el("span", { class: "ad-label", text: field.label }),
+    const box = el("div", { class: "ext-list" });
+    const head = el("div", { class: "ext-label-row" }, el("span", { class: "ext-label", text: field.label }),
       el("span", { class: "hint", text: `${rows.length} / ${field.max_items}` }));
     box.append(head);
-    if (!rows.length) box.append(el("p", { class: "hint ad-empty", text: `Noch kein ${field.item_label}.` }));
+    if (!rows.length) box.append(el("p", { class: "hint ext-empty", text: `Noch kein ${field.item_label}.` }));
     rows.forEach((row, index) => {
       const key = `${path}.${index}`;
       const title = (field.title_key && row[field.title_key]) || `${field.item_label} ${index + 1}`;
-      const details = el("details", { class: "ad-row", open: openRows.has(key) });
+      const details = el("details", { class: "ext-row", open: openRows.has(key) });
       details.addEventListener("toggle", () => (details.open ? openRows.add(key) : openRows.delete(key)));
       const move = (delta) => {
         const copy = rows.slice();
@@ -400,14 +412,14 @@
         update(copy);
       };
       const off = "enabled" in row && row.enabled === false;
-      const summary = el("summary", {}, el("span", { class: "ad-row-title", text: title }),
-        off ? el("span", { class: "ad-pill ad-pill-muted", text: "aus" }) : null,
-        el("span", { class: "ad-row-actions" },
-          el("button", { type: "button", class: "ad-icon-btn", title: "Nach oben", "aria-label": "Nach oben", text: "↑", disabled: index === 0,
+      const summary = el("summary", {}, el("span", { class: "ext-row-title", text: title }),
+        off ? el("span", { class: "ext-pill ext-pill-muted", text: "aus" }) : null,
+        el("span", { class: "ext-row-actions" },
+          el("button", { type: "button", class: "ext-icon-btn", title: "Nach oben", "aria-label": "Nach oben", text: "↑", disabled: index === 0,
             onclick: (e) => { e.preventDefault(); move(-1); } }),
-          el("button", { type: "button", class: "ad-icon-btn", title: "Nach unten", "aria-label": "Nach unten", text: "↓",
+          el("button", { type: "button", class: "ext-icon-btn", title: "Nach unten", "aria-label": "Nach unten", text: "↓",
             disabled: index === rows.length - 1, onclick: (e) => { e.preventDefault(); move(1); } }),
-          el("button", { type: "button", class: "ad-icon-btn ad-danger", title: "Entfernen", "aria-label": `${title} entfernen`, text: "×",
+          el("button", { type: "button", class: "ext-icon-btn ext-danger", title: "Entfernen", "aria-label": `${title} entfernen`, text: "×",
             onclick: (e) => {
               e.preventDefault();
               if (!confirm(`${field.item_label} »${title}« entfernen?`)) return;
@@ -420,7 +432,7 @@
       box.append(details);
     });
     if (rows.length < field.max_items) {
-      box.append(el("button", { type: "button", class: "btn btn-secondary ad-small", text: `+ ${field.item_label}`,
+      box.append(el("button", { type: "button", class: "btn btn-secondary ext-small", text: `+ ${field.item_label}`,
         onclick: () => {
           const fresh = {};
           for (const f of field.fields) fresh[f.key] = clone(f.default);
@@ -436,13 +448,13 @@
   const isDirty = () => draft !== null && JSON.stringify(draft) !== saved;
 
   function changed() {
-    const bar = root.querySelector(".ad-savebar");
+    const bar = root.querySelector(".ext-savebar");
     if (bar) bar.hidden = !isDirty();
   }
 
   async function act(addon, action, body, confirmText) {
     if (confirmText && !confirm(confirmText)) return;
-    const message = root.querySelector(".ad-detail .message");
+    const message = root.querySelector(".ext-detail .message");
     const result = await postJson(api(`/${addon.id}/${action}`), body || {});
     if (!result.ok) {
       note(message, result.data.error || "Das hat nicht geklappt.", "error");
@@ -455,9 +467,9 @@
 
   async function save(addon) {
     const result = await postJson(api(`/${addon.id}/config`), { config: draft });
-    const message = root.querySelector(".ad-savebar .message") || root.querySelector(".ad-detail .message");
-    root.querySelectorAll(".ad-field.ad-invalid").forEach((f) => f.classList.remove("ad-invalid"));
-    root.querySelectorAll(".ad-error").forEach((e) => (e.hidden = true));
+    const message = root.querySelector(".ext-savebar .message") || root.querySelector(".ext-detail .message");
+    root.querySelectorAll(".ext-field.ext-invalid").forEach((f) => f.classList.remove("ext-invalid"));
+    root.querySelectorAll(".ext-error").forEach((e) => (e.hidden = true));
     if (!result.ok) {
       for (const error of result.data.errors || []) {
         // open the list rows on the way to the field, then mark it
@@ -466,17 +478,17 @@
       }
       renderForm(addon, false);
       for (const error of result.data.errors || []) {
-        const field = root.querySelector(`.ad-field[data-path="${CSS.escape(error.path)}"]`);
+        const field = root.querySelector(`.ext-field[data-path="${CSS.escape(error.path)}"]`);
         if (!field) continue;
-        field.classList.add("ad-invalid");
-        const text = field.querySelector(":scope > .ad-error");
+        field.classList.add("ext-invalid");
+        const text = field.querySelector(":scope > .ext-error");
         text.textContent = error.message;
         text.hidden = false;
       }
-      const first = root.querySelector(".ad-invalid");
+      const first = root.querySelector(".ext-invalid");
       if (first) first.scrollIntoView({ behavior: "smooth", block: "center" });
-      note(root.querySelector(".ad-savebar .message"), result.data.error || "Speichern fehlgeschlagen.", "error");
-      root.querySelector(".ad-savebar").hidden = false;
+      note(root.querySelector(".ext-savebar .message"), result.data.error || "Speichern fehlgeschlagen.", "error");
+      root.querySelector(".ext-savebar").hidden = false;
       return;
     }
     data = result.data;
@@ -485,15 +497,15 @@
     saved = JSON.stringify(draft);
     remoteChanged = false;
     render(false);
-    note(root.querySelector(".ad-detail .message"), current.installed ? "Gespeichert – gilt sofort auf dem Server." : "Gespeichert – gilt, sobald die Erweiterung läuft.", "success");
+    note(root.querySelector(".ext-detail .message"), current.installed ? "Gespeichert – gilt sofort auf dem Server." : "Gespeichert – gilt, sobald die Erweiterung läuft.", "success");
   }
 
   function stateChip(addon) {
-    return el("span", { class: `ad-state ad-state-${addon.state}`, text: addon.state_label });
+    return el("span", { class: `ext-state ext-state-${addon.state}`, text: addon.state_label });
   }
 
   function actions(addon) {
-    const row = el("div", { class: "btn-row ad-actions" });
+    const row = el("div", { class: "btn-row ext-actions" });
     if (moderator) return row;  // moderators only edit the settings
     const busy = ["install", "remove"].includes(addon.state);
     if (addon.official && (addon.state === "available" || addon.state === "failed")) {
@@ -532,8 +544,8 @@
   }
 
   function notices(addon) {
-    const box = el("div", { class: "ad-notices" });
-    const add = (kind, ...content) => box.append(el("div", { class: `ad-note ad-note-${kind}` }, ...content));
+    const box = el("div", { class: "ext-notices" });
+    const add = (kind, ...content) => box.append(el("div", { class: `ext-note ext-note-${kind}` }, ...content));
     if (!data.plugin.supports && data.plugin.known) {
       add("warn", "Dein MCDataLink kennt noch keine Erweiterungen. Im Reiter „Plugin“ gibt es Version 3.22+ (mit auto-update kommt sie beim nächsten Neustart von selbst).");
     }
@@ -557,14 +569,14 @@
     }
     if (remoteChanged) {
       add("info", "Die Einstellungen wurden gerade geändert (z. B. im Spiel). ",
-        el("button", { type: "button", class: "ad-link", text: "Neu laden und meine Änderungen verwerfen",
+        el("button", { type: "button", class: "ext-link", text: "Neu laden und meine Änderungen verwerfen",
           onclick: () => { draft = null; remoteChanged = false; render(true); } }));
     }
     return box;
   }
 
   function renderForm(addon, resetOpen) {
-    const holder = root.querySelector(".ad-form");
+    const holder = root.querySelector(".ext-form");
     if (!holder) return;
     if (resetOpen) openRows.clear();
     if (!addon.settings.length) {
@@ -572,19 +584,19 @@
       return;
     }
     const sections = addon.settings.map((section, index) => {
-      const node = el("section", { class: "ad-section" },
+      const node = el("section", { class: "ext-section" },
         el("h3", { text: section.title }), section.description ? el("p", { class: "hint", text: section.description }) : null,
         fieldsNode(section.fields, draft, ""));
       node.style.setProperty("--i", index);
       return node;
     });
-    const bar = el("div", { class: "ad-savebar", hidden: !isDirty() },
-      el("span", { class: "ad-savebar-text", text: "Ungespeicherte Änderungen" }),
+    const bar = el("div", { class: "ext-savebar", hidden: !isDirty() },
+      el("span", { class: "ext-savebar-text", text: "Ungespeicherte Änderungen" }),
       el("button", { type: "button", class: "btn btn-secondary", text: "Verwerfen",
         onclick: () => { draft = clone(addon.config); saved = JSON.stringify(draft); renderForm(addon, false); changed(); } }),
       el("button", { type: "button", class: "btn", text: "Speichern", onclick: () => save(addon) }),
       el("div", { class: "message" }));
-    const reset = el("button", { type: "button", class: "ad-link ad-reset", text: "Alles auf die Standardwerte setzen",
+    const reset = el("button", { type: "button", class: "ext-link ext-reset", text: "Alles auf die Standardwerte setzen",
       onclick: () => { draft = clone(addon.defaults); openRows.clear(); renderForm(addon, false); changed(); } });
     holder.replaceChildren(...sections, reset, bar);
   }
@@ -594,21 +606,21 @@
       draft = clone(addon.config);
       saved = JSON.stringify(draft);
     }
-    const head = el("div", { class: "ad-detail-head" },
-      el("div", { class: "ad-icon ad-icon-lg" }, itemIcon(addon.icon)),
-      el("div", { class: "ad-detail-title" }, el("h3", { text: addon.name }), metaNode(addon)));
-    const about = el("div", { class: "ad-about" },
+    const head = el("div", { class: "ext-detail-head" },
+      el("div", { class: "ext-icon ext-icon-lg" }, itemIcon(addon.icon)),
+      el("div", { class: "ext-detail-title" }, el("h3", { text: addon.name }), metaNode(addon)));
+    const about = el("div", { class: "ext-about" },
       addon.description ? el("p", { text: addon.description }) : null,
-      addon.features.length ? el("ul", { class: "ad-features" }, ...addon.features.map((f) => el("li", { text: f }))) : null,
-      addon.commands.length ? el("div", { class: "ad-commands" }, el("b", { text: "Im Spiel" }),
+      addon.features.length ? el("ul", { class: "ext-features" }, ...addon.features.map((f) => el("li", { text: f }))) : null,
+      addon.commands.length ? el("div", { class: "ext-commands" }, el("b", { text: "Im Spiel" }),
         ...addon.commands.map((c) => el("div", {}, el("code", { text: c.usage || "/" + c.name }),
           c.description ? el("span", { class: "hint", text: " – " + c.description }) : null))) : null);
-    const form = el("div", { class: "ad-form" });
+    const form = el("div", { class: "ext-form" });
     const editable = addon.state !== "available";
-    const page = el("div", { class: "ad-detail" },
-      el("button", { type: "button", class: "ad-back", text: "← Alle Erweiterungen", onclick: () => navigate(null) }),
+    const page = el("div", { class: "ext-detail" },
+      el("button", { type: "button", class: "ext-back", text: "← Alle Erweiterungen", onclick: () => navigate(null) }),
       head, actions(addon), el("div", { class: "message" }), notices(addon), about,
-      el("h3", { class: "ad-settings-title", text: "Einstellungen" }),
+      el("h3", { class: "ext-settings-title", text: "Einstellungen" }),
       editable ? form : el("p", { class: "hint", text: "Nach der Installation stellst du hier alles ein." }));
     root.replaceChildren(page, suggestions());
     if (editable) renderForm(addon, false);
@@ -618,15 +630,15 @@
     const meta = [addon.category, addon.installed ? `Version ${addon.version}` : addon.store_version ? `Version ${addon.store_version}` : null,
       addon.size_kb ? `${addon.size_kb} KB` : null].filter(Boolean).join(" · ");
     return el("p", { class: "meta" }, meta, " ", stateChip(addon),
-      addon.installed ? el("span", { class: `ad-pill ${addon.verified ? "ad-pill-ok" : "ad-pill-warn"}`,
+      addon.installed ? el("span", { class: `ext-pill ${addon.verified ? "ext-pill-ok" : "ext-pill-warn"}`,
         text: addon.verified ? "✓ offiziell, Prüfsumme stimmt" : "nicht aus dem Store",
         title: addon.verified ? "Die Datei auf dem Server ist genau eine Version aus dem MCConnect-Store." : addon.plugin || "" }) : null);
   }
 
   function suggestions() {
     return el("div", { hidden: true },
-      el("datalist", { id: "ad-suggest-players" }, ...(data.players || []).map((name) => el("option", { value: name }))),
-      el("datalist", { id: "ad-suggest-worlds" }, ...["world", "world_nether", "world_the_end"].map((w) => el("option", { value: w }))));
+      el("datalist", { id: "ext-suggest-players" }, ...(data.players || []).map((name) => el("option", { value: name }))),
+      el("datalist", { id: "ext-suggest-worlds" }, ...["world", "world_nether", "world_the_end"].map((w) => el("option", { value: w }))));
   }
 
   // ------------------------------------------------------------------ the store
@@ -634,13 +646,13 @@
   function tile(addon) {
     const primary = addon.state === "available" && addon.official ? "Installieren"
       : addon.state === "pending" || addon.state === "changed" ? "Freigeben" : "Einstellen";
-    return el("article", { class: `ad-tile${addon.installed ? " ad-installed" : ""}` },
-      el("button", { type: "button", class: "ad-tile-open", "aria-label": `${addon.name} öffnen`, onclick: () => navigate(addon.id) }),
-      el("div", { class: "ad-tile-head" }, el("div", { class: "ad-icon" }, itemIcon(addon.icon)),
-        el("div", {}, el("b", { text: addon.name }), el("span", { class: "ad-category", text: addon.category }))),
-      el("p", { class: "ad-summary", text: addon.summary || addon.description }),
-      el("div", { class: "ad-tile-foot" }, stateChip(addon), addon.update ? el("span", { class: "ad-pill ad-pill-ok", text: "Update" }) : null,
-        el("span", { class: "ad-tile-go", text: primary + " →" })));
+    return el("article", { class: `ext-tile${addon.installed ? " ext-installed" : ""}` },
+      el("button", { type: "button", class: "ext-tile-open", "aria-label": `${addon.name} öffnen`, onclick: () => navigate(addon.id) }),
+      el("div", { class: "ext-tile-head" }, el("div", { class: "ext-icon" }, itemIcon(addon.icon)),
+        el("div", {}, el("b", { text: addon.name }), el("span", { class: "ext-category", text: addon.category }))),
+      el("p", { class: "ext-summary", text: addon.summary || addon.description }),
+      el("div", { class: "ext-tile-foot" }, stateChip(addon), addon.update ? el("span", { class: "ext-pill ext-pill-ok", text: "Update" }) : null,
+        el("span", { class: "ext-tile-go", text: primary + " →" })));
   }
 
   function store() {
@@ -648,19 +660,19 @@
     const available = data.addons.filter((a) => a.state === "available");
     const parts = [];
     if (!data.plugin.supports && data.plugin.known) {
-      parts.push(el("div", { class: "ad-note ad-note-warn" }, "Dein MCDataLink ist älter als 3.22 und kennt noch keine Erweiterungen. ",
+      parts.push(el("div", { class: "ext-note ext-note-warn" }, "Dein MCDataLink ist älter als 3.22 und kennt noch keine Erweiterungen. ",
         "Lade im Reiter „Plugin“ die neue Version – mit auto-update kommt sie beim nächsten Neustart von selbst."));
     } else if (!data.plugin.online) {
-      parts.push(el("div", { class: "ad-note ad-note-info" }, "Der Server ist gerade nicht verbunden. Du kannst trotzdem installieren und einstellen – ",
+      parts.push(el("div", { class: "ext-note ext-note-info" }, "Der Server ist gerade nicht verbunden. Du kannst trotzdem installieren und einstellen – ",
         "es wird übertragen, sobald er online ist."));
     }
     if (!moderator) parts.push(rightsBox());
     if (moderator && !installed.length) parts.push(el("p", { class: "hint", text: "Auf dem Server ist noch keine Erweiterung installiert." }));
-    if (installed.length) parts.push(el("h3", { class: "ad-group", text: "Auf deinem Server" }), el("div", { class: "ad-grid" }, ...installed.map(tile)));
-    if (available.length) parts.push(el("h3", { class: "ad-group", text: installed.length ? "Mehr Erweiterungen" : "Store" }),
-      el("div", { class: "ad-grid" }, ...available.map(tile)));
+    if (installed.length) parts.push(el("h3", { class: "ext-group", text: "Auf deinem Server" }), el("div", { class: "ext-grid" }, ...installed.map(tile)));
+    if (available.length) parts.push(el("h3", { class: "ext-group", text: installed.length ? "Mehr Erweiterungen" : "Store" }),
+      el("div", { class: "ext-grid" }, ...available.map(tile)));
     if (!data.addons.length) parts.push(el("p", { class: "hint", text: "Im Store gibt es gerade keine Erweiterungen." }));
-    if (!moderator) parts.push(el("details", { class: "ad-dev" }, el("summary", { text: "Eigene Erweiterung entwickeln" }),
+    if (!moderator) parts.push(el("details", { class: "ext-dev" }, el("summary", { text: "Eigene Erweiterung entwickeln" }),
       el("p", { class: "hint" }, "Jedes Bukkit-Plugin kann eine MCConnect-Erweiterung sein: eine ", el("code", { text: "mcconnect-addon.json" }),
         " mit Id, Name und Einstellungen, ", el("code", { text: "depend: [MCDataLink]" }), " und in ", el("code", { text: "onEnable" }), " ",
         el("code", { text: "MCConnect.register(this, addon)" }), ". Sie erscheint dann hier, wartet auf deine Freigabe und bekommt ihre ",
@@ -682,7 +694,7 @@
         data = result.data;
         note(message, "Gespeichert.", "success");
       } }), el("span", {}, label, " ", el("span", { class: "hint", text: hint })));
-    return el("div", { class: "ad-owner" },
+    return el("div", { class: "ext-owner" },
       toggle("moderators", "Moderatoren dürfen die Erweiterungen einstellen",
         "– auf der Verwaltungsseite des Servers; installieren, freigeben und entfernen kannst nur du"),
       toggle("auto_update", "Offizielle Erweiterungen automatisch aktualisieren",
@@ -693,6 +705,15 @@
   // ------------------------------------------------------------------ navigation, polling
 
   function render(resetOpen) {
+    try {
+      draw(resetOpen);
+    } catch (e) {
+      console.error(e);
+      showError(e);
+    }
+  }
+
+  function draw(resetOpen) {
     if (!data) return;
     const addon = openId && data.addons.find((a) => a.id === openId);
     if (openId && !addon) openId = null;
@@ -736,6 +757,7 @@
     try {
       fresh = await getJson(api());
     } catch (e) {
+      showError(e);
       return;
     }
     const before = data;
@@ -755,10 +777,10 @@
       // keep the form (open rows, focus, unsaved input) and only update what is around it
       const focused = document.activeElement && root.contains(document.activeElement);
       if (focused || isDirty()) {
-        const page = root.querySelector(".ad-detail");
-        page.querySelector(".ad-actions").replaceWith(actions(addon));
-        page.querySelector(".ad-notices").replaceWith(notices(addon));
-        page.querySelector(".ad-detail-head .meta").replaceWith(metaNode(addon));
+        const page = root.querySelector(".ext-detail");
+        page.querySelector(".ext-actions").replaceWith(actions(addon));
+        page.querySelector(".ext-notices").replaceWith(notices(addon));
+        page.querySelector(".ext-detail-head .meta").replaceWith(metaNode(addon));
         return;
       }
     }
