@@ -574,6 +574,8 @@ def cmd_warn(ctx, args):
     target, error = _moderator_target(ctx, args, "/verwarnen <spieler> <grund>")
     if error:
         return error
+    if str(target) == str(ctx.player_id):  # the warnings can end in a ban
+        return ["&cDu kannst dich nicht selbst verwarnen."]
     reason = " ".join(args[1:])[:WARN_REASON_MAX]
     if len(reason) < 3:
         return ["&7Benutzung: &f/verwarnen <spieler> <grund>"]
