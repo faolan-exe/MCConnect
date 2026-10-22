@@ -9,6 +9,21 @@ import pytest
 from mc_socket.main import HEADER, SocketServer, encode_msg, recv_msg
 from tests.conftest import OTHER_UUID, PLAYER_UUID, wait_for
 
+# A BetterJoinMessages jar as the plugin reports it; official once activate_join_addon recorded the release.
+JOIN_ADDON_SHA = "b" * 64
+
+
+def join_addon_entry(sha256=JOIN_ADDON_SHA):
+    return {"id": "betterjoinmessages", "plugin": "BetterJoinMessages", "version": "2.0", "file": "BetterJoinMessages-2.0.jar",
+            "sha256": sha256, "manifest": {"id": "betterjoinmessages", "name": "BetterJoinMessages", "settings": []},
+            "commands": [{"name": "joinmessage", "description": "", "usage": "", "aliases": []}]}
+
+
+def activate_join_addon(db, server_id):
+    """BetterJoinMessages installed and approved on the server (join messages need it since plugin 3.22)."""
+    db.record_addon_releases([(JOIN_ADDON_SHA, "betterjoinmessages", "2.0")])
+    db.sync_reported_addons(server_id, [dict(join_addon_entry(), id="betterjoinmessages", name="BetterJoinMessages")])
+
 
 def tls_connect(port, certificate):
     """TLS connection that trusts exactly the test certificate (like the plugin's tls-fingerprint, no host name)."""
@@ -24,6 +39,7 @@ class FakePlugin:
         self.sock = tls_connect(port, certificate)
         self.prefixes = []
         self.badges = []  # !badge messages (the line under the names), sent with every join
+        self.addon_states = []  # !addonstate messages (plugin 3.22)
 
     def send(self, msg):
         self.sock.sendall(encode_msg(msg))
@@ -35,6 +51,11 @@ class FakePlugin:
                 continue
             if msg.startswith("!metrics~"):
                 self.metrics = msg
+                continue
+            if msg.startswith("!addon~betterjoinmessages|"):  # join messages go to the addon (plugin 3.22)
+                msg = msg[len("!addon~betterjoinmessages|"):]
+            if msg.startswith("!addonstate~"):
+                self.addon_states.append(msg)
                 continue
             if msg == "!joinreset~":  # sent before the join messages of every auth
                 continue
@@ -52,11 +73,23 @@ class FakePlugin:
                 continue
             return msg
 
+    def with_join_addon(self, db, features="click,addons"):
+        """Like MCDataLink 3.22 with BetterJoinMessages installed (an official, approved jar)."""
+        db.record_addon_releases([(JOIN_ADDON_SHA, "betterjoinmessages", "2.0")])
+        assert self.request(f"!FEATURES~{features}") == "success|106"
+        self.send("!ADDONS~" + json.dumps([join_addon_entry()]))
+        self.join_sync = []
+        while True:
+            msg = self.recv()
+            if msg == "success|107":
+                return self
+            self.join_sync.append(msg)
+
     def recv_prefix(self):
         """Next prefix message; fails if another message arrives first."""
         while not self.prefixes:
             msg = recv_msg(self.sock)
-            if msg in ("!heartbeat", "!joinreset~") or msg.startswith(("!metrics~", "!joindefault~")):
+            if msg in ("!heartbeat", "!joinreset~") or msg.startswith(("!metrics~", "!joindefault~", "!addon")):
                 continue
             if msg.startswith("!pack~"):
                 self.pack = msg

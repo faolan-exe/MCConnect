@@ -1,0 +1,83 @@
+{
+  "id": "betterjoinmessages",
+  "name": "BetterJoinMessages",
+  "summary": "Eigene Join- und Leave-Nachrichten mit Belohnungsstufen, Sounds und Begrüßung.",
+  "description": "Jeder Spieler gestaltet seine Join- und Leave-Nachricht auf der Website oder mit /joinmessage – Farben, Symbole, Stile und Sounds schalten die Belohnungsstufen frei. Dazu: eine eigene Nachricht für neue Spieler, eine Begrüßung nur für den Spieler selbst und feste Nachrichten für einzelne Spieler.",
+  "features": [
+    "Join-/Leave-Nachrichten aus den Belohnungsstufen (Website und /joinmessage)",
+    "Spieler können die Nachrichten anderer und alle Sounds ausblenden",
+    "Eigene Nachricht und Sound beim allerersten Besuch",
+    "Begrüßung im Chat und als großer Titel",
+    "Feste Nachrichten für einzelne Spieler, stille Admins",
+    "Kein Spam bei kurzen Verbindungsabbrüchen"
+  ],
+  "settings": [
+    {
+      "title": "Allgemein",
+      "fields": [
+        {"key": "silent_permission", "type": "toggle", "default": true, "label": "Stille Spieler",
+         "help": "Wer die Berechtigung betterjoinmessages.silent hat, kommt und geht ohne Nachricht (z. B. Admins)."},
+        {"key": "rejoin_seconds", "type": "number", "default": 30, "min": 0, "max": 600, "step": 1, "unit": "Sekunden",
+         "label": "Kurzes Wiederkommen nicht ankündigen",
+         "help": "Wer nach einem Verbindungsabbruch innerhalb dieser Zeit wiederkommt, joint ohne Nachricht. 0 = immer ankündigen."},
+        {"key": "log_console", "type": "toggle", "default": true, "label": "Nachrichten auch in die Server-Konsole schreiben"}
+      ]
+    },
+    {
+      "title": "Erster Besuch",
+      "description": "Für Spieler, die zum allerersten Mal auf den Server kommen.",
+      "fields": [
+        {"key": "first_join_enabled", "type": "toggle", "default": true, "label": "Eigene Nachricht für neue Spieler"},
+        {"key": "first_join_text", "type": "text", "colors": true, "max": 200, "label": "Nachricht an alle",
+         "default": "&e✦ &f{name} &eist zum ersten Mal hier – herzlich willkommen! &7(Spieler Nr. {count})",
+         "placeholders": [{"name": "{name}", "label": "Name", "example": "Steve"},
+                          {"name": "{count}", "label": "wievielter Spieler", "example": "42"}],
+         "show_if": {"key": "first_join_enabled", "is": true}},
+        {"key": "first_join_sound", "type": "select", "default": "minecraft:ui.toast.challenge_complete", "label": "Sound für alle",
+         "options": [{"value": "", "label": "Kein Sound"},
+                     {"value": "minecraft:block.note_block.chime", "label": "Glöckchen"},
+                     {"value": "minecraft:block.note_block.bell", "label": "Glocke"},
+                     {"value": "minecraft:entity.experience_orb.pickup", "label": "Erfahrung"},
+                     {"value": "minecraft:entity.player.levelup", "label": "Levelaufstieg"},
+                     {"value": "minecraft:ui.toast.challenge_complete", "label": "Fanfare"},
+                     {"value": "minecraft:entity.firework_rocket.launch", "label": "Feuerwerk"}],
+         "show_if": {"key": "first_join_enabled", "is": true}}
+      ]
+    },
+    {
+      "title": "Begrüßung",
+      "description": "Sieht nur der Spieler selbst, direkt nach dem Joinen.",
+      "fields": [
+        {"key": "welcome_enabled", "type": "toggle", "default": false, "label": "Begrüßung im Chat"},
+        {"key": "welcome_lines", "type": "lines", "colors": true, "max": 200, "max_items": 10, "label": "Zeilen",
+         "default": ["&6Willkommen zurück, &f{name}&6!", "&7Gerade online: &f{online} &7von {max} Spielern"],
+         "placeholders": [{"name": "{name}", "label": "Name", "example": "Steve"},
+                          {"name": "{online}", "label": "Spieler online", "example": "5"},
+                          {"name": "{max}", "label": "Plätze", "example": "20"}],
+         "show_if": {"key": "welcome_enabled", "is": true}},
+        {"key": "title_enabled", "type": "toggle", "default": false, "label": "Großer Titel auf dem Bildschirm"},
+        {"key": "title", "type": "text", "colors": true, "max": 60, "default": "&6Willkommen", "label": "Titel",
+         "placeholders": [{"name": "{name}", "label": "Name", "example": "Steve"}],
+         "show_if": {"key": "title_enabled", "is": true}},
+        {"key": "subtitle", "type": "text", "colors": true, "max": 80, "default": "&7schön, dass du da bist, {name}", "label": "Untertitel",
+         "placeholders": [{"name": "{name}", "label": "Name", "example": "Steve"}],
+         "show_if": {"key": "title_enabled", "is": true}}
+      ]
+    },
+    {
+      "title": "Feste Nachrichten",
+      "description": "Für einzelne Spieler. Geht vor ihrer eigenen Wahl auf der Website; ein leeres Feld heißt: still.",
+      "fields": [
+        {"key": "overrides", "type": "list", "label": "Spieler", "item_label": "Spieler", "title_key": "player", "max_items": 50,
+         "default": [],
+         "fields": [
+           {"key": "player", "type": "text", "max": 16, "required": true, "default": "", "label": "Spielername", "suggest": "players"},
+           {"key": "join", "type": "text", "colors": true, "max": 200, "default": "&3[&2+&3] &6&l{name}", "label": "Join",
+            "placeholders": [{"name": "{name}", "label": "Name", "example": "Steve"}]},
+           {"key": "leave", "type": "text", "colors": true, "max": 200, "default": "&3[&c-&3] &6&l{name}", "label": "Leave",
+            "placeholders": [{"name": "{name}", "label": "Name", "example": "Steve"}]}
+         ]}
+      ]
+    }
+  ]
+}

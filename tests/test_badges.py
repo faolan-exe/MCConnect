@@ -10,7 +10,7 @@ from tests.conftest import OTHER_UUID, PLAYER_UUID
 from tests.test_ingame import until
 from tests.test_metrics import two_players  # noqa: F401 (fixture)
 from tests.test_rewards import game, me  # noqa: F401 (fixtures)
-from tests.test_socket import plugin, socket_server  # noqa: F401 (fixtures)
+from tests.test_socket import activate_join_addon, plugin, socket_server  # noqa: F401 (fixtures)
 from tests.test_web import app, client, login_player, on  # noqa: F401 (fixtures)
 
 CROWN = glyphs.char("crown")
@@ -83,8 +83,9 @@ def test_badge_choice():
         f"&f{glyphs.char('trophy')}&f3 &f{glyphs.char('clock')}&f1.250h"
 
 
-def test_line_respects_hidden_stats(db, two_players):
+def test_line_respects_hidden_stats(db, server, two_players):
     a, _ = two_players
+    activate_join_addon(db, server["id"])  # the level is one of the reward levels of the join messages
     assert badges.line(db, a) == f"&f{glyphs.char('trophy')}&f0 &f{glyphs.char('flame')}&f1 &f{glyphs.char('level')}&f1"  # played today: streak 1
     db.set_name_badges(a, [])
     assert badges.line(db, a) == ""
@@ -129,10 +130,10 @@ def test_plugins_with_glyphs_get_the_pack_and_the_icons(db, server, plugin, two_
     a, _ = two_players
     db.raise_reward_level(a, 5)
     db.set_join_style(a, dict(rewards.DEFAULT_STYLE, symbol=CROWN))
+    activate_join_addon(db, server["id"])
     connection = plugin().auth(server["key"])
-    assert "&f♔ " in until(connection, f"!joinstyle~{PLAYER_UUID}")[-1]  # before !FEATURES: fallbacks
-    connection.send("!FEATURES~click,glyphs")
-    assert f"&f{CROWN} " in until(connection, f"!joinstyle~{PLAYER_UUID}")[-1]  # sent again with the icon
+    connection.send("!FEATURES~click,glyphs,addons")
+    assert f"&f{CROWN} " in until(connection, f"!joinstyle~{PLAYER_UUID}")[-1]  # with the icon
     _, sha1 = glyphs.build_pack()
     assert connection.pack.startswith("!pack~http") and connection.pack.endswith(
         f"/resourcepack/{server['id']}/{sha1}.zip|{sha1}|{glyphs.glyph_map()}")  # the server's pack

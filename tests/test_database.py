@@ -268,6 +268,8 @@ def test_email_verification_expires(db):
 def test_migration_from_version_1(db):
     with db._cursor() as cur:
         # back to schema version 1
+        cur.execute("DROP TABLE server_addons, addon_releases")
+        cur.execute("ALTER TABLE servers DROP COLUMN plugin_features, DROP COLUMN addon_mods, DROP COLUMN addon_auto_update")
         cur.execute("DROP TABLE join_mutes, server_icons")
         cur.execute("ALTER TABLE servers DROP COLUMN icons_next")
         cur.execute("ALTER TABLE servers DROP COLUMN rewards_enabled, DROP COLUMN reward_levels, DROP COLUMN reward_texts, "
@@ -311,7 +313,7 @@ def test_migration_from_version_1(db):
     db.migrate()
     assert db.get_schema_version() == SCHEMA_VERSION
     assert db._fetchvalue("SELECT count(*) FROM information_schema.columns "
-                          "WHERE table_name = 'servers' AND column_name LIKE 'plugin_%%'") == 2
+                          "WHERE table_name = 'servers' AND column_name LIKE 'plugin_%%'") == 3  # connected, last_seen, features
     assert db._fetchvalue("SELECT to_regclass('public.password_reset') IS NOT NULL")
     db.migrate()  # nothing left to do
     assert db.get_schema_version() == SCHEMA_VERSION

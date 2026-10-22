@@ -1,0 +1,21 @@
+name: SpawnProtect
+version: '${project.version}'
+main: org.tobias.mcconnect.spawnprotect.SpawnProtect
+api-version: '1.13'
+depend: [MCDataLink]
+authors: [Tobias Auer]
+description: Geschützte Bereiche gegen Griefing, PvP, Explosionen und Monster (MCConnect-Erweiterung)
+website: mc.tobisit.de
+commands:
+  spawnprotect:
+    description: Geschützte Bereiche anlegen und anzeigen
+    usage: /spawnprotect [pos1|pos2|create <name>|redefine <name>|delete <name>|flag <name> <schutz> [an|aus]|list|info|show [name]]
+    aliases: [sprot]
+    permission: spawnprotect.admin
+permissions:
+  spawnprotect.admin:
+    description: Geschützte Bereiche im Spiel verwalten
+    default: op
+  spawnprotect.bypass:
+    description: In geschützten Bereichen alles dürfen (wenn in MCConnect eingeschaltet)
+    default: op

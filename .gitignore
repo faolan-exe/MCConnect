@@ -33,3 +33,8 @@ certs/
 tools/e2e/node_modules/
 tools/e2e/package.json
 tools/e2e/package-lock.json
+/java plugin/addons/*/target
+# architecture decisions are tracked (docs/ is local otherwise)
+!docs/
+docs/*
+!docs/adr/

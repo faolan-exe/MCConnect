@@ -509,6 +509,45 @@ MIGRATIONS = {
         "DELETE FROM actions WHERE category = 21 AND object = 'minecraft:play_one_minute'",
         "DROP TABLE play_time_fix",
     ],
+    28: [
+        # Addons (plugin 3.22, database/addons.py): what the plugin of a server reported (present), the owner's
+        # approval (bound to the jar's SHA-256: a changed jar needs a new approval unless it is an official release),
+        # pause (enabled), settings (NULL: the defaults) and the last install/update/remove action of the store.
+        """CREATE TABLE server_addons (
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             addon_id text NOT NULL,
+             name text NOT NULL,
+             plugin text,
+             version text,
+             file text,
+             sha256 text,
+             manifest jsonb,
+             config jsonb,
+             approved boolean NOT NULL DEFAULT false,
+             approved_sha256 text,
+             enabled boolean NOT NULL DEFAULT true,
+             present boolean NOT NULL DEFAULT false,
+             status text,
+             status_text text,
+             status_at timestamptz,
+             problems jsonb NOT NULL DEFAULT '[]',
+             first_seen timestamptz NOT NULL DEFAULT now(),
+             last_seen timestamptz,
+             PRIMARY KEY (server_id, addon_id))""",
+        # every official addon jar the store ever offered: a server running one of them is approved by the checksum
+        """CREATE TABLE addon_releases (
+             sha256 text PRIMARY KEY,
+             addon_id text NOT NULL,
+             version text,
+             seen_at timestamptz NOT NULL DEFAULT now())""",
+        # what the connected plugin can do (!FEATURES), e.g. "addons"; the admin page tells owners of older plugins
+        "ALTER TABLE servers ADD COLUMN plugin_features text[] NOT NULL DEFAULT '{}'",
+    ],
+    29: [
+        # the owner lets moderators edit the addons' settings, and lets the store update official addons by itself
+        "ALTER TABLE servers ADD COLUMN addon_mods boolean NOT NULL DEFAULT false",
+        "ALTER TABLE servers ADD COLUMN addon_auto_update boolean NOT NULL DEFAULT false",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -518,7 +557,7 @@ SESSION_MERGE_SECONDS = 120
 ACHIEVEMENT_ACTIVE_MINUTES = 10
 # A record that changes hands again within this time is not announced (two players passing
 # each other while playing together); taking it straight back undoes the change.
-RECORD_COOLDOWN_MINUTES = 60
+RECORD_COOLDOWN_MINUTES = 30
 # A player's first stats count completely if their play time is at most this much longer than the time since
 # their first join (a new player); otherwise the stats are older and count from then on.
 NEW_PLAYER_SLACK_SECONDS = 300
@@ -1533,7 +1572,7 @@ class DatabaseManager:
     def update_server(self, server_id, owner_id, **fields):
         """Update editable server fields; only succeeds for the owner. Returns True if updated."""
         allowed = {"server_name", "mc_server_domain", "discord_url", "whitelist", "auto_mod_ops", "alerts_enabled", "listed",
-                   "server_description_short", "server_description_long"}
+                   "server_description_short", "server_description_long", "addon_mods", "addon_auto_update"}
         fields = {k: v for k, v in fields.items() if k in allowed}
         if not fields:
             return False
@@ -3362,6 +3401,162 @@ class DatabaseManager:
             JOIN player p ON p.uuid = psi.mojang_uuid
             WHERE psi.server_id = %s AND NOT psi.hide_stats
             GROUP BY p.name, psi.mojang_uuid ORDER BY 3 DESC, 4 DESC, lower(p.name) LIMIT %s""", (server_id, limit))]
+
+    ###----------------------------- Addons ------------------------------------###
+
+    _ADDON_COLUMNS = ("addon_id", "name", "plugin", "version", "file", "sha256", "manifest", "config", "approved",
+                      "approved_sha256", "enabled", "present", "status", "status_text", "status_at", "problems",
+                      "first_seen", "last_seen")
+
+    def _addon(self, row):
+        addon = dict(zip(self._ADDON_COLUMNS, row))
+        # may work: approved for exactly this jar, not paused and reported by the plugin
+        addon["active"] = bool(addon["approved"] and addon["enabled"] and addon["present"]
+                               and addon["approved_sha256"] == addon["sha256"])
+        return addon
+
+    def get_addons(self, server_id):
+        """Every addon a server knows (reported by its plugin or requested in the store), as dicts with "active"."""
+        return [self._addon(row) for row in self._fetchall(
+            f"SELECT {', '.join(self._ADDON_COLUMNS)} FROM server_addons WHERE server_id = %s ORDER BY lower(name)",
+            (server_id,))]
+
+    def get_addon(self, server_id, addon_id):
+        row = self._fetchone(f"SELECT {', '.join(self._ADDON_COLUMNS)} FROM server_addons WHERE server_id = %s AND addon_id = %s",
+                             (server_id, addon_id))
+        return self._addon(row) if row else None
+
+    def is_addon_active(self, server_id, addon_id):
+        return bool(self._fetchvalue(
+            """SELECT approved AND enabled AND present AND approved_sha256 = sha256 FROM server_addons
+               WHERE server_id = %s AND addon_id = %s""", (server_id, addon_id)))
+
+    def record_addon_releases(self, releases):
+        """Remember official jars [(sha256, addon id, version)] (see addons.catalog)."""
+        with self._cursor() as cur:
+            cur.executemany("INSERT INTO addon_releases (sha256, addon_id, version) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                            releases)
+
+    def is_official_addon(self, addon_id, sha256):
+        return bool(self._fetchvalue("SELECT EXISTS (SELECT 1 FROM addon_releases WHERE sha256 = %s AND addon_id = %s)",
+                                     (sha256, addon_id)))
+
+    def sync_reported_addons(self, server_id, entries):
+        """
+        !ADDONS of a server's plugin: entries [{"id", "name", "plugin", "version", "file", "sha256", "manifest"}]
+        (checked). A new addon is approved if its jar is an official release; a known one whose jar changed keeps
+        its approval only for an official release (or one the owner is installing from the store). Addons that
+        are not reported any more are marked as not present. Returns the rows of the reported addons.
+        """
+        with self._cursor() as cur:
+            cur.execute("""SELECT addon_id, approved, approved_sha256, status, status_text FROM server_addons
+                           WHERE server_id = %s FOR UPDATE""", (server_id,))
+            known = {row[0]: row[1:] for row in cur.fetchall()}
+            for entry in entries:
+                cur.execute("SELECT EXISTS (SELECT 1 FROM addon_releases WHERE sha256 = %s AND addon_id = %s)",
+                            (entry["sha256"], entry["id"]))
+                official = cur.fetchone()[0]
+                approved, approved_sha, status, status_text = known.get(entry["id"], (official, None, None, None))
+                if entry["id"] not in known:
+                    approved_sha = entry["sha256"] if official else None
+                elif entry["sha256"] != approved_sha:
+                    if official and (approved or status in ("install", "restart", "changed")):
+                        approved, approved_sha = True, entry["sha256"]
+                        if status == "changed":
+                            status = None
+                    elif approved:
+                        approved, status, status_text = False, "changed", None
+                elif status == "changed":  # back to exactly the approved jar
+                    approved, status = True, None
+                if status == "install" or (status == "restart" and status_text == entry["version"]):
+                    status, status_text = None, None  # done
+                cur.execute("""
+                    INSERT INTO server_addons (server_id, addon_id, name, plugin, version, file, sha256, manifest, approved,
+                                               approved_sha256, present, status, status_text, status_at, last_seen)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, true, %s, %s, now(), now())
+                    ON CONFLICT (server_id, addon_id) DO UPDATE SET
+                      name = EXCLUDED.name, plugin = EXCLUDED.plugin, version = EXCLUDED.version, file = EXCLUDED.file,
+                      sha256 = EXCLUDED.sha256, manifest = EXCLUDED.manifest, approved = EXCLUDED.approved,
+                      approved_sha256 = EXCLUDED.approved_sha256, present = true, status = EXCLUDED.status,
+                      status_text = EXCLUDED.status_text,
+                      status_at = CASE WHEN server_addons.status IS DISTINCT FROM EXCLUDED.status THEN now()
+                                       ELSE server_addons.status_at END,
+                      last_seen = now()""",
+                            (server_id, entry["id"], entry["name"], entry["plugin"], entry["version"], entry["file"],
+                             entry["sha256"], json.dumps(entry["manifest"]), approved, approved_sha, status, status_text))
+            cur.execute("UPDATE server_addons SET present = false WHERE server_id = %s AND present AND NOT addon_id = ANY(%s)",
+                        (server_id, [entry["id"] for entry in entries]))
+        return [addon for addon in self.get_addons(server_id) if addon["addon_id"] in {e["id"] for e in entries}]
+
+    def request_addon_install(self, server_id, info):
+        """The owner installs (or updates) an official addon from the store: approved for that jar."""
+        self._execute("""
+            INSERT INTO server_addons (server_id, addon_id, name, plugin, version, manifest, approved, approved_sha256,
+                                       status, status_text, status_at)
+            VALUES (%s, %s, %s, %s, %s, %s, true, %s, 'install', %s, now())
+            ON CONFLICT (server_id, addon_id) DO UPDATE SET
+              approved = true, approved_sha256 = EXCLUDED.approved_sha256, enabled = true,
+              manifest = CASE WHEN server_addons.present THEN server_addons.manifest ELSE EXCLUDED.manifest END,
+              status = 'install', status_text = EXCLUDED.status_text, status_at = now()""",
+                      (server_id, info["id"], info["manifest"]["name"], info["plugin"], info["version"],
+                       json.dumps(info["manifest"]), info["sha256"], info["version"]))
+
+    def request_addon_removal(self, server_id, addon_id):
+        """Returns the jar's file name (may be None), or False if the addon is unknown."""
+        row = self._fetchone("""UPDATE server_addons SET status = 'remove', status_text = NULL, status_at = now()
+                                WHERE server_id = %s AND addon_id = %s RETURNING file""", (server_id, addon_id))
+        return row[0] if row else False
+
+    def set_addon_result(self, server_id, addon_id, state, text=None):
+        """!ADDONRESULT: installed, restart (text: the version waiting for the restart), removed or failed (text)."""
+        if state == "installed":
+            self._execute("""UPDATE server_addons SET status = NULL, status_text = NULL, status_at = now()
+                             WHERE server_id = %s AND addon_id = %s AND status = 'install'""", (server_id, addon_id))
+        elif state == "restart":
+            self._execute("""UPDATE server_addons SET status = 'restart', status_text = %s, status_at = now()
+                             WHERE server_id = %s AND addon_id = %s""", (text, server_id, addon_id))
+        elif state == "removed":
+            self._execute("""UPDATE server_addons SET present = false, approved = false, status = NULL, status_text = NULL,
+                               status_at = now(), problems = '[]' WHERE server_id = %s AND addon_id = %s""",
+                          (server_id, addon_id))
+        elif state == "failed":
+            self._execute("""UPDATE server_addons SET status = 'failed', status_text = %s, status_at = now()
+                             WHERE server_id = %s AND addon_id = %s""", ((text or "")[:300], server_id, addon_id))
+
+    def set_addon_approved(self, server_id, addon_id, approved):
+        """Approve the jar the plugin reported (or withdraw the approval). False if the addon is unknown."""
+        return self._execute("""
+            UPDATE server_addons SET approved = %s, approved_sha256 = CASE WHEN %s THEN sha256 ELSE approved_sha256 END,
+              status = CASE WHEN status = 'changed' THEN NULL ELSE status END
+            WHERE server_id = %s AND addon_id = %s""", (approved, approved, server_id, addon_id)) > 0
+
+    def set_addon_enabled(self, server_id, addon_id, enabled):
+        return self._execute("UPDATE server_addons SET enabled = %s WHERE server_id = %s AND addon_id = %s",
+                             (enabled, server_id, addon_id)) > 0
+
+    def set_addon_config(self, server_id, addon_id, settings_config):
+        return self._execute("UPDATE server_addons SET config = %s WHERE server_id = %s AND addon_id = %s",
+                             (json.dumps(settings_config), server_id, addon_id)) > 0
+
+    def set_addon_problems(self, server_id, addon_id, problems):
+        self._execute("UPDATE server_addons SET problems = %s WHERE server_id = %s AND addon_id = %s",
+                      (json.dumps(problems), server_id, addon_id))
+
+    def get_pending_addon_actions(self, server_id):
+        """Installs and removals the plugin did not get yet (it was not connected): [(addon id, status, file)]."""
+        return self._fetchall("""SELECT addon_id, status, file FROM server_addons
+                                 WHERE server_id = %s AND status IN ('install', 'remove') ORDER BY status_at""", (server_id,))
+
+    def set_plugin_features(self, server_id, features):
+        self._execute("UPDATE servers SET plugin_features = %s WHERE id = %s", (sorted(features), server_id))
+
+    def get_addon_rights(self, server_id):
+        """(moderators may edit addon settings, official addons update themselves)."""
+        row = self._fetchone("SELECT addon_mods, addon_auto_update FROM servers WHERE id = %s", (server_id,))
+        return (bool(row[0]), bool(row[1])) if row else (False, False)
+
+    def get_plugin_features(self, server_id):
+        return set(self._fetchvalue("SELECT plugin_features FROM servers WHERE id = %s", (server_id,)) or ())
 
     ################################# Verify Functions #######################################
 

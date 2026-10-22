@@ -21,7 +21,7 @@ import java.util.List;
  */
 final class InGameCommands implements CommandExecutor, TabCompleter {
     static final String[] COMMANDS = {"stats", "top", "wettbewerb", "duell", "report", "seitenleiste", "vote", "events",
-            "verwarnen", "stumm", "entstummen", "joinmessage", "icons"};
+            "verwarnen", "stumm", "entstummen", "icons"};
     private static final List<String> PERIODS = Arrays.asList("7", "30");
     private static final List<String> DAYS = Arrays.asList("1", "2", "3", "4", "5", "6", "7");
     private static final List<String> DUEL_ACTIONS = Arrays.asList("annehmen", "ablehnen");
@@ -29,7 +29,6 @@ final class InGameCommands implements CommandExecutor, TabCompleter {
     private static final List<String> NUMBERS = Arrays.asList("1", "2", "3", "4", "5", "6", "7", "8");
     private static final List<String> EVENT_ACTIONS = Arrays.asList("anmelden", "abmelden");
     private static final List<String> MUTE_MINUTES = Arrays.asList("10", "60", "360", "1440");
-    private static final List<String> JOIN_FIELDS = Arrays.asList("text", "leave", "farbe", "symbol", "stil", "sound");
 
     private final MCDataLink plugin;
     /** Metric names for the tab completion, sent by MCConnect after connecting (!metrics). */
@@ -54,11 +53,7 @@ final class InGameCommands implements CommandExecutor, TabCompleter {
             if (!plugin.glyphs().offerAgain(player)) player.sendMessage(ChatColor.GRAY + "Auf diesem Server gibt es keine Icons zum Laden.");
             return true;
         }
-        Location at = player.getLocation();
-        String world = at.getWorld() == null ? "" : clean(at.getWorld().getName());
-        String message = "!CMD~" + player.getUniqueId() + "|" + world + "|" + at.getBlockX() + "|" + at.getBlockY() + "|"
-                + at.getBlockZ() + "|" + command.getName() + "|" + clean(String.join(" ", args));
-        if (!plugin.sendCommand(message)) {
+        if (!plugin.sendCommand(commandMessage(player, command.getName(), String.join(" ", args)))) {
             player.sendMessage(ChatColor.RED + "MCConnect ist gerade nicht erreichbar. Versuche es gleich noch einmal.");
         }
         return true;
@@ -89,8 +84,6 @@ final class InGameCommands implements CommandExecutor, TabCompleter {
             options = MUTE_MINUTES;
         } else if (name.equals("vote") && index <= 1) {
             options = NUMBERS;
-        } else if (name.equals("joinmessage") && index == 0) {
-            options = JOIN_FIELDS;
         } else if (name.equals("events")) {
             options = index == 0 ? EVENT_ACTIONS : index == 1 ? NUMBERS : options;
         }
@@ -100,6 +93,14 @@ final class InGameCommands implements CommandExecutor, TabCompleter {
             if (option.toLowerCase().startsWith(prefix)) matches.add(option);
         }
         return matches;
+    }
+
+    /** !CMD with the player's position, also for the commands of addons (AddonHandle.command). */
+    static String commandMessage(Player player, String name, String args) {
+        Location at = player.getLocation();
+        String world = at.getWorld() == null ? "" : clean(at.getWorld().getName());
+        return "!CMD~" + player.getUniqueId() + "|" + world + "|" + at.getBlockX() + "|" + at.getBlockY() + "|"
+                + at.getBlockZ() + "|" + clean(name) + "|" + clean(args == null ? "" : args);
     }
 
     private List<String> onlineNames() {

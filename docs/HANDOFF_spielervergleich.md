@@ -9,7 +9,7 @@ und gegenüberstellen“ wissen muss, damit sie nicht alles neu erkunden muss.
 Der Nutzer (Tobias) möchte, dass man auf der Seite eines Minecraft-Servers **alle Spieler vergleichen und
 gegenüberstellen** kann, z. B. nach Spielzeit, abgebauten Ressourcen, Toden usw. Er hat **keine feste
 Vorstellung**, wie das aussehen soll. Erwartet wird, dass du ein Konzept vorschlägst (siehe Ideen unten),
-kurz abstimmst und es dann umsetzt.
+viele fragen stellst und es dann umsetzt.
 
 ## Vorlieben des Nutzers (wichtig)
 
@@ -21,8 +21,7 @@ kurz abstimmst und es dann umsetzt.
   **Keine** externen CDNs für neue Dinge (DSGVO, Google-Fonts-Urteil). Neue Drittanbieter müssten in
   `web/templates/legal_datenschutz.html` ergänzt werden, also besser vermeiden (Charts selbst als SVG/CSS).
 - Akzentfarbe Grün `#2fbf62` / `#1f8f47`, dunkel `#0f1512`, Hintergrund `#f1f2f0` (Variablen in `server.css`).
-- **Commits ohne jede Claude-/AI-Attribution** (kein `Co-Authored-By`). Committen ist ok, pushen fragt man
-  oder der Nutzer macht es selbst.
+- **Commits ohne jede Claude-/AI-Attribution** (kein `Co-Authored-By`). Committen und pushen ist ok, 
 - Er testet visuell und gibt kurzes Feedback („mach X anders“). Screenshots vor dem Abschluss selbst prüfen
   (Anleitung unten).
 - Beim Bauen von Diagrammen: den Skill `dataviz` laden, bevor Chart-Code geschrieben wird.
@@ -204,8 +203,7 @@ Proxmox-LXC, `/opt/mcconnect`, hinter Nginx Proxy Manager. Update:
 
 ## Offene Punkte aus der alten Session (nicht Teil dieser Aufgabe)
 
-- Plugin-Features (Prefix im Spiel, Bans, Ingame-Banliste) sind noch nicht auf einem echten Server getestet.
 - `/pardon` im Spiel hebt einen Website-Ban auf der Website nicht auf.
-- Login-Link im Header hat noch eine Farbanimation (`mymove` in `header.css`); Nutzer noch nicht gefragt.
+
 - `database/manage.py seed` ist nur für Entwicklung gedacht (Frage offen, ob in Produktion sperren).
 - Socket-Verbindung Plugin ↔ Server ist unverschlüsselt (Key im Klartext).

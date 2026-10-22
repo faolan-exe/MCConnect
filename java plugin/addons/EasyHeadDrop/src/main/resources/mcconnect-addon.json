@@ -1,0 +1,88 @@
+{
+  "id": "easyheaddrop",
+  "name": "EasyHeadDrop",
+  "summary": "Spieler (und auf Wunsch Monster) lassen beim Tod ihren Kopf fallen – als Trophäe.",
+  "description": "Wer einen Spieler besiegt, bekommt dessen Kopf mit Datum, Killer und Waffe als Beschreibung. Wahrscheinlichkeit, Plündern-Bonus, Abklingzeit gegen Kopf-Farmen, Texte und Monsterköpfe stellst du hier ein.",
+  "features": [
+    "Spielerköpfe mit Name, Datum, Killer und Waffe",
+    "Auch bei Fernkampf-Kills (Bogen, Armbrust, Dreizack)",
+    "Wahrscheinlichkeit und Bonus pro Plündern-Stufe",
+    "Abklingzeit gegen das Farmen von Köpfen",
+    "Optional: Köpfe von Zombies, Skeletten, Creepern & Co.",
+    "Optional: Ankündigung im Chat"
+  ],
+  "settings": [
+    {
+      "title": "Spielerköpfe",
+      "fields": [
+        {"key": "player_heads", "type": "toggle", "default": true, "label": "Spieler lassen ihren Kopf fallen"},
+        {"key": "require_player_killer", "type": "toggle", "default": true, "label": "Nur wenn ein Spieler tötet",
+         "help": "Aus: auch bei Lava, Monstern, Sturz usw.", "show_if": {"key": "player_heads", "is": true}},
+        {"key": "chance", "type": "number", "default": 100, "min": 0, "max": 100, "step": 1, "unit": "%", "label": "Wahrscheinlichkeit",
+         "show_if": {"key": "player_heads", "is": true}},
+        {"key": "looting_bonus", "type": "number", "default": 0, "min": 0, "max": 100, "step": 1, "unit": "% pro Stufe",
+         "label": "Bonus durch Plündern", "help": "Pro Stufe Plündern auf der Waffe des Killers.",
+         "show_if": {"key": "player_heads", "is": true}},
+        {"key": "cooldown_minutes", "type": "number", "default": 10, "min": 0, "max": 1440, "step": 1, "unit": "Minuten",
+         "label": "Abklingzeit pro Killer und Opfer",
+         "help": "So lange gibt derselbe Spieler demselben Killer keinen weiteren Kopf (gegen Kopf-Farmen). 0 = aus.",
+         "show_if": {"key": "player_heads", "is": true}}
+      ]
+    },
+    {
+      "title": "Aussehen",
+      "fields": [
+        {"key": "name", "type": "text", "colors": true, "max": 80, "default": "&a{victim}s &7Kopf", "label": "Name des Kopfes",
+         "placeholders": [{"name": "{victim}", "label": "Opfer", "example": "Steve"}]},
+        {"key": "lore", "type": "lines", "colors": true, "max": 120, "max_items": 8, "label": "Beschreibung",
+         "default": ["&eGestorben am: &f{date}", "&eGetötet von: &f&l{killer}", "&eWaffe: &f&l{weapon}"],
+         "placeholders": [{"name": "{victim}", "label": "Opfer", "example": "Steve"},
+                          {"name": "{killer}", "label": "Killer", "example": "Alex"},
+                          {"name": "{weapon}", "label": "Waffe", "example": "Diamond Sword"},
+                          {"name": "{date}", "label": "Datum", "example": "22.10.2026"},
+                          {"name": "{world}", "label": "Welt", "example": "world"},
+                          {"name": "{cause}", "label": "Todesursache", "example": "Entity Attack"}]},
+        {"key": "no_killer", "type": "text", "max": 40, "default": "–", "label": "Text für {killer} ohne Killer"},
+        {"key": "date_format", "type": "select", "default": "dd.MM.yyyy", "label": "Datumsformat",
+         "options": [{"value": "dd.MM.yyyy", "label": "22.10.2026"},
+                     {"value": "dd.MM.yyyy HH:mm", "label": "22.10.2026 19:30"},
+                     {"value": "d. MMMM yyyy", "label": "22. Oktober 2026"},
+                     {"value": "yyyy-MM-dd", "label": "2026-10-22"}]}
+      ]
+    },
+    {
+      "title": "Ankündigung",
+      "fields": [
+        {"key": "broadcast", "type": "toggle", "default": false, "label": "Im Chat ankündigen, wer einen Kopf erbeutet hat"},
+        {"key": "broadcast_text", "type": "text", "colors": true, "max": 200,
+         "default": "&6☠ {killer} &7hat den Kopf von &6{victim} &7erbeutet!", "label": "Text",
+         "placeholders": [{"name": "{victim}", "label": "Opfer", "example": "Steve"},
+                          {"name": "{killer}", "label": "Killer", "example": "Alex"},
+                          {"name": "{weapon}", "label": "Waffe", "example": "Diamond Sword"}],
+         "show_if": {"key": "broadcast", "is": true}}
+      ]
+    },
+    {
+      "title": "Monsterköpfe",
+      "fields": [
+        {"key": "mob_heads", "type": "toggle", "default": false, "label": "Auch Monster lassen Köpfe fallen"},
+        {"key": "mob_types", "type": "multiselect", "default": ["zombie", "skeleton", "creeper"], "label": "Welche",
+         "options": [{"value": "zombie", "label": "Zombie"}, {"value": "skeleton", "label": "Skelett"},
+                     {"value": "creeper", "label": "Creeper"}, {"value": "wither_skeleton", "label": "Wither-Skelett"},
+                     {"value": "piglin", "label": "Piglin (ab 1.20)"}, {"value": "ender_dragon", "label": "Enderdrache"}],
+         "show_if": {"key": "mob_heads", "is": true}},
+        {"key": "mob_chance", "type": "number", "default": 5, "min": 0, "max": 100, "step": 0.5, "unit": "%",
+         "label": "Wahrscheinlichkeit", "show_if": {"key": "mob_heads", "is": true}},
+        {"key": "mob_require_player", "type": "toggle", "default": true, "label": "Nur wenn ein Spieler das Monster tötet",
+         "show_if": {"key": "mob_heads", "is": true}}
+      ]
+    },
+    {
+      "title": "Welten",
+      "fields": [
+        {"key": "worlds", "type": "lines", "max": 64, "max_items": 20, "default": [], "label": "Nur in diesen Welten",
+         "help": "Leer = in allen Welten.", "suggest": "worlds"}
+      ]
+    }
+  ]
+}

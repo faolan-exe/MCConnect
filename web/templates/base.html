@@ -7,6 +7,7 @@
     <link href="{{ url_for('static', filename='css/fonts.css') }}" rel="stylesheet" />
     <link href="{{ url_for('static', filename='css/admin.css') }}" rel="stylesheet" />
     <link href="{{ url_for('static', filename='css/components.css') }}" rel="stylesheet" />
+    {% block head %}{% endblock %}
     <link href="{{ url_for('static', filename='images/favicon.ico') }}" rel="icon" type="image/vnd.microsoft.icon" />
     <script src="{{ url_for('static', filename='actions.js') }}"></script>
   </head>

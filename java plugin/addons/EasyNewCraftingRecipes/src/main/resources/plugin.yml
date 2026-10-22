@@ -1,0 +1,8 @@
+name: EasyNewCraftingRecipes
+version: '${project.version}'
+main: org.tobias.mcconnect.easynewcraftingrecipes.EasyNewCraftingRecipes
+api-version: '1.13'
+depend: [MCDataLink]
+authors: [Tobias Auer]
+description: Eigene Crafting- und Ofenrezepte (MCConnect-Erweiterung)
+website: mc.tobisit.de

@@ -18,7 +18,7 @@ from database.databaseManagerV2 import DatabaseManager
 TEST_DB_CONFIG = dict(config.DB_CONFIG, dbname=os.environ.get("MCC_TEST_DB_NAME", "mcconnect_test"))
 
 DATA_TABLES = ("actions", "login", "banned_players", "prefixes", "player_server_info",
-               "servers", "email_verification", "server_admins", "player")
+               "servers", "email_verification", "server_admins", "player", "addon_releases")
 
 PLAYER_UUID = "4ebe5f6f-c231-4315-9d60-097c48cc6d30"
 OTHER_UUID = "069a79f4-44e9-4726-a5be-fca90e38aaf5"

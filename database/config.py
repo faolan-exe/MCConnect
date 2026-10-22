@@ -46,6 +46,8 @@ PLUGIN_PUBLIC_HOST = _env("MCC_PLUGIN_PUBLIC_HOST", BASE_DOMAIN.split(":")[0])
 PLUGIN_PUBLIC_PORT = int(_env("MCC_PLUGIN_PUBLIC_PORT", str(SOCKET_PORT)))
 # Plugin jar offered for download; defaults to the local maven build output.
 PLUGIN_JAR = _env("MCC_PLUGIN_JAR")
+# Folder with the jars of the official addons (the store); defaults to the local maven build output.
+ADDON_DIR = _env("MCC_ADDON_DIR")
 
 # Operator details for the legal pages (Impressum / Datenschutz).
 # MCC_LEGAL_ADDRESS lines are separated by ";".
