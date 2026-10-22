@@ -378,3 +378,26 @@ def test_moderators_edit_settings_only_if_allowed(mod, db, server, admin_id, sto
     # installing, approving and removing stay with the owner
     assert mod.post("/api/mod/addons/spawnelytra/remove", json={}, **on("testdomain")).status_code in (404, 405)
     assert mod.post(f"/api/servers/{server['id']}/addons/spawnelytra/remove", json={}, **on(None)).status_code == 401
+
+
+# ------------------------------------------------------------------ whitelist cleanup (plugin 3.23)
+
+def test_moderators_take_players_off_the_whitelist(mod, db, server, plugin, socket_server):
+    names = {"names": ["Notch", "_Tobias4444"]}
+    assert mod.post("/api/mod/whitelist/remove", json={"names": ["bad name"]}, **on("testdomain")).status_code == 400
+    assert mod.post("/api/mod/whitelist/remove", json={"names": []}, **on("testdomain")).status_code == 400
+    db.set_plugin_features(server["id"], {"click"})  # an older plugin
+    assert "3.23" in mod.post("/api/mod/whitelist/remove", json=names, **on("testdomain")).json["error"]
+    connection = connect(plugin, server, features="click,addons,unwhitelist")
+    assert mod.post("/api/mod/whitelist/remove", json=names, **on("testdomain")).json == {"removed": names["names"]}
+    assert until(connection, "!whitelist~remove|_Tobias4444")[-2:] == ["!whitelist~remove|Notch", "!whitelist~remove|_Tobias4444"]
+    assert db.get_mod_log(server["id"])[0]["action"] == "whitelist_remove"
+    db.set_plugin_connected(server["id"], False)
+    assert "nicht verbunden" in mod.post("/api/mod/whitelist/remove", json=names, **on("testdomain")).json["error"]
+
+
+def test_only_moderators_take_players_off_the_whitelist(client, db, server, two_players):
+    from tests.test_web import login_player
+    db.set_plugin_connected(server["id"], True)
+    login_player(client, db, two_players[0])
+    assert client.post("/api/mod/whitelist/remove", json={"names": ["Notch"]}, **on("testdomain")).status_code == 403

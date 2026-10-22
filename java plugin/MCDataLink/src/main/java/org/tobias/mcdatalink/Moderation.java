@@ -64,6 +64,12 @@ final class Moderation implements Listener {
         plugin.getServer().dispatchCommand(plugin.getServer().getConsoleSender(), "whitelist add " + name);
     }
 
+    /** Main thread: !whitelist~remove (a moderator cleans up the whitelist on the website, plugin 3.23). */
+    void unwhitelist(String name) {
+        if (!NAME.matcher(name).matches()) return;
+        plugin.getServer().dispatchCommand(plugin.getServer().getConsoleSender(), "whitelist remove " + name);
+    }
+
     private String muteMessage(UUID uuid) {
         Long until = mutedUntil.get(uuid);
         if (until == null) return null;
