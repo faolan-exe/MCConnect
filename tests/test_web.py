@@ -836,7 +836,7 @@ def test_ban_validation(player_client, db, server, body, status):
 
 
 def test_permanent_ban_shows_on_player_page(client, db, server):
-    player_id = db.ensure_player_on_server(server["id"], OTHER_UUID)
+    db.ensure_player_on_server(server["id"], OTHER_UUID)
     db.ban_player(server["id"], "Notch", "Admin", days=0)
     body = client.get("/spieler?player=Notch", **on("testdomain")).data.decode()
     assert "dauerhaft" in body

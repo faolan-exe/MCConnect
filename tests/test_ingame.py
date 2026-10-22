@@ -1,12 +1,10 @@
 """Phase 6: in-game commands, sidebar, duels and reports (socket protocol and website)."""
-import json
 from datetime import timedelta
 
 import pytest
 
 from mc_socket import commands
 from tests.conftest import OTHER_UUID, PLAYER_UUID
-from tests.test_achievements import custom
 from tests.test_metrics import STATS_A, STATS_B, two_players  # noqa: F401 (fixture)
 from tests.test_socket import plugin, socket_server  # noqa: F401 (fixtures)
 from tests.test_web import app, client, login_player, on  # noqa: F401 (fixtures)

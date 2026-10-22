@@ -1,7 +1,6 @@
 """Sessions, online history, peak times, weekly recap and the server statistics pages."""
 from datetime import timedelta
 
-import pytest
 
 from tests.conftest import OTHER_UUID, PLAYER_UUID
 from tests.test_metrics import STATS_A, STATS_B, set_snapshot_day, two_players  # noqa: F401 (fixture)
@@ -46,7 +45,7 @@ def test_later_rejoin_starts_a_new_session(db, server):
 
 
 def test_online_peak_and_history(db, server):
-    a = db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
+    db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
     b = db.register_player_join(server["id"], OTHER_UUID, "Notch")
     db.register_player_quit(server["id"], OTHER_UUID)
     with db._cursor() as cur:  # Notch played for the last 3 hours, overlapping with _Tobias4444

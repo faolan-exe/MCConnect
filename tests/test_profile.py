@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import pytest
 
-from tests.conftest import OTHER_UUID, PLAYER_UUID
+from tests.conftest import PLAYER_UUID
 from tests.test_achievements import custom
 from tests.test_metrics import STATS_A, set_snapshot_day, two_players  # noqa: F401 (fixture)
 from tests.test_socket import plugin, socket_server  # noqa: F401 (fixtures)

@@ -1,5 +1,4 @@
 """Phase 8: whitelist access, warnings and mutes, X-ray hints, alerts, rules and FAQ."""
-import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
