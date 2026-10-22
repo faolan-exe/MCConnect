@@ -3388,25 +3388,25 @@ def mod_addon_config_api(addon_id):
 
 
 _items_cache = {}
+ITEMS_CACHE_SECONDS = 3600  # the block registry grows with new Minecraft versions (database/registry.py)
 
 
 @main_bp.route("/api/minecraft/items")
 @server_bp.route("/api/minecraft/items")  # the moderators' page on the server's subdomain
 def minecraft_items_api():
-    """{"items": item ids for the item picker of the addon settings (database/*.json), "sprites": the ids that have an
-    icon in css/minecraft.css}. The sprites come from here because the server pages cannot read the stylesheet of the
-    main domain (cross-origin)."""
-    if not _items_cache:
+    """{"items": item ids for the item picker of the addon settings (the vanilla block and item registry),
+    "sprites": the ids that have an icon in css/minecraft.css}. The sprites come from here because the server pages
+    cannot read the stylesheet of the main domain (cross-origin)."""
+    if time.monotonic() - _items_cache.get("loaded", -ITEMS_CACHE_SECONDS) >= ITEMS_CACHE_SECONDS:
+        names = db().get_lookup_names()
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        with open(os.path.join(root, "database", "itemlist.json"), encoding="utf-8") as file:
-            names = {item["id"] for item in json.load(file)}
-        with open(os.path.join(root, "database", "blocks.json"), encoding="utf-8") as file:
-            names |= {block["name"] for block in json.load(file)}
         with open(os.path.join(root, "web", "static", "css", "minecraft.css"), encoding="utf-8") as file:
             sprites = {m.replace("-", "_") for m in re.findall(r"^\.icon-minecraft-([a-z0-9-]+)\{", file.read(), re.MULTILINE)}
-        _items_cache["items"] = sorted(n for n in names if addons.MATERIAL_RE.match(n) and not n.endswith("air"))
-        _items_cache["sprites"] = sorted(sprites)
-    response = current_app.response_class(json.dumps(_items_cache), mimetype="application/json")
+        _items_cache["body"] = json.dumps({
+            "items": sorted(n for n in names if addons.MATERIAL_RE.match(n) and not n.endswith("air")),
+            "sprites": sorted(sprites)})
+        _items_cache["loaded"] = time.monotonic()
+    response = current_app.response_class(_items_cache["body"], mimetype="application/json")
     response.headers["Cache-Control"] = "public, max-age=86400"
     return response
 

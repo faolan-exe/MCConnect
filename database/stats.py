@@ -16,6 +16,11 @@ MOB_KILLED, BLOCK_USED, ITEM_DROPPED, TOOL_BROKEN = 12, 13, 14, 15
 ARMOR_BROKEN, BLOCK_MINED, ITEM_USED, ARMOR_USED = 16, 17, 18, 19
 TOOL_USED, CUSTOM = 20, 21
 
+# The category of a block for that of an item: values stored for a name before it was known as a block move there
+# (DatabaseManager._reclassify).
+ITEM_TO_BLOCK = {ITEM_USED: BLOCK_USED, ITEM_DROPPED: BLOCK_DROPPED, ITEM_PICKED_UP: BLOCK_PICKED_UP,
+                 ITEM_CRAFTED: BLOCK_CRAFTED}
+
 ARMOR_CATEGORIES = (ARMOR_USED, ARMOR_BROKEN, ARMOR_DROPPED, ARMOR_PICKED_UP, ARMOR_CRAFTED)
 TOOL_CATEGORIES = (TOOL_USED, TOOL_BROKEN, TOOL_DROPPED, TOOL_PICKED_UP, TOOL_CRAFTED)
 ITEM_CATEGORIES = (ITEM_USED, ITEM_DROPPED, ITEM_PICKED_UP, ITEM_CRAFTED)
@@ -80,13 +85,21 @@ def strip_namespace(name):
     return name.split(":", 1)[1] if ":" in name else name
 
 
+def lookup_name(name):
+    """The form of the block and item lists (database/registry.py): "minecraft:stone" -> "stone",
+    "create:brass_block" keeps its namespace (a mod's block is not the vanilla one of the same name)."""
+    namespace, sep, path = name.partition(":")
+    return path if sep and namespace == "minecraft" else name
+
+
 def item_group(name, blocks, items):
-    """Return "tool", "armor", "block", "item" or None for a minecraft id."""
-    name = strip_namespace(name)
-    if name in TOOL_NAMES or name.endswith(TOOL_SUFFIXES):
+    """Return "tool", "armor", "block", "item" or None for a minecraft id (mods' ids too)."""
+    path = strip_namespace(name)
+    if path in TOOL_NAMES or path.endswith(TOOL_SUFFIXES):
         return "tool"
-    if name in ARMOR_NAMES or name.endswith(ARMOR_SUFFIXES):
+    if path in ARMOR_NAMES or path.endswith(ARMOR_SUFFIXES):
         return "armor"
+    name = lookup_name(name)
     if name in blocks:
         return "block"
     if name in items:

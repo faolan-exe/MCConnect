@@ -20,6 +20,7 @@ from . import config
 from . import achievements as achievements_mod
 from . import metrics as metrics_mod
 from . import motivation
+from . import registry as registry_mod
 from . import stats as stats_mod
 from .minecraft import Minecraft
 
@@ -548,6 +549,16 @@ MIGRATIONS = {
         "ALTER TABLE servers ADD COLUMN addon_mods boolean NOT NULL DEFAULT false",
         "ALTER TABLE servers ADD COLUMN addon_auto_update boolean NOT NULL DEFAULT false",
     ],
+    30: [
+        # blocks and items of a server's own registry (plugin 3.24: mods, data packs, newer versions; see
+        # database/registry.py). Per server, so one server cannot change the categories of another.
+        """CREATE TABLE server_registry (
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             name text NOT NULL,
+             is_block boolean NOT NULL,
+             PRIMARY KEY (server_id, name))""",
+        "ALTER TABLE servers ADD COLUMN registry_version text",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -588,6 +599,8 @@ SCHEMA_VERSION = max(MIGRATIONS, default=1)
 # A plugin counts as online if it was seen within this time (it sends a heartbeat every 5 seconds).
 PLUGIN_ONLINE_SECONDS = 90
 MIGRATION_LOCK_ID = 7_412_001
+# Stats updates take it shared, a change of the block lists exclusively (see add_lookup_names).
+REGISTRY_LOCK_ID = 7_412_002
 
 LOWEST_WEB_ACCESS_LEVEL = 0
 DEFAULT_WEB_ACCESS_LEVEL = 3
@@ -644,6 +657,7 @@ class DatabaseManager:
         self.timezone = timezone or config.TIMEZONE
         self.minecraft = minecraft or Minecraft()
         self.blocks, self.items = set(), set()
+        self._server_registry = {}  # server_id -> (blocks, items) of its own registry, loaded when needed
         self.pool = ThreadedConnectionPool(
             config.DB_POOL_MIN, config.DB_POOL_MAX,
             options=f"-c timezone={self.timezone}", **self.db_config,
@@ -791,6 +805,115 @@ class DatabaseManager:
     def _load_lookups(self):
         self.blocks = {row[0] for row in self._fetchall("SELECT name FROM block_lookup")}
         self.items = {row[0] for row in self._fetchall("SELECT name FROM item_lookup")}
+        self._server_registry = {}
+
+    ################################ BLOCK REGISTRY ###################################
+
+    def _server_lookups(self, cur, server_id):
+        """(blocks, items) for the stats of a server: the global lists plus the server's own registry."""
+        own = self._server_registry.get(server_id)
+        if own is None:
+            cur.execute("SELECT name, is_block FROM server_registry WHERE server_id = %s", (server_id,))
+            rows = cur.fetchall()
+            own = ({name for name, is_block in rows if is_block}, {name for name, is_block in rows if not is_block})
+            self._server_registry[server_id] = own
+        if not own[0] and not own[1]:
+            return self.blocks, self.items
+        return self.blocks | own[0], self.items | own[1]
+
+    def get_lookup_names(self):
+        """All vanilla block and item names (the global lists, current also in processes that do not sync them)."""
+        return {row[0] for row in self._fetchall("SELECT name FROM block_lookup UNION SELECT name FROM item_lookup")}
+
+    def add_lookup_names(self, blocks, items):
+        """Add vanilla blocks and items (database/registry.py) to the global lists. Values that were stored as an
+        item of a name that is a block now move to the block categories (_reclassify).
+        Returns the number of new blocks."""
+        with self._cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(%s)", (REGISTRY_LOCK_ID,))
+            cur.execute("SELECT name FROM block_lookup")
+            known = {row[0] for row in cur.fetchall()}
+            new_blocks = sorted(set(blocks) - known)
+            cur.execute("SELECT name FROM item_lookup")
+            new_items = sorted(set(items) - set(blocks) - known - {row[0] for row in cur.fetchall()})
+            if not new_blocks and not new_items:
+                return 0
+            cur.executemany("INSERT INTO block_lookup (name) VALUES (%s) ON CONFLICT DO NOTHING", [(n,) for n in new_blocks])
+            cur.executemany("INSERT INTO item_lookup (name) VALUES (%s) ON CONFLICT DO NOTHING", [(n,) for n in new_items])
+            # before the commit: a stats update waiting for the lock must already see the new names
+            self.blocks = self.blocks | set(new_blocks)
+            self.items = self.items | set(new_items)
+            moved = self._reclassify(cur, new_blocks)
+        logger.info(f"Block registry: {len(new_blocks)} new blocks, {len(new_items)} new items, {moved} values moved")
+        return len(new_blocks)
+
+    def add_server_registry(self, server_id, blocks, items, version=None):
+        """The registry the plugin of a server reported (!REGISTRY): add its blocks and items that the global lists
+        do not have. Names are kept when a later report lacks them (a removed mod still has values in the stats
+        files). Returns the number of new blocks."""
+        with self._cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(%s)", (REGISTRY_LOCK_ID,))
+            if version is not None:
+                cur.execute("UPDATE servers SET registry_version = %s WHERE id = %s", (version, server_id))
+            self._server_registry.pop(server_id, None)
+            known_blocks, known_items = self._server_lookups(cur, server_id)
+            new_blocks = sorted(set(blocks) - known_blocks)
+            new_items = sorted(set(items) - set(blocks) - known_blocks - known_items)
+            if not new_blocks and not new_items:
+                return 0
+            cur.executemany("""INSERT INTO server_registry (server_id, name, is_block) VALUES (%s, %s, %s)
+                               ON CONFLICT (server_id, name) DO UPDATE SET is_block = true WHERE EXCLUDED.is_block""",
+                            [(server_id, n, True) for n in new_blocks] + [(server_id, n, False) for n in new_items])
+            self._server_registry.pop(server_id, None)
+            self._server_lookups(cur, server_id)  # before the commit, like add_lookup_names
+            moved = self._reclassify(cur, new_blocks, server_id)
+        logger.info(f"Server {server_id} registry: {len(new_blocks)} new blocks, {len(new_items)} new items, "
+                    f"{moved} values moved")
+        return len(new_blocks)
+
+    def _reclassify(self, cur, new_blocks, server_id=None):
+        """Values stored as an item (ITEM_USED, ...) of names that are blocks now move to the block categories
+        (BLOCK_USED, ...), for all players or those of one server. Their snapshots change by the same amount, so the
+        correction is no gain of today (rankings of a period, competitions, goals). Returns the number of moved values.
+        """
+        objects = [registry_mod.object_name(n) for n in new_blocks]
+        if not objects:
+            return 0
+        scope = "" if server_id is None else \
+            "AND a.player_id IN (SELECT player_id FROM player_server_info WHERE server_id = %s)"
+        scope_params = () if server_id is None else (server_id,)
+        item_categories = list(stats_mod.ITEM_TO_BLOCK)
+        cur.execute(f"""SELECT DISTINCT a.player_id::text FROM actions a
+                        WHERE a.object = ANY(%s) AND a.category = ANY(%s) {scope}""",
+                    (objects, item_categories, *scope_params))
+        players = [row[0] for row in cur.fetchall()]
+        if not players:
+            return 0
+        before = self._metric_values(cur, players)
+        mapping = " ".join(f"WHEN {item} THEN {block}" for item, block in stats_mod.ITEM_TO_BLOCK.items())
+        cur.execute(f"""
+            WITH moved AS (DELETE FROM actions a
+                           WHERE a.player_id = ANY(%s::uuid[]) AND a.object = ANY(%s) AND a.category = ANY(%s)
+                           RETURNING a.player_id, a.category, a.object, a.value)
+            INSERT INTO actions (player_id, category, object, value)
+            SELECT player_id, CASE category {mapping} END, object, value FROM moved
+            ON CONFLICT (player_id, category, object) DO UPDATE SET value = GREATEST(actions.value, EXCLUDED.value)""",
+                    (players, objects, item_categories))
+        moved = cur.rowcount
+        after = self._metric_values(cur, players)
+        shifts = [(after[p][i] - before[p][i], p, m.key) for p in players for i, m in enumerate(metrics_mod.METRICS)
+                  if after[p][i] != before[p][i]]
+        cur.executemany("UPDATE stat_snapshots SET value = value + %s WHERE player_id = %s AND metric = %s", shifts)
+        return moved
+
+    @staticmethod
+    def _metric_values(cur, players):
+        """{player_id: (value of every metric, in METRICS order)} from actions."""
+        columns, params = metrics_mod.sql_columns()
+        cur.execute(f"""SELECT a.player_id::text, {", ".join(columns)} FROM actions a
+                        WHERE a.player_id = ANY(%s::uuid[]) GROUP BY a.player_id""", (*params, players))
+        values = {row[0]: tuple(int(v) for v in row[1:]) for row in cur.fetchall()}
+        return {p: values.get(p, (0,) * len(metrics_mod.METRICS)) for p in players}
 
     ################################ ADD FUNCTIONS ####################################
 
@@ -973,9 +1096,14 @@ class DatabaseManager:
         Store a stats file (json string or dict) for the player and update today's
         metric snapshot. Returns the number of stored values.
         """
-        entries = stats_mod.split_stats(stats, self.blocks, self.items)
-        data = [(player_id, category, name, value) for name, category, value in entries]
         with self._cursor() as cur:
+            # a change of the block lists (add_lookup_names) waits for this update, and this update for it
+            cur.execute("SELECT pg_advisory_xact_lock_shared(%s)", (REGISTRY_LOCK_ID,))
+            cur.execute("SELECT server_id FROM player_server_info WHERE player_id = %s", (player_id,))
+            row = cur.fetchone()
+            blocks, items = self._server_lookups(cur, row[0]) if row else (self.blocks, self.items)
+            entries = stats_mod.split_stats(stats, blocks, items)
+            data = [(player_id, category, name, value) for name, category, value in entries]
             cur.executemany("""
                 INSERT INTO actions (player_id, category, object, value)
                 VALUES (%s, %s, %s, %s)

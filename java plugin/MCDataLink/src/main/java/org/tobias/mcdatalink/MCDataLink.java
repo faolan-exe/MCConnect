@@ -238,6 +238,8 @@ public final class MCDataLink extends JavaPlugin {
                 case "100":
                     authenticated = true;
                     getLogger().info("Connected to MCConnect");
+                    // first: MCConnect sorts the stats that follow by the server's blocks (RegistryReporter)
+                    send("!REGISTRY~" + RegistryReporter.json(getServer().getBukkitVersion()));
                     // chat messages may contain buttons and tooltips (ChatMarkup) and icons (Glyphs); updates (PluginUpdater);
                     // addons (AddonManager, AddonInstaller)
                     send("!FEATURES~click,glyphs,update,hover,addons,unwhitelist");

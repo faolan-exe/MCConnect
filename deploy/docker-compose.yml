@@ -83,6 +83,8 @@ services:
       MCC_SOCKET_TLS_DIR: /tls
       MCC_SOCKET_TLS_CERT: ${MCC_SOCKET_TLS_CERT:-}
       MCC_SOCKET_TLS_KEY: ${MCC_SOCKET_TLS_KEY:-}
+      # blocks of new Minecraft versions, loaded daily; "off" = only the shipped list and the plugins' reports
+      MCC_REGISTRY_URL: ${MCC_REGISTRY_URL:-}
       TZ: Europe/Berlin
     depends_on:
       db:
