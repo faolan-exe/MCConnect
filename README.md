@@ -51,7 +51,7 @@ fingerprint of the local socket certificate (`certs/`) for a test plugin's `tls-
 
 ## Status
 
-State of 2026-10-22: schema version 29, plugin 3.22 (addons). Written as a handoff for the next development session.
+State of 2026-10-22: schema version 30, plugin 3.24 (block registry). Written as a handoff for the next development session.
 
 ### Features
 
@@ -104,7 +104,9 @@ migration 27 for every plugin version). · 3.22 addons (`AddonManager`, `AddonIn
 `org.tobias.mcdatalink.api`; `!FEATURES~…,addons`, `!ADDONS`, `!addonstate`, `!addon`/`!ADDON`, `!ADDONCONFIG`,
 `!addoninstall`, `!addonremove`, `!ADDONRESULT`, `!ADDONPROBLEMS`; `addon-install: false` switches remote installs off);
 join messages moved into BetterJoinMessages, `/joinmessage` is its command. · 3.23 `!whitelist~remove` (`!FEATURES~…,unwhitelist`): moderators take
-absent players off the whitelist on `/users/spieler` (no console commands any more).
+absent players off the whitelist on `/users/spieler` (no console commands any more). · 3.24 `!REGISTRY` after auth:
+the server's blocks and items (`RegistryReporter`: `Material` plus Paper's `Registry.BLOCK`/`ITEM` by reflection, so
+also mods on hybrid servers and data packs), stored per server (`server_registry`).
 
 Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss the newer features.
 
@@ -134,6 +136,13 @@ Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss 
   `requirements-dev.txt`, uses the installed Chrome; skipped without) and fails if anything runs out of the screen.
 - **"Dabei seit"**, veterans, anniversaries, new players per week/month and the reward condition "days" use
   the game's first join if known (`COALESCE(first_played, first_seen)`).
+- **Blocks of new versions and mods.** Whether a stat object is a block decides its category ("blocks placed" counts
+  `BLOCK_USED` only). The lists grow from three sources (`database/registry.py`, `docs/adr/0002-block-registry.md`):
+  the vanilla registry shipped in `database/registry.json`, the one of misode/mcmeta fetched by the socket server
+  every day (every release and snapshot; `MCC_REGISTRY_URL=off` switches it off) and the plugin's report of the
+  running server (3.24, per server). Names are only added. Values stored as an item before a name was known as a
+  block move to the block categories, and the player's snapshots move by the same amount, so the correction is no
+  gain. Update `registry.json` with a new Minecraft release (see the ADR).
 - **Live values.** The plugin sends custom stats and changed block/item/mob stats every 5 s, all blocks once
   a minute. The socket server checks achievements, records and streaks at most every 15 s per player and
   updates sidebars 5 s after new stats. Pages poll (`web/static/poll.js`, `LiveCache`, 2 s per

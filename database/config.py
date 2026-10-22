@@ -56,5 +56,10 @@ LEGAL_ADDRESS = [line.strip() for line in _env("MCC_LEGAL_ADDRESS", "").split(";
 LEGAL_EMAIL = _env("MCC_LEGAL_EMAIL")
 LEGAL_PHONE = _env("MCC_LEGAL_PHONE")
 
+# Vanilla block and item registry, fetched by the socket server every REGISTRY_SYNC_HOURS (database/registry.py);
+# follows every release and snapshot. "off": only the registry shipped with the code and the plugins' reports.
+REGISTRY_URL = _env("MCC_REGISTRY_URL", "https://raw.githubusercontent.com/misode/mcmeta/summary/registries/data.min.json")
+REGISTRY_SYNC_HOURS = float(_env("MCC_REGISTRY_SYNC_HOURS", "24"))
+
 # Uploaded server images (banner, gallery).
 UPLOAD_DIR = _env("MCC_UPLOAD_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads"))

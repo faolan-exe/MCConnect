@@ -8,6 +8,9 @@ import time
 import psycopg2
 import pytest
 
+# no downloads of the block registry in the tests (the shipped one is still applied, database/registry.py)
+os.environ["MCC_REGISTRY_URL"] = "off"
+
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
@@ -61,6 +64,7 @@ def db(db_manager):
     """The shared manager with all data tables emptied before the test."""
     with db_manager._cursor() as cur:
         cur.execute(f"TRUNCATE {', '.join(DATA_TABLES)} RESTART IDENTITY CASCADE")
+    db_manager._server_registry = {}  # server ids start at 1 again
     return db_manager
 
 

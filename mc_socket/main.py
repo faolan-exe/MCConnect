@@ -38,6 +38,9 @@ Plugin -> server:
     !ADDONRESULT~<id>|<installed|restart|removed|failed>|<text>   result of !addoninstall / !addonremove
                                  (restart: the version waiting in the update folder; failed: the reason)
     !ADDONPROBLEMS~<id>|<json list of texts>   problems with the settings (shown on the admin page)
+    !REGISTRY~<json>             the blocks and items of the running server (3.24, after auth, before the stats):
+                                 {"version", "blocks": [namespaced ids], "items": [...]}, also those of mods and data
+                                 packs; stored for this server (database/registry.py)
     !DISCONNECT                  close the connection
 
 Server -> plugin:
@@ -101,6 +104,7 @@ Success codes:
 105: website bans synced
 106: features noted
 107: addons noted
+108: registry noted
 """
 import html
 import json
@@ -121,7 +125,9 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from colorlogx import get_logger
-from database import achievements, addons, badges, config, glyphs, metrics, motivation, plugin_jar, rewards
+import requests
+
+from database import achievements, addons, badges, config, glyphs, metrics, motivation, plugin_jar, registry, rewards
 from database import chat as chat_markup
 from mc_socket import commands, tlscert
 from database.databaseManagerV2 import DatabaseManager
@@ -145,6 +151,8 @@ COMPETITION_CHECK_INTERVAL = 60
 # LIVE_INTERVAL seconds after new stats.
 AFTER_STATS_INTERVAL = 15
 LIVE_INTERVAL = 5
+# A failed download of the block registry is tried again after this time.
+REGISTRY_RETRY_SECONDS = 3600
 # More new achievement tiers at once are not announced (first sync of an old player).
 MAX_ANNOUNCED_ACHIEVEMENTS = 2
 # More records taken with one stats update are not announced.
@@ -237,8 +245,9 @@ class SocketServer:
     def __init__(self, db_manager, host=config.SOCKET_HOST, port=config.SOCKET_PORT,
                  heartbeat_interval=HEARTBEAT_SEND_INTERVAL, heartbeat_timeout=HEARTBEAT_TIMEOUT,
                  poll_interval=1.0, mailer=None, tls_cert=config.SOCKET_TLS_CERT, tls_key=config.SOCKET_TLS_KEY,
-                 tls_dir=config.SOCKET_TLS_DIR):
+                 tls_dir=config.SOCKET_TLS_DIR, registry_url=config.REGISTRY_URL):
         self.db = db_manager
+        self.registry_url = None if registry_url == "off" else registry_url
         self.tls_cert, self.tls_key, self.tls_dir = tls_cert, tls_key, tls_dir
         self._tls_context = None
         self._tls_loaded = None  # modification times of the loaded certificate files
@@ -279,6 +288,7 @@ class SocketServer:
         self._spawn(self._login_pin_loop, name="login-pins")
         self._spawn(self._competition_loop, name="competitions")
         self._spawn(self._live_loop, name="live")
+        self._spawn(self._registry_loop, name="registry")
 
     def _spawn(self, target, *args, name=None):
         thread = threading.Thread(target=target, args=args, name=name, daemon=True)
@@ -362,6 +372,30 @@ class SocketServer:
                 self.live_checks()
             except Exception:
                 logger.exception("Live check failed")
+
+    def _registry_loop(self):
+        """Blocks and items of new Minecraft versions: the registry shipped with the code, then the one online every
+        REGISTRY_SYNC_HOURS (only fetched again when it changed)."""
+        try:
+            blocks, items, _ = registry.bundled()
+            self.db.add_lookup_names(blocks, items)
+        except Exception:
+            logger.exception("Could not apply the shipped block registry")
+        etag = None
+        while self.registry_url and not self._stop.is_set():
+            wait = config.REGISTRY_SYNC_HOURS * 3600
+            try:
+                result = registry.fetch(self.registry_url, etag)
+                if result is not None:
+                    blocks, items, etag = result
+                    self.db.add_lookup_names(blocks, items)
+            except (requests.RequestException, ValueError) as e:
+                logger.warning(f"Could not load the block registry from {self.registry_url}: {e}")
+                wait = min(wait, REGISTRY_RETRY_SECONDS)
+            except Exception:
+                logger.exception("Block registry sync failed")
+                wait = min(wait, REGISTRY_RETRY_SECONDS)
+            self._stop.wait(wait)
 
     def stats_received(self, server_id, player_id):
         """New stats of a player: check achievements & co. now, or later if they were checked just before."""
@@ -1063,6 +1097,10 @@ class SocketServer:
                 if not sep or not isinstance(problems, list):
                     raise ValueError("addon problems must be a list")
                 self.db.set_addon_problems(client.server_id, addon_id, [str(p)[:200] for p in problems[:20]])
+            elif command == "!REGISTRY":
+                blocks, items, version = registry.parse_report(value)
+                self.db.add_server_registry(client.server_id, blocks, items, version)
+                client.send("success|108")
             elif command == "!CMD":
                 self.run_command(client.server_id, value)
             elif command == "!HEALTH":
