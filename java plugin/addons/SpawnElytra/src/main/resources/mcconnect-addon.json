@@ -8,6 +8,7 @@
     "Einstellbarer Startschub",
     "Landen ohne Fallschaden",
     "Mittelpunkt: Weltspawn oder eigener Punkt (/spawnelytra setcenter)",
+    "Bereich in der Höhe begrenzbar",
     "Hinweis in der Actionbar",
     "Lässt /fly anderer Plugins in Ruhe"
   ],
@@ -21,7 +22,9 @@
         {"key": "center", "type": "position", "default": {"x": 0, "y": 64, "z": 0}, "label": "Eigener Punkt",
          "help": "Im Spiel: /spawnelytra setcenter an der gewünschten Stelle.", "show_if": {"key": "center_mode", "in": ["custom"]}},
         {"key": "radius", "type": "number", "default": 20, "min": 2, "max": 500, "step": 1, "unit": "Blöcke", "label": "Radius",
-         "help": "Gezählt wird der Abstand in der Waagerechten, die Höhe ist egal."}
+         "help": "Gezählt wird der Abstand in der Waagerechten."},
+        {"key": "height", "type": "number", "default": 2, "min": 0, "max": 384, "step": 1, "unit": "Blöcke", "label": "Höhe",
+         "help": "Gilt von der Y-Koordinate des Mittelpunkts bis so viele Blöcke darüber, darunter nie. 0 = ohne Höhengrenze."}
       ]
     },
     {
