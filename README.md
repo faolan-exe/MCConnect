@@ -51,7 +51,7 @@ fingerprint of the local socket certificate (`certs/`) for a test plugin's `tls-
 
 ## Status
 
-State of 2026-10-22: schema version 30, plugin 3.24 (block registry). Written as a handoff for the next development session.
+State of 2026-11-08: schema version 30, plugin 3.25 (stats reset). Written as a handoff for the next development session.
 
 ### Features
 
@@ -106,7 +106,8 @@ migration 27 for every plugin version). · 3.22 addons (`AddonManager`, `AddonIn
 join messages moved into BetterJoinMessages, `/joinmessage` is its command. · 3.23 `!whitelist~remove` (`!FEATURES~…,unwhitelist`): moderators take
 absent players off the whitelist on `/users/spieler` (no console commands any more). · 3.24 `!REGISTRY` after auth:
 the server's blocks and items (`RegistryReporter`: `Material` plus Paper's `Registry.BLOCK`/`ITEM` by reflection, so
-also mods on hybrid servers and data packs), stored per server (`server_registry`).
+also mods on hybrid servers and data packs), stored per server (`server_registry`). · 3.25 `!statsreset` / `!STATSRESET`
+(`!FEATURES~…,statsreset`): owners set the stats of a player or the server to 0 ([ADR 0005](docs/adr/0005-stats-reset.md)).
 
 Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss the newer features.
 

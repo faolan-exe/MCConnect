@@ -207,6 +207,21 @@ tls-fingerprint: "{{ plugin_fingerprint }}"{% endif %}</pre>
     <div class="btn-row" style="margin-top: 0">
       <button class="btn btn-secondary" type="button" data-on-click="regenerateKey" data-args="[{{ server.id }}]">Neuen Key erzeugen</button>
     </div>
+    <p style="margin-top: 20px">Zurücksetzen stellt die Stats im Spiel und hier endgültig auf 0 und löscht Verlauf,
+      Achievements, Rekorde, Trophäen, Serien und Belohnungsstufen. Profile, Rechte, Bans und Prefixe bleiben.
+      Der Server muss dafür verbunden sein.</p>
+    <div class="input-suffix">
+      <input id="reset-player-{{ server.id }}" placeholder="Spielername" list="players-{{ server.id }}" autocomplete="off" />
+      <button class="btn btn-danger" style="border-radius: 0 8px 8px 0" type="button"
+              data-on-click="resetStats" data-args="[{{ server.id }}, false]">Spieler zurücksetzen</button>
+    </div>
+    <p>Für den ganzen Server gib zur Bestätigung <code>{{ server.subdomain }}</code> ein.</p>
+    <div class="input-suffix">
+      <input id="reset-confirm-{{ server.id }}" placeholder="{{ server.subdomain }}" autocomplete="off" />
+      <button class="btn btn-danger" style="border-radius: 0 8px 8px 0" type="button"
+              data-on-click="resetStats" data-args="[{{ server.id }}, true]">Alle zurücksetzen</button>
+    </div>
+    <div class="message" id="reset-message-{{ server.id }}"></div>
     <p style="margin-top: 20px">Löschen entfernt den Server mit allen Spielerdaten und Statistiken endgültig.
       Gib zur Bestätigung <code>{{ server.subdomain }}</code> ein.</p>
     <div class="input-suffix">
@@ -453,6 +468,14 @@ tls-fingerprint: "{{ plugin_fingerprint }}"{% endif %}</pre>
     } else {
       showMessage(document.getElementById("danger-message-" + id), "Das hat nicht geklappt.", "error");
     }
+  }
+
+  async function resetStats(id, wholeServer) {
+    const value = document.getElementById((wholeServer ? "reset-confirm-" : "reset-player-") + id).value.trim();
+    if (!wholeServer && (!value || !confirm(`Alle Stats von ${value} endgültig auf 0 setzen?`))) return;
+    const result = await postJson(`/api/servers/${id}/stats-reset`, wholeServer ? { confirm: value } : { player: value, confirm: value });
+    showMessage(document.getElementById("reset-message-" + id),
+                result.ok ? result.data.message : (result.data.error || "Das hat nicht geklappt."), result.ok ? "success" : "error");
   }
 
   async function deleteServer(id) {

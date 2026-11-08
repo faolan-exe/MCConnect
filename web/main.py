@@ -1878,6 +1878,7 @@ MOD_LOG_ACTIONS = {
     "whitelist_remove": "von der Whitelist genommen", "addon_install": "Erweiterung installiert", "addon_remove": "Erweiterung entfernt",
     "addon_approve": "Erweiterung freigegeben", "addon_block": "Erweiterung gesperrt",
     "addon_pause": "Erweiterung pausiert", "addon_resume": "Erweiterung fortgesetzt", "addon_config": "Erweiterung eingestellt",
+    "stats_reset": "Statistiken zurückgesetzt", "stats_reset_failed": "Zurücksetzen der Statistiken fehlgeschlagen",
 }
 
 
@@ -3246,6 +3247,33 @@ def delete_server_api(server_id):
         return {"error": "Zur Bestätigung die Subdomain eingeben."}, 400
     delete_images(db().delete_server(server_id, session["admin_id"]) or [], config.UPLOAD_DIR)
     return ("", 200)
+
+
+@main_bp.route("/api/servers/<int:server_id>/stats-reset", methods=["POST"])
+@admin_required
+def admin_stats_reset_api(server_id):
+    """Everything earned by playing back to 0, of one player or the whole server (docs/adr/0005-stats-reset.md)."""
+    server = owned_server_or_404(server_id)
+    data = request.get_json(silent=True) or {}
+    player = data.get("player") if isinstance(data.get("player"), str) else ""
+    if "statsreset" not in db().get_plugin_features(server_id) or not db().is_plugin_online(server_id):
+        return {"error": "Das geht nur, solange der Server mit MCDataLink ab 3.25 verbunden ist: "
+                         "die Stats müssen auch im Spiel gelöscht werden."}, 409
+    actor = f"Admin {session['admin_username']}"
+    if not player:
+        if data.get("confirm") != server["subdomain"]:
+            return {"error": "Zur Bestätigung die Subdomain eingeben."}, 400
+        db().notify_server_event(server_id, "stats_reset", target="all", actor=actor)
+        return {"message": "Wird zurückgesetzt, das dauert ein paar Sekunden. Das Ergebnis steht im Moderationsprotokoll."}
+    player_id = db().get_player_id_from_player_name_and_server_id(player, server_id)
+    if player_id is None:
+        return {"error": "Diesen Spieler gibt es auf dem Server nicht."}, 404
+    if data.get("confirm") != player:
+        return {"error": "Zur Bestätigung den Spielernamen senden."}, 400
+    name = db().get_player_name_from_player_id(player_id)
+    db().notify_server_event(server_id, "stats_reset", target=str(db().get_mojang_uuid_from_player_id(player_id)),
+                             player_id=str(player_id), name=name, actor=actor)
+    return {"message": f"Die Stats von {name} werden zurückgesetzt. Das Ergebnis steht im Moderationsprotokoll."}
 
 
 @main_bp.route("/api/servers/<int:server_id>/moderation")

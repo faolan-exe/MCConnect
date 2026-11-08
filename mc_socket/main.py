@@ -41,6 +41,7 @@ Plugin -> server:
     !REGISTRY~<json>             the blocks and items of the running server (3.24, after auth, before the stats):
                                  {"version", "blocks": [namespaced ids], "items": [...]}, also those of mods and data
                                  packs; stored for this server (database/registry.py)
+    !STATSRESET~<all|uuid>|<ok|failed>|<text>   result of !statsreset; only ok clears the database (3.25)
     !DISCONNECT                  close the connection
 
 Server -> plugin:
@@ -58,6 +59,7 @@ Server -> plugin:
                                  ⟦label⇒/command⟧ only for plugins that announced "click" (see commands.button)
     !sidebar~<uuid>|<title>|<line>|...   scoreboard sidebar of a player ("&" color codes); empty title hides it
     !metrics~<name>|<name>|...   metric names for the tab completion of /top and /duell (after auth)
+    !statsreset~<all|uuid>       set the stats in the game to 0 (plugin 3.25 with "statsreset"), answered with !STATSRESET
     !whitelist~add|<name>        put a player on the server's whitelist (accepted application or invite code)
     !whitelist~remove|<name>     take a player off the whitelist (moderators, plugin 3.23 with "unwhitelist")
     !joininfo~<url>              where players who are not on the whitelist can apply (kick message; empty = none)
@@ -267,6 +269,7 @@ class SocketServer:
         self._sock = None
         self._live_lock = threading.Lock()
         self._pending_stats = {}  # player_id -> server_id: new stats not checked yet (throttled)
+        self._pending_resets = {}  # (server_id, target) -> event of the website: waits for !STATSRESET
         self._last_checked = {}  # player_id -> monotonic time of the last after_stats
         self._changed_servers = set()  # servers with new stats since the last sidebar update
         self._badge_lines = {}  # (server_id, uuid) -> the last !badge line sent (only changes are sent)
@@ -768,6 +771,32 @@ class SocketServer:
         text, color = prefix if prefix else ("", "")
         return f"!prefix~{mojang_uuid}|{color}|{self._clean(text)}"
 
+    def request_stats_reset(self, server_id, event):
+        """The plugin clears the stats in the game first; the database follows with its answer (!STATSRESET)."""
+        with self._lock:
+            client = self.active_connections.get(server_id)
+        if client is None or "statsreset" not in client.features:
+            self.db.add_mod_log(server_id, event["actor"], "stats_reset_failed", event.get("name"), "Plugin nicht verbunden")
+            return
+        with self._live_lock:
+            self._pending_resets[(server_id, event["target"])] = event
+        self._send_to_server(server_id, f"!statsreset~{event['target']}")
+
+    def finish_stats_reset(self, server_id, target, state, text):
+        """Answer of the plugin. Everything it sent before is stored by now, what follows starts from 0."""
+        with self._live_lock:
+            event = self._pending_resets.pop((server_id, target), None)
+        if event is None:
+            raise ValueError("stats reset was not requested")
+        if state != "ok":
+            self.db.add_mod_log(server_id, event["actor"], "stats_reset_failed", event.get("name"), text[:200])
+            return
+        count = self.db.reset_stats(server_id, event.get("player_id"))
+        self.db.add_mod_log(server_id, event["actor"], "stats_reset", event.get("name"), f"{count} Spieler")
+        with self._live_lock:
+            self._changed_servers.add(server_id)  # the sidebars
+        self.sync_join_messages(server_id)  # the reward level is back at 0
+
     def handle_server_event(self, event):
         """Forward a change made on the website (see DatabaseManager.notify_server_event) to the plugin."""
         server_id, kind = event["server_id"], event["type"]
@@ -788,6 +817,8 @@ class SocketServer:
                 self.tell(server_id, mojang_uuid, str(event.get("text") or ""))
         elif kind == "sidebar":
             self.update_sidebar(server_id, event["player_id"])
+        elif kind == "stats_reset":
+            self.request_stats_reset(server_id, event)
         elif kind == "whitelist":
             self.sync_whitelist(server_id)
         elif kind == "whitelist_remove":
@@ -1097,6 +1128,11 @@ class SocketServer:
                 self.db.set_addon_result(client.server_id, addon_id, state, text)
                 if state == "failed":
                     logger.warning(f"Server {client.server_id}: addon {addon_id} failed: {text}")
+            elif command == "!STATSRESET":
+                target, state, text = (value.split("|", 2) + ["", ""])[:3]
+                if state not in ("ok", "failed"):
+                    raise ValueError("unknown stats reset result")
+                self.finish_stats_reset(client.server_id, target, state, text)
             elif command == "!ADDONPROBLEMS":
                 addon_id, sep, problems = value.partition("|")
                 problems = json.loads(problems)
