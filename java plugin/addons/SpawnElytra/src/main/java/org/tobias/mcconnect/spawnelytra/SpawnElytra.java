@@ -121,18 +121,24 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
     private double[] center(AddonConfig config, World world) {
         int[] custom = config.getPosition("center");
         if ("custom".equals(config.getString("center_mode", "spawn")) && custom != null) {
-            return new double[]{custom[0] + 0.5, custom[2] + 0.5};
+            return new double[]{custom[0] + 0.5, custom[1], custom[2] + 0.5};
         }
         Location spawn = world.getSpawnLocation();
-        return new double[]{spawn.getX(), spawn.getZ()};
+        return new double[]{spawn.getX(), spawn.getBlockY(), spawn.getZ()};
+    }
+
+    /** From the level of the center up to height blocks above it, both included; 0 = no limit. */
+    static boolean inHeightBand(int y, int centerY, int height) {
+        return height <= 0 || (y >= centerY && y <= centerY + height);
     }
 
     private boolean inZone(Player player, AddonConfig config) {
         World world = zoneWorld(config);
         if (world == null || !player.getWorld().equals(world)) return false;
         double[] center = center(config, world);
+        if (!inHeightBand(player.getLocation().getBlockY(), (int) center[1], config.getInt("height", 2))) return false;
         double dx = player.getLocation().getX() - center[0];
-        double dz = player.getLocation().getZ() - center[1];
+        double dz = player.getLocation().getZ() - center[2];
         double radius = config.getDouble("radius", 20);
         return dx * dx + dz * dz <= radius * radius;
     }
@@ -313,7 +319,9 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
         World world = zoneWorld(config);
         if (world == null) return "Die Welt »" + config.getString("world", "") + "« gibt es nicht.";
         double[] center = center(config, world);
-        return "Radius " + config.getInt("radius", 20) + " um " + (int) Math.floor(center[0]) + " / " + (int) Math.floor(center[1])
+        int height = config.getInt("height", 2);
+        return "Radius " + config.getInt("radius", 20) + " um " + (int) Math.floor(center[0]) + " / " + (int) Math.floor(center[2])
+                + (height > 0 ? ", Höhe Y " + (int) center[1] + " bis " + ((int) center[1] + height) : "")
                 + " in " + world.getName() + ("custom".equals(config.getString("center_mode", "spawn")) ? "" : " (Weltspawn)");
     }
 
