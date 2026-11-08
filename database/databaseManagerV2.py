@@ -1153,6 +1153,28 @@ class DatabaseManager:
 
     ###----------------------------- Update Functions ------------------------------------###
 
+    def reset_stats(self, server_id, player_id=None):
+        """
+        Delete what was earned by playing, of one player or (None) of the whole server (docs/adr/0005-stats-reset.md).
+        Only after the plugin has cleared the stats in the game, or the next sync brings them back.
+        Open sessions stay (who is online now); anniversaries only depend on the first join and would come right back.
+        Returns the number of players.
+        """
+        with self._cursor() as cur:
+            if player_id is None:
+                cur.execute("SELECT player_id FROM player_server_info WHERE server_id = %s", (server_id,))
+            else:
+                cur.execute("SELECT player_id FROM player_server_info WHERE server_id = %s AND player_id = %s",
+                            (server_id, player_id))
+            players = [str(row[0]) for row in cur.fetchall()]
+            for table in ("actions", "stat_snapshots", "player_achievements", "trophies", "record_history"):
+                cur.execute(f"DELETE FROM {table} WHERE player_id = ANY(%s::uuid[])", (players,))
+            cur.execute("DELETE FROM player_milestones WHERE player_id = ANY(%s::uuid[]) AND kind = 'streak'", (players,))
+            cur.execute("DELETE FROM player_sessions WHERE player_id = ANY(%s::uuid[]) AND ended_at IS NOT NULL", (players,))
+            cur.execute("UPDATE player_server_info SET reward_level = 0 WHERE player_id = ANY(%s::uuid[])", (players,))
+        logger.info(f"Reset the stats of {len(players)} players on server {server_id}")
+        return len(players)
+
     def update_player_stats(self, player_id, stats):
         """
         Store a stats file (json string or dict) for the player and update today's

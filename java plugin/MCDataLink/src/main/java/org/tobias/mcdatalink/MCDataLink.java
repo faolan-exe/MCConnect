@@ -242,7 +242,7 @@ public final class MCDataLink extends JavaPlugin {
                     send("!REGISTRY~" + RegistryReporter.json(getServer().getBukkitVersion()));
                     // chat messages may contain buttons and tooltips (ChatMarkup) and icons (Glyphs); updates (PluginUpdater);
                     // addons (AddonManager, AddonInstaller)
-                    send("!FEATURES~click,glyphs,update,hover,addons,unwhitelist");
+                    send("!FEATURES~click,glyphs,update,hover,addons,unwhitelist,statsreset");
                     runOnMainThread(addons::report);
                     sendOnlinePlayers();
                     runOnMainThread(this::sendBanList);
@@ -330,6 +330,9 @@ public final class MCDataLink extends JavaPlugin {
                 break;
             case "!addoninstall":  // id|version|url|sha256|file name
                 addonInstaller.install(value);
+                break;
+            case "!statsreset":  // all or uuid
+                runOnMainThread(() -> resetStats(value));
                 break;
             case "!addonremove":  // id|file name
                 addonInstaller.remove(value);
@@ -543,6 +546,29 @@ public final class MCDataLink extends JavaPlugin {
             if (uuid != null && sendPlayerStats(uuid)) sent++;
         }
         getLogger().info("Sent stats of " + sent + " players to MCConnect");
+    }
+
+    /**
+     * Main thread: online players are cleared in memory (the game would write the old values back), the files of all
+     * others deleted. Also those of online players: until the next save they still hold the old values. The answer goes
+     * through the worker, so behind every stats message already waiting there.
+     */
+    private void resetStats(String target) {
+        UUID only = "all".equals(target) ? null : parseUuid(target);
+        if (only == null && !"all".equals(target)) return;
+        for (Player player : getServer().getOnlinePlayers()) {
+            if (only == null || only.equals(player.getUniqueId())) StatsReset.clear(player);
+        }
+        int failed = 0;
+        File dir = statsDir();
+        File[] files = dir == null ? null : dir.listFiles((d, name) -> name.endsWith(".json"));
+        if (files != null) {
+            for (File file : files) {
+                UUID uuid = parseUuid(file.getName().substring(0, file.getName().length() - ".json".length()));
+                if (uuid != null && (only == null || only.equals(uuid)) && !file.delete()) failed++;
+            }
+        }
+        sendAsync("!STATSRESET~" + target + (failed == 0 ? "|ok|" : "|failed|" + failed + " Dateien konnten nicht gelöscht werden"));
     }
 
     private boolean sendPlayerStats(UUID uuid) {
