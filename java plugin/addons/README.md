@@ -8,7 +8,7 @@ Plugins that extend MCConnect through MCDataLink (3.22+). Background and securit
 | BetterJoinMessages | MCConnect's join/leave messages (reward levels, `/profil`), first-join message, greeting, fixed lines per player, silent players, no message on quick reconnects | `/joinmessage` |
 | EasyHeadDrop | player heads (date, killer, weapon) with chance, looting bonus and anti-farming cooldown; optional mob heads and chat announcement | – |
 | EasyNewCraftingRecipes | own shaped, shapeless and furnace recipes, applied without a restart, problems shown on the website | – |
-| SpawnElytra | double jump near the spawn or in rectangles with their own boost starts a glide without an elytra, no fall damage | `/spawnelytra` |
+| SpawnElytra | double jump in rectangles and circles, each with its own boost, starts a glide without an elytra, no fall damage | `/spawnelytra` |
 | SpawnProtect | protected regions (box or circle around the spawn) with 13 protections, bypass, greeting | `/spawnprotect` (`/sprot`) |
 
 Build: `mvn package` in `java plugin/` (builds MCDataLink and all addons). The Dockerfile copies the addon jars to

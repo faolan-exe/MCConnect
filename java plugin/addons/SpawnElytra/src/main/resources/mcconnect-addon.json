@@ -2,47 +2,43 @@
   "id": "spawnelytra",
   "name": "SpawnElytra",
   "summary": "Am Spawn zweimal Leertaste – und losgleiten, ganz ohne Elytra.",
-  "description": "Rund um den Spawn können Spieler mit doppeltem Sprung losgleiten wie mit einer Elytra. Die Landung ist ohne Fallschaden. Bereich, Startschub, Hinweistext und wer darf, stellst du hier ein; den Mittelpunkt setzt du auch im Spiel mit /spawnelytra setcenter.",
+  "description": "In den Bereichen, die du anlegst, können Spieler mit doppeltem Sprung losgleiten wie mit einer Elytra. Die Landung ist ohne Fallschaden. Rechtecke und Kreise mit eigenem Startschub, Hinweistext und wer darf, stellst du hier ein; Bereiche legst du auch im Spiel an.",
   "features": [
-    "Doppelsprung am Spawn startet einen Gleitflug",
-    "Einstellbarer Startschub",
+    "Doppelsprung in deinen Bereichen startet einen Gleitflug",
+    "Beliebig viele Rechtecke und Kreise, jeweils mit eigenem Startschub",
     "Landen ohne Fallschaden",
-    "Mittelpunkt: Weltspawn oder eigener Punkt (/spawnelytra setcenter)",
-    "Bereich in der Höhe begrenzbar",
-    "Mehrere rechteckige Bereiche mit eigenem Startschub (/spawnelytra pos1, pos2, create)",
+    "Kreise optional in der Höhe begrenzbar",
+    "Im Spiel anlegen: /spawnelytra pos1, pos2, create, circle",
     "Hinweis in der Actionbar",
     "Lässt /fly anderer Plugins in Ruhe"
   ],
   "settings": [
     {
-      "title": "Bereich",
+      "title": "Bereiche",
+      "description": "Ohne Bereich kann niemand losgleiten. Im Spiel: Rechteck mit /spawnelytra pos1 und pos2 an den Ecken, dann /spawnelytra create <name> [schub]. Kreis um deine Position mit /spawnelytra circle <name> <radius> [schub] [höhe]. Liegt ein Spieler in mehreren Bereichen, gilt der erste der Liste.",
       "fields": [
-        {"key": "circle", "type": "toggle", "default": true, "label": "Kreis um den Mittelpunkt",
-         "help": "Aus = nur die Rechtecke weiter unten."},
-        {"key": "world", "type": "text", "max": 64, "default": "", "label": "Welt", "help": "Leer = die Hauptwelt.", "suggest": "worlds",
-         "show_if": {"key": "circle", "is": true}},
-        {"key": "center_mode", "type": "select", "default": "spawn", "label": "Mittelpunkt", "show_if": {"key": "circle", "is": true},
-         "options": [{"value": "spawn", "label": "Spawnpunkt der Welt"}, {"value": "custom", "label": "Eigener Punkt"}]},
-        {"key": "center", "type": "position", "default": {"x": 0, "y": 64, "z": 0}, "label": "Eigener Punkt",
-         "help": "Im Spiel: /spawnelytra setcenter an der gewünschten Stelle.", "show_if": {"key": "center_mode", "in": ["custom"]}},
-        {"key": "radius", "type": "number", "default": 20, "min": 2, "max": 500, "step": 1, "unit": "Blöcke", "label": "Radius",
-         "help": "Gezählt wird der Abstand in der Waagerechten.", "show_if": {"key": "circle", "is": true}},
-        {"key": "height", "type": "number", "default": 2, "min": 0, "max": 384, "step": 1, "unit": "Blöcke", "label": "Höhe",
-         "help": "Kreis: von der Y-Koordinate des Mittelpunkts bis so viele Blöcke darüber. Rechteck: von der tieferen Ecke bis so viele Blöcke über der höheren. Darunter nie. 0 = ohne Höhengrenze."}
-      ]
-    },
-    {
-      "title": "Rechtecke",
-      "description": "Im Spiel: stell dich auf die Ecken und setze sie mit /spawnelytra pos1 und pos2, dann /spawnelytra create <name> [schub]. Liegt ein Spieler in mehreren Bereichen, gilt das erste Rechteck der Liste, danach der Kreis.",
-      "fields": [
-        {"key": "regions", "type": "list", "label": "Rechtecke", "item_label": "Rechteck", "title_key": "name", "max_items": 50,
+        {"key": "regions", "type": "list", "label": "Bereiche", "item_label": "Bereich", "title_key": "name", "max_items": 50,
          "fields": [
            {"key": "name", "type": "text", "max": 32, "required": true, "default": "bereich", "label": "Name",
             "help": "Für die Befehle im Spiel, ohne Leerzeichen."},
            {"key": "enabled", "type": "toggle", "default": true, "label": "Aktiv"},
+           {"key": "shape", "type": "select", "default": "rectangle", "label": "Form",
+            "options": [{"value": "rectangle", "label": "Rechteck zwischen zwei Ecken"},
+                        {"value": "circle", "label": "Kreis um einen Punkt"},
+                        {"value": "spawn", "label": "Kreis um den Weltspawn"}]},
            {"key": "world", "type": "text", "max": 64, "default": "", "label": "Welt", "help": "Leer = die Hauptwelt.", "suggest": "worlds"},
-           {"key": "pos1", "type": "position", "default": {"x": -10, "y": 64, "z": -10}, "label": "Ecke 1"},
-           {"key": "pos2", "type": "position", "default": {"x": 10, "y": 64, "z": 10}, "label": "Ecke 2"},
+           {"key": "pos1", "type": "position", "default": {"x": -10, "y": 64, "z": -10}, "label": "Ecke 1",
+            "show_if": {"key": "shape", "in": ["rectangle"]}},
+           {"key": "pos2", "type": "position", "default": {"x": 10, "y": 66, "z": 10}, "label": "Ecke 2",
+            "help": "Der Bereich reicht genau von der Höhe der einen Ecke bis zu der der anderen.",
+            "show_if": {"key": "shape", "in": ["rectangle"]}},
+           {"key": "center", "type": "position", "default": {"x": 0, "y": 64, "z": 0}, "label": "Mittelpunkt",
+            "show_if": {"key": "shape", "in": ["circle"]}},
+           {"key": "radius", "type": "number", "default": 20, "min": 2, "max": 500, "step": 1, "unit": "Blöcke", "label": "Radius",
+            "show_if": {"key": "shape", "in": ["circle", "spawn"]}},
+           {"key": "height", "type": "number", "default": 0, "min": 0, "max": 384, "step": 1, "unit": "Blöcke", "label": "Höhe (optional)",
+            "help": "Gilt von der Y-Koordinate des Mittelpunkts bis so viele Blöcke darüber, darunter nie. 0 = ohne Höhengrenze.",
+            "show_if": {"key": "shape", "in": ["circle", "spawn"]}},
            {"key": "boost", "type": "number", "default": 1.0, "min": 0, "max": 5, "step": 0.1, "label": "Startschub",
             "help": "0 = kein Schub, nur losgleiten."}
          ]}
@@ -51,8 +47,6 @@
     {
       "title": "Flug",
       "fields": [
-        {"key": "boost", "type": "number", "default": 1.0, "min": 0, "max": 5, "step": 0.1, "label": "Startschub im Kreis",
-         "help": "0 = kein Schub, nur losgleiten. Rechtecke haben ihren eigenen."},
         {"key": "no_fall_damage", "type": "toggle", "default": true, "label": "Landen ohne Fallschaden"},
         {"key": "allow_rockets", "type": "toggle", "default": false, "label": "Raketen zum Beschleunigen erlauben"},
         {"key": "gamemodes", "type": "multiselect", "default": ["survival", "adventure"], "label": "Für Spieler im Modus",
@@ -63,7 +57,7 @@
     {
       "title": "Hinweis",
       "fields": [
-        {"key": "actionbar", "type": "toggle", "default": true, "label": "Hinweis in der Actionbar am Spawn"},
+        {"key": "actionbar", "type": "toggle", "default": true, "label": "Hinweis in der Actionbar im Bereich"},
         {"key": "actionbar_text", "type": "text", "colors": true, "max": 80,
          "default": "&bSpawnElytra bereit &8| &3zweimal Leertaste zum Fliegen", "label": "Text",
          "show_if": {"key": "actionbar", "is": true}}

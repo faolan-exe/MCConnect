@@ -411,8 +411,17 @@ def spawnelytra_settings():
         return addons.check_manifest(json.load(file))["settings"]
 
 
-def test_spawnelytra_rectangle_keeps_its_own_boost_in_range():
-    row = {"name": "start", "pos1": {"x": 0, "y": 64, "z": 0}, "pos2": {"x": 5, "y": 64, "z": 5}}
-    values, errors = addons.normalize(spawnelytra_settings(), {"regions": [dict(row, boost=2.5), dict(row, name="b", boost=99)]})
-    assert [r["boost"] for r in values["regions"]] == [2.5, 5] and len(errors) == 1
-    assert values["circle"] is True and values["height"] == 2  # settings saved before these fields keep working
+def test_spawnelytra_areas_keep_their_own_boost_in_range():
+    rectangle = {"name": "start", "pos1": {"x": 0, "y": 64, "z": 0}, "pos2": {"x": 5, "y": 66, "z": 5}}
+    circle = {"name": "kreis", "shape": "circle", "center": {"x": 0, "y": 64, "z": 0}, "radius": 9, "boost": 2, "height": 3}
+    values, errors = addons.normalize(spawnelytra_settings(), {"regions": [dict(rectangle, boost=2.5), dict(rectangle, name="b", boost=99), circle]})
+    assert [r["boost"] for r in values["regions"]] == [2.5, 5, 2] and len(errors) == 1
+    assert values["regions"][0]["shape"] == "rectangle"  # rectangles saved before the form existed
+    assert values["regions"][2]["height"] == 3
+
+
+def test_spawnelytra_has_no_area_by_default():
+    values, errors = addons.normalize(spawnelytra_settings(), {})
+    assert values["regions"] == [] and not errors
+    assert not {"radius", "center", "height", "boost"} & set(values)
+
