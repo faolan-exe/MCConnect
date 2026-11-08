@@ -1,6 +1,7 @@
 """Addons (database/addons.py, !ADDONS & co. in mc_socket/main.py, the store on /manage/<id>#addons)."""
 import hashlib
 import json
+import os
 import zipfile
 
 import pytest
@@ -401,3 +402,17 @@ def test_only_moderators_take_players_off_the_whitelist(client, db, server, two_
     db.set_plugin_connected(server["id"], True)
     login_player(client, db, two_players[0])
     assert client.post("/api/mod/whitelist/remove", json={"names": ["Notch"]}, **on("testdomain")).status_code == 403
+
+
+def spawnelytra_settings():
+    path = os.path.join(os.path.dirname(__file__), "..", "java plugin", "addons", "SpawnElytra", "src", "main", "resources",
+                        "mcconnect-addon.json")
+    with open(path, encoding="utf-8") as file:
+        return addons.check_manifest(json.load(file))["settings"]
+
+
+def test_spawnelytra_rectangle_keeps_its_own_boost_in_range():
+    row = {"name": "start", "pos1": {"x": 0, "y": 64, "z": 0}, "pos2": {"x": 5, "y": 64, "z": 5}}
+    values, errors = addons.normalize(spawnelytra_settings(), {"regions": [dict(row, boost=2.5), dict(row, name="b", boost=99)]})
+    assert [r["boost"] for r in values["regions"]] == [2.5, 5] and len(errors) == 1
+    assert values["circle"] is True and values["height"] == 2  # settings saved before these fields keep working

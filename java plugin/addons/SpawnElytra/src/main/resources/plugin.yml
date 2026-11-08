@@ -8,8 +8,8 @@ description: Gleiten ohne Elytra rund um den Spawn (MCConnect-Erweiterung)
 website: mc.tobisit.de
 commands:
   spawnelytra:
-    description: Mittelpunkt und Radius von SpawnElytra setzen
-    usage: /spawnelytra [info|setcenter|radius <blöcke>]
+    description: Mittelpunkt, Radius und Rechtecke von SpawnElytra setzen
+    usage: /spawnelytra [info|setcenter|radius <blöcke>|pos1|pos2|create <name> [schub]|delete <name>|list]
     permission: spawnelytra.admin
 permissions:
   spawnelytra.admin:
