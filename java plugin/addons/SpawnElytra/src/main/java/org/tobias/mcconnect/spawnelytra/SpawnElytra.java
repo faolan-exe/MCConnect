@@ -1,5 +1,7 @@
 package org.tobias.mcconnect.spawnelytra;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
@@ -38,10 +40,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * Gliding without an elytra around the spawn (the old SpawnElytra as an MCConnect addon): a double jump in the zone
- * starts a glide, the landing is without fall damage. Fixed against the old plugin: the world is configurable (it was
+ * (the circle or one of the rectangles, these with their own boost) starts a glide, the landing is without fall damage. Fixed against the old plugin: the world is configurable (it was
  * fixed to "world"), only players in the zone get the right to fly and only that right is taken back (it used to
  * switch off /fly of other plugins for every survival player), the right is taken back on quit (the game stores it),
  * no isAir() (1.14+), the action bar is not sent every 3 ticks and players who left are forgotten.
@@ -49,9 +52,14 @@ import java.util.UUID;
 public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
     private static final long TICK_PERIOD = 4L;
     private static final long LANDING_GRACE_MS = 2000L;
+    private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_-]{1,32}");
+    private static final double MAX_BOOST = 5.0;
 
     private AddonHandle handle;
     private volatile AddonConfig settings;
+    private volatile List<Area> areas = Collections.emptyList();
+    /** corners a player has set with pos1 / pos2 */
+    private final Map<UUID, Location[]> selections = new HashMap<>();
     private BukkitTask task;
     private long ticks;
     /** players we gave the right to fly (to start the glide with a double jump) */
@@ -60,6 +68,7 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
     private final Map<UUID, Long> landedAt = new HashMap<>();
     /** who changed the settings in the game and waits for the answer */
     private UUID savedBy;
+    private String savedWhat;
 
     @Override
     public void onEnable() {
@@ -85,10 +94,23 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
     @Override
     public void onActivate(AddonConfig config) {
         settings = config;
+        List<Area> compiled = new ArrayList<>();
+        List<String> problems = new ArrayList<>();
+        for (AddonConfig row : config.getList("regions")) {
+            Area area = Area.of(row);
+            if (area == null) continue;
+            compiled.add(area);
+            if (!area.world.isEmpty() && getServer().getWorld(area.world) == null) {
+                problems.add("Rechteck »" + area.name + "«: die Welt »" + area.world + "« gibt es auf dem Server nicht.");
+            }
+        }
+        areas = Collections.unmodifiableList(compiled);
+        handle.reportProblems(problems);
         if (task == null) task = getServer().getScheduler().runTaskTimer(this, this::tick, TICK_PERIOD, TICK_PERIOD);
         Player actor = savedBy == null ? null : getServer().getPlayer(savedBy);
-        if (actor != null) actor.sendMessage(ChatColor.GREEN + "SpawnElytra: gespeichert. " + ChatColor.GRAY + describe(config));
+        if (actor != null) actor.sendMessage(ChatColor.GREEN + "SpawnElytra: " + (savedWhat != null ? savedWhat : "gespeichert. " + ChatColor.GRAY + describe(config)));
         savedBy = null;
+        savedWhat = null;
     }
 
     @Override
@@ -98,6 +120,7 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
 
     private void stop() {
         settings = null;
+        areas = Collections.emptyList();
         if (task != null) {
             task.cancel();
             task = null;
@@ -132,7 +155,18 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
         return height <= 0 || (y >= centerY && y <= centerY + height);
     }
 
-    private boolean inZone(Player player, AddonConfig config) {
+    /** The boost at the player's place, or null outside of the zone. A rectangle goes before the circle, the first one wins. */
+    private Double zoneBoost(Player player, AddonConfig config) {
+        World main = getServer().getWorlds().isEmpty() ? null : getServer().getWorlds().get(0);
+        int height = config.getInt("height", 2);
+        for (Area area : areas) {
+            if (area.contains(player.getLocation(), main, height)) return area.boost;
+        }
+        return inCircle(player, config) ? config.getDouble("boost", 1.0) : null;
+    }
+
+    private boolean inCircle(Player player, AddonConfig config) {
+        if (!config.getBoolean("circle", true)) return false;
         World world = zoneWorld(config);
         if (world == null || !player.getWorld().equals(world)) return false;
         double[] center = center(config, world);
@@ -162,7 +196,7 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
                 }
                 continue;
             }
-            if (eligible(player, config) && inZone(player, config)) {
+            if (eligible(player, config) && zoneBoost(player, config) != null) {
                 if (!player.getAllowFlight()) {
                     player.setAllowFlight(true);
                     granted.add(uuid);
@@ -205,12 +239,13 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
         AddonConfig config = settings;
         Player player = event.getPlayer();
         if (config == null || !event.isFlying() || !granted.contains(player.getUniqueId())) return;
-        if (!eligible(player, config) || !inZone(player, config)) return;
+        Double zone = zoneBoost(player, config);
+        if (!eligible(player, config) || zone == null) return;
         event.setCancelled(true);
         revoke(player);  // no second double jump while gliding; given again after the landing
         gliding.add(player.getUniqueId());
         player.setGliding(true);
-        double boost = config.getDouble("boost", 1.0);
+        double boost = zone;
         if (boost > 0) {
             Vector velocity = player.getLocation().getDirection().normalize().multiply(boost);
             velocity.setY(Math.max(velocity.getY(), 0.3 + 0.2 * boost));
@@ -252,6 +287,7 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
         Player player = event.getPlayer();
         gliding.remove(player.getUniqueId());
         landedAt.remove(player.getUniqueId());
+        selections.remove(player.getUniqueId());
         if (granted.contains(player.getUniqueId())) revoke(player);  // the game stores the right to fly
     }
 
@@ -275,10 +311,26 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
             sender.sendMessage(ChatColor.GOLD + "SpawnElytra " + ChatColor.GRAY + describe(config));
             sender.sendMessage(ChatColor.GRAY + "/spawnelytra setcenter " + ChatColor.DARK_GRAY + "– Mittelpunkt hierher");
             sender.sendMessage(ChatColor.GRAY + "/spawnelytra radius <blöcke> " + ChatColor.DARK_GRAY + "– Radius ändern");
+            sender.sendMessage(ChatColor.GRAY + "/spawnelytra pos1 | pos2 " + ChatColor.DARK_GRAY + "– Ecken eines Rechtecks hierher");
+            sender.sendMessage(ChatColor.GRAY + "/spawnelytra create <name> [schub] " + ChatColor.DARK_GRAY + "– Rechteck anlegen");
+            sender.sendMessage(ChatColor.GRAY + "/spawnelytra delete <name> | list " + ChatColor.DARK_GRAY + "– Rechteck löschen, alle zeigen");
+            return true;
+        }
+        if (action.equals("list")) {
+            if (areas.isEmpty()) sender.sendMessage(ChatColor.GRAY + "Keine aktiven Rechtecke.");
+            for (Area area : areas) sender.sendMessage(ChatColor.GOLD + area.name + ChatColor.GRAY + " – " + area.size());
+            return true;
+        }
+        if ((action.equals("pos1") || action.equals("pos2")) && sender instanceof Player) {
+            setCorner((Player) sender, action.equals("pos1") ? 0 : 1);
             return true;
         }
         JsonObject changed = config.toJson();
-        if (action.equals("setcenter") && sender instanceof Player) {
+        String what = null;
+        if ((action.equals("create") && sender instanceof Player || action.equals("delete")) && args.length > 1) {
+            what = changeAreas(sender, changed, action, args);
+            if (what == null) return true;
+        } else if (action.equals("setcenter") && sender instanceof Player) {
             Location at = ((Player) sender).getLocation();
             changed.addProperty("center_mode", "custom");
             changed.add("center", AddonConfig.position(at.getBlockX(), at.getBlockY(), at.getBlockZ()));
@@ -292,12 +344,13 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
                 return true;
             }
         } else {
-            sender.sendMessage(ChatColor.GRAY + "Benutzung: /spawnelytra [info|setcenter|radius <blöcke>]");
+            sender.sendMessage(ChatColor.GRAY + "Benutzung: /spawnelytra [info|setcenter|radius <blöcke>|pos1|pos2|create <name> [schub]|delete <name>|list]");
             return true;
         }
         Player actor = sender instanceof Player ? (Player) sender : null;
         if (handle.saveConfig(changed, actor)) {
             savedBy = actor == null ? null : actor.getUniqueId();
+            savedWhat = what;
             sender.sendMessage(ChatColor.GRAY + "Wird in MCConnect gespeichert …");
         } else {
             sender.sendMessage(ChatColor.RED + "MCConnect ist gerade nicht erreichbar, nichts geändert.");
@@ -305,24 +358,92 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
         return true;
     }
 
+    private void setCorner(Player player, int index) {
+        Location at = player.getLocation().getBlock().getLocation();
+        Location[] selection = selections.computeIfAbsent(player.getUniqueId(), k -> new Location[2]);
+        selection[index] = at;
+        if (selection[1 - index] != null && !selection[1 - index].getWorld().equals(at.getWorld())) selection[1 - index] = null;
+        player.sendMessage(ChatColor.GREEN + "Ecke " + (index + 1) + ": " + ChatColor.WHITE + at.getBlockX() + " " + at.getBlockY() + " " + at.getBlockZ()
+                + (selection[0] != null && selection[1] != null ? ChatColor.GRAY + " – jetzt /spawnelytra create <name> [schub]" : ""));
+    }
+
+    /** Puts the change into the settings; what to tell afterwards, or null if it was refused (and said why). */
+    private String changeAreas(CommandSender sender, JsonObject changed, String action, String[] args) {
+        String name = args[1];
+        JsonArray rows = changed.has("regions") && changed.get("regions").isJsonArray() ? changed.getAsJsonArray("regions") : new JsonArray();
+        int index = -1;
+        for (int i = 0; i < rows.size(); i++) {
+            JsonElement element = rows.get(i);
+            if (element.isJsonObject() && element.getAsJsonObject().has("name")
+                    && element.getAsJsonObject().get("name").getAsString().equalsIgnoreCase(name)) index = i;
+        }
+        if (action.equals("delete")) {
+            if (index < 0) {
+                sender.sendMessage(ChatColor.RED + "Das Rechteck " + name + " gibt es nicht. " + ChatColor.GRAY + "/spawnelytra list");
+                return null;
+            }
+            rows.remove(index);
+            changed.add("regions", rows);
+            return "Rechteck " + name + " gelöscht.";
+        }
+        Location[] selection = selections.get(((Player) sender).getUniqueId());
+        if (selection == null || selection[0] == null || selection[1] == null) {
+            sender.sendMessage(ChatColor.RED + "Setze zuerst beide Ecken mit /spawnelytra pos1 und pos2.");
+            return null;
+        }
+        if (!NAME.matcher(name).matches()) {
+            sender.sendMessage(ChatColor.RED + "Der Name darf nur Buchstaben, Ziffern, _ und - haben (höchstens 32).");
+            return null;
+        }
+        if (index >= 0) {
+            sender.sendMessage(ChatColor.RED + "Das Rechteck " + name + " gibt es schon.");
+            return null;
+        }
+        double boost = 1.0;
+        if (args.length > 2) {
+            try {
+                boost = Double.parseDouble(args[2]);
+            } catch (NumberFormatException e) {
+                boost = -1;
+            }
+            if (!(boost >= 0 && boost <= MAX_BOOST)) {
+                sender.sendMessage(ChatColor.RED + "Der Schub muss eine Zahl von 0 bis 5 sein.");
+                return null;
+            }
+        }
+        JsonObject row = new JsonObject();
+        row.addProperty("name", name);
+        row.addProperty("enabled", true);
+        World world = selection[0].getWorld();
+        row.addProperty("world", world.equals(getServer().getWorlds().get(0)) ? "" : world.getName());
+        row.add("pos1", AddonConfig.position(selection[0].getBlockX(), selection[0].getBlockY(), selection[0].getBlockZ()));
+        row.add("pos2", AddonConfig.position(selection[1].getBlockX(), selection[1].getBlockY(), selection[1].getBlockZ()));
+        row.addProperty("boost", boost);
+        rows.add(row);
+        changed.add("regions", rows);
+        return "Rechteck " + name + " angelegt.";
+    }
+
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length != 1) return Collections.emptyList();
         List<String> matches = new ArrayList<>();
-        for (String option : Arrays.asList("info", "setcenter", "radius")) {
+        for (String option : Arrays.asList("info", "setcenter", "radius", "pos1", "pos2", "create", "delete", "list")) {
             if (option.startsWith(args[0].toLowerCase(Locale.ROOT))) matches.add(option);
         }
         return matches;
     }
 
     private String describe(AddonConfig config) {
+        String rectangles = areas.isEmpty() ? "" : " · " + areas.size() + (areas.size() == 1 ? " Rechteck" : " Rechtecke");
+        if (!config.getBoolean("circle", true)) return "Kreis aus" + rectangles;
         World world = zoneWorld(config);
         if (world == null) return "Die Welt »" + config.getString("world", "") + "« gibt es nicht.";
         double[] center = center(config, world);
         int height = config.getInt("height", 2);
         return "Radius " + config.getInt("radius", 20) + " um " + (int) Math.floor(center[0]) + " / " + (int) Math.floor(center[2])
                 + (height > 0 ? ", Höhe Y " + (int) center[1] + " bis " + ((int) center[1] + height) : "")
-                + " in " + world.getName() + ("custom".equals(config.getString("center_mode", "spawn")) ? "" : " (Weltspawn)");
+                + " in " + world.getName() + ("custom".equals(config.getString("center_mode", "spawn")) ? "" : " (Weltspawn)") + rectangles;
     }
 
     private static String color(String text) {
