@@ -215,7 +215,7 @@ def test_offline_alert_is_sent_once(db, server, socket_server):
     class Mailer:
         sent = []
 
-        def send_email(self, recipient, subject, html):
+        def send_email(self, recipient, subject, html, on_failure=None):
             self.sent.append((recipient, subject))
     socket_server.mailer = Mailer()
     with db._cursor() as cur:
@@ -228,6 +228,40 @@ def test_offline_alert_is_sent_once(db, server, socket_server):
         cur.execute("UPDATE servers SET alert_offline_at = NULL")
     socket_server.send_alerts()
     assert len(Mailer.sent) == 1
+
+
+def test_alert_mail_that_could_not_be_sent_is_due_again(db, server, socket_server):
+    class Mailer:
+        sent = []
+
+        def send_email(self, recipient, subject, html, on_failure=None):
+            self.sent.append(subject)
+            if len(self.sent) == 1:
+                on_failure()  # SMTP down (called by the mailer's worker)
+    socket_server.mailer = Mailer()
+    with db._cursor() as cur:
+        cur.execute("UPDATE servers SET plugin_connected = false, plugin_last_seen = now() - interval '10 minutes'")
+    socket_server.send_alerts()  # failed: the alert is not marked as sent
+    socket_server.send_alerts()  # sent
+    socket_server.send_alerts()  # not again
+    assert len(Mailer.sent) == 2
+
+
+def test_mailer_reports_a_failed_mail(monkeypatch):
+    import smtplib
+
+    from database.SMTPMailer import SMTPMailer
+
+    def refuse(self):
+        raise smtplib.SMTPAuthenticationError(535, b"wrong password")
+    monkeypatch.setattr(SMTPMailer, "_connect", refuse)
+    monkeypatch.setattr(SMTPMailer, "SEND_INTERVAL", 0)
+    mailer = SMTPMailer("smtp.invalid", 587, "a@example.com", "x")
+    failed = []
+    mailer.send_email("b@example.com", "Test", "<p>x</p>", on_failure=lambda: failed.append(True))
+    mailer.send_email("b@example.com", "Ohne Rückruf", "<p>x</p>")
+    mailer.stop()
+    assert failed == [True]
 
 
 def test_tps_alert(db, server, socket_server):

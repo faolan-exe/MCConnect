@@ -588,6 +588,17 @@ MIGRATIONS = {
              PRIMARY KEY (server_id, place, player_id))""",
         "CREATE INDEX discoveries_player_idx ON discoveries (player_id)",
     ],
+    33: [
+        # Orders for the plugin that must not get lost (see DatabaseManager.add_plugin_task): kept until the plugin
+        # confirms them, sent again on every connect. target: the uuid (unban) or the lower case name (unwhitelist).
+        """CREATE TABLE plugin_tasks (
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             kind text NOT NULL CHECK (kind IN ('unban', 'unwhitelist')),
+             target text NOT NULL,
+             name text NOT NULL,
+             created_at timestamptz NOT NULL DEFAULT now(),
+             PRIMARY KEY (server_id, kind, target))""",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -1623,6 +1634,9 @@ class DatabaseManager:
                                                        reason_text)
                            VALUES (%s, %s, %s, %s, %s, 'web', %s)""",
                         (player_id, reason_id, end, comment, banned_by, reason_text))
+            # an unban the plugin has not confirmed yet must not lift the new ban
+            cur.execute("DELETE FROM plugin_tasks WHERE server_id = %s AND kind = 'unban' AND target = %s",
+                        (server_id, str(uuid)))
         return {"uuid": str(uuid), "name": name, "reason": reason_text or reason, "end": end}
 
     def unban_player(self, server_id, player_id):
@@ -1636,6 +1650,7 @@ class DatabaseManager:
                 return None
             cur.execute(f"DELETE FROM banned_players bp WHERE bp.banned_player_id = %s AND {self._ACTIVE_BAN}",
                         (player_id,))
+            self._add_plugin_task(cur, server_id, "unban", str(row[0]), row[1])
         return {"uuid": str(row[0]), "name": row[1]}
 
     def list_active_bans(self, server_id):
@@ -1703,6 +1718,34 @@ class DatabaseManager:
                           WHERE psi.player_id = bp.banned_player_id AND psi.server_id = %s AND psi.mojang_uuid = %s
                             AND bp.source = 'web' AND bp.delivered_at IS NULL AND {self._ACTIVE_BAN}""",
                       (server_id, mojang_uuid))
+
+    def mark_ban_undelivered(self, server_id, mojang_uuid):
+        """The plugin could not put the website ban on the server's ban list: send it again later."""
+        self._execute(f"""UPDATE banned_players bp SET delivered_at = NULL FROM player_server_info psi
+                          WHERE psi.player_id = bp.banned_player_id AND psi.server_id = %s AND psi.mojang_uuid = %s
+                            AND bp.source = 'web' AND {self._ACTIVE_BAN}""", (server_id, mojang_uuid))
+
+    @staticmethod
+    def _add_plugin_task(cur, server_id, kind, target, name):
+        cur.execute("""INSERT INTO plugin_tasks (server_id, kind, target, name) VALUES (%s, %s, %s, %s)
+                       ON CONFLICT (server_id, kind, target) DO UPDATE SET name = EXCLUDED.name""",
+                    (server_id, kind, target, name))
+
+    def add_plugin_task(self, server_id, kind, target, name):
+        """
+        An order the plugin must carry out even if it is offline now: "unban" (target: uuid) or "unwhitelist"
+        (target: lower case name). Kept until the plugin confirms it (finish_plugin_task).
+        """
+        with self._cursor() as cur:
+            self._add_plugin_task(cur, server_id, kind, target, name)
+
+    def get_plugin_tasks(self, server_id):
+        """[{"kind", "target", "name"}], oldest first."""
+        return [dict(zip(("kind", "target", "name"), row)) for row in self._fetchall(
+            "SELECT kind, target, name FROM plugin_tasks WHERE server_id = %s ORDER BY created_at, kind, target", (server_id,))]
+
+    def finish_plugin_task(self, server_id, kind, target):
+        self._execute("DELETE FROM plugin_tasks WHERE server_id = %s AND kind = %s AND target = %s", (server_id, kind, target))
 
     def get_undelivered_web_bans(self, server_id):
         """[{"uuid", "name", "reason", "end"}] of active website bans the plugin has not received yet."""
@@ -3279,10 +3322,15 @@ class DatabaseManager:
 
     def handle_application(self, server_id, request_id, accept, handled_by):
         """Accept or reject an open application. Returns the request or None."""
-        row = self._fetchone(f"""UPDATE access_requests SET status = %s, handled_by = %s, handled_at = now()
-                                 WHERE id = %s AND server_id = %s AND status = 'pending' AND kind = 'application'
-                                 RETURNING {self._REQUEST_COLUMNS}""",
-                             ("accepted" if accept else "rejected", handled_by, request_id, server_id))
+        with self._cursor() as cur:
+            cur.execute(f"""UPDATE access_requests SET status = %s, handled_by = %s, handled_at = now()
+                            WHERE id = %s AND server_id = %s AND status = 'pending' AND kind = 'application'
+                            RETURNING {self._REQUEST_COLUMNS}""",
+                        ("accepted" if accept else "rejected", handled_by, request_id, server_id))
+            row = cur.fetchone()
+            if row and accept:  # a pending removal from the whitelist must not take the name off again
+                cur.execute("DELETE FROM plugin_tasks WHERE server_id = %s AND kind = 'unwhitelist' AND target = lower(%s)",
+                            (server_id, row[2]))
         return self._request(row) if row else None
 
     def create_invite_code(self, server_id, code, max_uses=None, expires_at=None, created_by=None):
@@ -3318,6 +3366,9 @@ class DatabaseManager:
             row = cur.fetchone()
             if row is None:
                 return "invalid"
+            # a removal from the whitelist the plugin has not confirmed yet must not take the name off again
+            cur.execute("DELETE FROM plugin_tasks WHERE server_id = %s AND kind = 'unwhitelist' AND target = lower(%s)",
+                        (server_id, name))
             cur.execute("""SELECT 1 FROM access_requests WHERE server_id = %s AND lower(name) = lower(%s)
                              AND status = 'accepted'""", (server_id, name))
             if cur.fetchone():
@@ -3452,8 +3503,16 @@ class DatabaseManager:
         self._execute("UPDATE servers SET tracking_since = now() WHERE id = %s AND tracking_since IS NULL", (server_id,))
 
     def mark_alert_sent(self, server_id, kind):
+        """Returns the time of the alert before (None: never), for restore_alert."""
         column = "alert_offline_at" if kind == "offline" else "alert_tps_at"
-        self._execute(f"UPDATE servers SET {column} = now() WHERE id = %s", (server_id,))
+        return self._fetchvalue(f"""UPDATE servers s SET {column} = now()
+                                   FROM (SELECT {column} AS before FROM servers WHERE id = %s FOR UPDATE) old
+                                   WHERE s.id = %s RETURNING old.before""", (server_id, server_id))
+
+    def restore_alert(self, server_id, kind, before):
+        """The alert mail could not be sent: it is due again on the next check."""
+        column = "alert_offline_at" if kind == "offline" else "alert_tps_at"
+        self._execute(f"UPDATE servers SET {column} = %s WHERE id = %s", (before, server_id))
 
     ###----------------------------- Join messages and rewards ------------------------------------###
 

@@ -242,7 +242,7 @@ public final class MCDataLink extends JavaPlugin {
                     send("!REGISTRY~" + RegistryReporter.json(getServer().getBukkitVersion()));
                     // chat messages may contain buttons and tooltips (ChatMarkup) and icons (Glyphs); updates (PluginUpdater);
                     // addons (AddonManager, AddonInstaller)
-                    send("!FEATURES~click,glyphs,update,hover,addons,unwhitelist,statsreset,whitelistack");
+                    send("!FEATURES~click,glyphs,update,hover,addons,unwhitelist,statsreset,whitelistack,confirm");
                     runOnMainThread(addons::report);
                     sendOnlinePlayers();
                     runOnMainThread(this::sendBanList);
@@ -288,12 +288,14 @@ public final class MCDataLink extends JavaPlugin {
                 if (uuid != null) {
                     long end = parseLong(fields[2]);
                     String untilText = fields.length > 4 ? fields[4] : "";
-                    runOnMainThread(() -> banSync.ban(uuid, fields[1], end, fields[3], untilText));
+                    runOnMainThread(() -> sendAsync("!BANNED~" + uuid + "|"
+                            + (banSync.ban(uuid, fields[1], end, fields[3], untilText) ? "1" : "0")));
                 }
                 break;
             }
             case "!unban":  // uuid|name
-                if (fields.length >= 2) runOnMainThread(() -> banSync.unban(fields[1]));
+                if (fields.length >= 2) runOnMainThread(() -> sendAsync("!UNBANNED~" + fields[0] + "|"
+                        + (banSync.unban(fields[1]) ? "1" : "0") + "|" + fields[1]));
                 break;
             case "!tell": {  // uuid|text with & color codes, buttons and links (ChatMarkup)
                 UUID uuid = fields.length >= 2 ? parseUuid(fields[0]) : null;
@@ -355,7 +357,8 @@ public final class MCDataLink extends JavaPlugin {
             case "!whitelist":  // add|name or remove|name
                 if (fields.length >= 2 && fields[0].equals("add")) runOnMainThread(() ->  // confirmed, see Moderation.whitelist
                         sendAsync("!WHITELISTED~" + fields[1] + "|" + (moderation.whitelist(fields[1]) ? "1" : "0")));
-                if (fields.length >= 2 && fields[0].equals("remove")) runOnMainThread(() -> moderation.unwhitelist(fields[1]));
+                if (fields.length >= 2 && fields[0].equals("remove")) runOnMainThread(() ->
+                        sendAsync("!UNWHITELISTED~" + fields[1] + "|" + (moderation.unwhitelist(fields[1]) ? "1" : "0")));
                 break;
             case "!joininfo":  // url of the application page (empty: none)
                 moderation.setJoinUrl(value);

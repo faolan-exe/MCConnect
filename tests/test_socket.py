@@ -322,11 +322,14 @@ def test_prefix_change_is_pushed_to_plugin(db, server, plugin):
 
 def test_web_ban_and_unban_are_pushed_to_plugin(db, server, plugin):
     client = plugin().auth(server["key"])
-    db.ensure_player_on_server(server["id"], PLAYER_UUID)
+    assert client.request("!FEATURES~click") == "success|106"
+    player_id = db.ensure_player_on_server(server["id"], PLAYER_UUID)
     db.notify_server_event(server["id"], "ban", uuid=PLAYER_UUID, name="_Tobias4444", end_ms=0, reason="hacking|x~y")
     assert client.recv() == f"!ban~{PLAYER_UUID}|_Tobias4444|0|hacking/x-y|dauerhaft"
+    db.unban_player(server["id"], player_id)  # stored as a task (see tests/test_confirmations.py)
     db.notify_server_event(server["id"], "unban", uuid=PLAYER_UUID, name="_Tobias4444")
     assert client.recv() == f"!unban~{PLAYER_UUID}|_Tobias4444"
+    wait_for(lambda: db.get_plugin_tasks(server["id"]) == [])  # a plugin without "confirm": done when sent
 
 
 def test_ingame_ban_list_sync(db, server, plugin):

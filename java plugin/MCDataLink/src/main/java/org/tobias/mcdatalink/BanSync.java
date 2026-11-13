@@ -29,25 +29,38 @@ final class BanSync {
         return plugin.getServer().getBanList(BanList.Type.NAME);
     }
 
-    void ban(UUID uuid, String name, long endMillis, String reason, String untilText) {
+    /**
+     * Returns whether the name is in the ban list now. A name ban needs the player's profile: on newer servers
+     * addBan silently does nothing when the server cannot look the name up (Mojang not reachable), so MCConnect
+     * sends the ban again later. The player is kicked in any case.
+     */
+    boolean ban(UUID uuid, String name, long endMillis, String reason, String untilText) {
         Date expires = endMillis > 0 ? new Date(endMillis) : null;
+        boolean listed = false;
         try {
             banList().addBan(name, reason, expires, SOURCE);
+            listed = banList().isBanned(name);
         } catch (Throwable t) {
             plugin.getLogger().severe("Could not ban " + name + ": " + t);
-            return;
         }
         Player player = plugin.getServer().getPlayer(uuid);
         if (player != null) player.kickPlayer(kickMessage(reason, expires, untilText));
-        plugin.getLogger().info("Banned " + name + " (from MCConnect): " + reason);
+        if (listed) plugin.getLogger().info("Banned " + name + " (from MCConnect): " + reason);
+        else plugin.getLogger().warning("Could not put " + name + " on the ban list, MCConnect tries again later");
+        return listed;
     }
 
-    void unban(String name) {
+    /** Returns whether the name is off the ban list now. */
+    boolean unban(String name) {
         try {
             banList().pardon(name);
-            plugin.getLogger().info("Unbanned " + name + " (from MCConnect)");
+            boolean free = !banList().isBanned(name);
+            if (free) plugin.getLogger().info("Unbanned " + name + " (from MCConnect)");
+            else plugin.getLogger().warning("Could not unban " + name + ", MCConnect tries again later");
+            return free;
         } catch (Throwable t) {
             plugin.getLogger().severe("Could not unban " + name + ": " + t);
+            return false;
         }
     }
 

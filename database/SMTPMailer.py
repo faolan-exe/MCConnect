@@ -27,10 +27,10 @@ class SMTPMailer:
         self.worker_thread = threading.Thread(target=self._smtp_worker, name="smtp-worker", daemon=True)
         self.worker_thread.start()
 
-    def send_email(self, recipient, subject, html):
-        """Queue an email; it is sent in the background."""
+    def send_email(self, recipient, subject, html, on_failure=None):
+        """Queue an email; it is sent in the background. on_failure() is called there if it cannot be sent."""
         logger.info(f"Queueing email to {recipient}")
-        self.email_queue.put((recipient, subject, html))
+        self.email_queue.put((recipient, subject, html, on_failure))
 
     def stop(self):
         """Send the queued mails and stop the worker."""
@@ -56,7 +56,13 @@ class SMTPMailer:
             try:
                 if item is None:
                     break
-                server = self._send_with_retry(server, *item)
+                recipient, subject, html, on_failure = item
+                server, sent = self._send_with_retry(server, recipient, subject, html)
+                if not sent and on_failure is not None:
+                    try:
+                        on_failure()
+                    except Exception:
+                        logger.exception("on_failure of a mail failed")
                 time.sleep(self.SEND_INTERVAL)
             finally:
                 self.email_queue.task_done()
@@ -64,22 +70,22 @@ class SMTPMailer:
             self._quit(server)
 
     def _send_with_retry(self, server, recipient, subject, html):
-        """Send one mail, reconnecting once if the connection was dropped. Returns the connection."""
+        """Send one mail, reconnecting once if the connection was dropped. Returns (connection, sent)."""
         for attempt in (1, 2):
             try:
                 if server is None:
                     server = self._connect()
                 server.sendmail(self.sender, recipient, self._build_message(recipient, subject, html))
                 logger.info(f"Sent email to {recipient}")
-                return server
+                return server, True
             except (smtplib.SMTPServerDisconnected, ConnectionError, OSError) as e:
                 logger.warning(f"SMTP connection problem ({e}), attempt {attempt}")
                 server = None
             except smtplib.SMTPException as e:
                 logger.error(f"Could not send email to {recipient}: {e}")
-                return server
+                return server, False
         logger.error(f"Giving up sending email to {recipient}")
-        return None
+        return None, False
 
     def _build_message(self, recipient, subject, html):
         msg = MIMEMultipart()

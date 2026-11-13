@@ -51,7 +51,7 @@ fingerprint of the local socket certificate (`certs/`) for a test plugin's `tls-
 
 ## Status
 
-State of 2026-11-13: schema version 32, plugin 3.26 (whitelist confirmation), addon Discoveries. Written as a handoff for the next development session.
+State of 2026-11-13: schema version 33, plugin 3.27 (confirmations), addon Discoveries. Written as a handoff for the next development session.
 
 ### Features
 
@@ -109,7 +109,9 @@ the server's blocks and items (`RegistryReporter`: `Material` plus Paper's `Regi
 also mods on hybrid servers and data packs), stored per server (`server_registry`). · 3.25 `!statsreset` / `!STATSRESET`
 (`!FEATURES~…,statsreset`): owners set the stats of a player or the server to 0 ([ADR 0005](docs/adr/0005-stats-reset.md)). · 3.26 `!WHITELISTED`
 (`!FEATURES~…,whitelistack`): the plugin confirms each `whitelist add`, failed ones (Mojang not reachable) are sent
-again ([ADR 0006](docs/adr/0006-whitelist-confirmation.md)).
+again ([ADR 0006](docs/adr/0006-whitelist-confirmation.md)). · 3.27 `!BANNED`, `!UNBANNED`, `!UNWHITELISTED`
+(`!FEATURES~…,confirm`): bans, unbans and removals from the whitelist count only when the plugin confirms them;
+unbans and removals wait in `plugin_tasks` while the server is offline ([ADR 0008](docs/adr/0008-plugin-confirmations.md)).
 
 Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss the newer features.
 
