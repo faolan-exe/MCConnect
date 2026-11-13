@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from tests.conftest import OTHER_UUID, PLAYER_UUID, wait_for
+from tests.test_addons import connect
 from tests.test_ingame import cmd, tells, until
 from tests.test_metrics import two_players  # noqa: F401 (fixture)
 from tests.test_socket import plugin, socket_server  # noqa: F401 (fixtures)
@@ -54,6 +55,35 @@ def test_application_flow(client, mod_client, db, server, plugin):
     messages = until(connection, "!whitelist~")
     assert "!joininfo~http" in "\n".join(messages) and messages[-1] == "!whitelist~add|Neuling_1"
     wait_for(lambda: db.get_unsynced_whitelist(server["id"]) == [])  # marked after sending, in the socket thread
+
+
+def test_whitelist_counts_only_when_the_plugin_confirms_it(db, server, plugin, socket_server):
+    """Plugin 3.26: "whitelist add" fails when the server cannot reach Mojang; the name is sent again."""
+    db.create_invite_code(server["id"], "HERBST-26")
+    connection = connect(plugin, server, "click,whitelistack")
+    assert db.redeem_invite_code(server["id"], "Neuling_1", "HERBST-26") == "ok"
+    socket_server.handle_server_event({"type": "whitelist", "server_id": server["id"]})
+    assert connection.recv() == "!whitelist~add|Neuling_1"
+    assert db.get_unsynced_whitelist(server["id"]) == ["Neuling_1"]  # not before the answer
+    connection.send("!WHITELISTED~Neuling_1|0")
+    socket_server.whitelist_retry_interval = 0.1
+    assert until(connection, "!whitelist~")[-1] == "!whitelist~add|Neuling_1"  # tried again
+    socket_server.whitelist_retry_interval = 3600
+    connection.send("!WHITELISTED~Neuling_1|1")
+    wait_for(lambda: db.get_unsynced_whitelist(server["id"]) == [])
+
+
+def test_failed_whitelist_add_is_sent_again_after_a_reconnect(db, server, plugin):
+    db.update_server_settings(server["id"], access_mode="code")
+    db.create_invite_code(server["id"], "HERBST-26")
+    db.redeem_invite_code(server["id"], "Neuling_1", "HERBST-26")
+    connection = plugin().auth(server["key"])  # features are not known yet: counts as synced when sent ...
+    assert until(connection, "!whitelist~")[-1] == "!whitelist~add|Neuling_1"
+    wait_for(lambda: db.get_unsynced_whitelist(server["id"]) == [])
+    connection.send("!WHITELISTED~Neuling_1|0")  # ... until a 3.26 plugin says it failed
+    wait_for(lambda: db.get_unsynced_whitelist(server["id"]) == ["Neuling_1"])
+    connection.close()
+    assert until(plugin().auth(server["key"]), "!whitelist~")[-1] == "!whitelist~add|Neuling_1"
 
 
 def test_invite_codes(client, mod_client, db, server):
