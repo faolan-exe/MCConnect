@@ -45,7 +45,9 @@
           title="{{ level.hint }}">{{ loop.index }}. {{ level.name }}</span>
     {% endfor %}
   </div>
-  {% if join.level + 1 < join.levels | length %}
+  {% if join.op %}
+  <p class="mcc-hint">Als OP hast du alle Farben, Symbole, Texte und Sounds – unabhängig von deiner Stufe.</p>
+  {% elif join.level + 1 < join.levels | length %}
   <p class="mcc-hint">Nächste Stufe »{{ join.levels[join.level + 1].name }}«: {{ join.levels[join.level + 1].hint }}</p>
   {% endif %}
 

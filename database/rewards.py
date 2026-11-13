@@ -4,7 +4,8 @@ A level's conditions are alternatives ("or") of groups whose conditions must all
 (30 day streak and 50 hours) or 500 Ancient Debris: level["conditions"] = [[streak, hours], [debris]].
 Stored levels of the old format (a flat list of conditions, each one an alternative) are read as one group
 per condition. What a level unlocks adds up with the levels below it. A reached level is stored and never lost again (a broken
-streak keeps its colors). Moderators and OPs can also use MOD_COLORS. Every server can edit its levels
+streak keeps its colors). Moderators and OPs can also use MOD_COLORS; OPs of the server have every option of every
+level from the start (whatever level they reached). Every server can edit its levels
 (servers.reward_levels, None = DEFAULT_LEVELS).
 
 A player's choice (player_server_info.join_style) is a dict with the keys of STYLE_FIELDS; render() turns it
@@ -178,9 +179,12 @@ def reached_level(levels, facts):
     return reached
 
 
-def unlocked(levels, level, moderator=False, catalog=DEFAULT_CATALOG):
-    """{kind: [values]} of everything unlocked up to (including) the level (only options that still exist)."""
-    result = {kind: [] for kind in catalog.kinds}
+def unlocked(levels, level, moderator=False, catalog=DEFAULT_CATALOG, everything=False):
+    """
+    {kind: [values]} of everything unlocked up to (including) the level (only options that still exist).
+    everything: every option of the catalog, also those no level unlocks (OPs).
+    """
+    result = {kind: list(catalog.kinds[kind]) if everything else [] for kind in catalog.kinds}
     for entry in levels[:level + 1]:
         for kind in catalog.kinds:
             for value in entry["unlocks"].get(kind, []):
@@ -341,7 +345,7 @@ def level_hint(level):
 def player_state(db, player_id):
     """Everything about a player's rewards: {"enabled" (switched on and the addon active), "addon" (BetterJoinMessages
     active), "levels", "level", "new_level" (just reached, or None), "available", "style" (normalized choice; the default
-    one if the player chose nothing), "sounds_off", "moderator"}. A level reached for the first time is stored here."""
+    one if the player chose nothing), "sounds_off", "moderator" (may use MOD_COLORS), "op" (has every option)}. A level reached for the first time is stored here."""
     server_id = db.get_server_id_from_player_id(player_id)
     enabled, stored, texts = db.get_reward_settings(server_id)
     addon = db.is_addon_active(server_id, addons.JOIN_ADDON)
@@ -351,12 +355,13 @@ def player_state(db, player_id):
     settings = db.get_join_settings(player_id)
     level = min(max(settings["level"], reached_level(levels, db.get_reward_facts(player_id))), len(levels) - 1)
     new_level = level if level > settings["level"] and db.raise_reward_level(player_id, level) else None
-    moderator = db.is_moderator(player_id)
-    available = unlocked(levels, level, moderator, catalog)
+    op = db.is_player_op(player_id)
+    moderator = db.is_moderator(player_id) or op
+    available = unlocked(levels, level, moderator, catalog, everything=op)
     return {"enabled": enabled, "addon": addon, "levels": levels, "level": level, "new_level": new_level, "available": available,
             "catalog": catalog,
             "style": normalized_style(settings["style"], available),
-            "sounds_off": settings["sounds_off"], "moderator": moderator}
+            "sounds_off": settings["sounds_off"], "moderator": moderator, "op": op}
 
 
 def join_style_message(db, player_id, state=None):
