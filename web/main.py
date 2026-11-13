@@ -1134,9 +1134,7 @@ def access_redeem_api():
     result = db().redeem_invite_code(g.server["id"], name, code[:40])
     if result == "invalid":
         return {"error": "Dieser Code ist ungültig oder abgelaufen."}, 400
-    if result == "already":
-        return {"error": "Dieser Name ist schon freigeschaltet."}, 409
-    db().notify_server_event(g.server["id"], "whitelist")
+    db().notify_server_event(g.server["id"], "whitelist")  # also for "resent": the server whitelist may have lost the name
     return ("", 200)
 
 
