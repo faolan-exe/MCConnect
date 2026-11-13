@@ -6,6 +6,7 @@ Plugins that extend MCConnect through MCDataLink (3.22+). Background and securit
 | Addon | What it does | In game |
 |---|---|---|
 | BetterJoinMessages | MCConnect's join/leave messages (reward levels, `/profil`), first-join message, greeting, fixed lines per player, silent players, no message on quick reconnects | `/joinmessage` |
+| Discoveries | places to discover (rectangles, circles): the first visit gives a real advancement (toast, chat line, own tab), the website shows who found what and the first discoverers ([ADR 0007](../../docs/adr/0007-discoveries.md)) | `/discovery` |
 | EasyHeadDrop | player heads (date, killer, weapon) with chance, looting bonus and anti-farming cooldown; optional mob heads and chat announcement | – |
 | EasyNewCraftingRecipes | own shaped, shapeless and furnace recipes, applied without a restart, problems shown on the website | – |
 | SpawnElytra | double jump in rectangles and circles, each with its own boost, starts a glide without an elytra, no fall damage | `/spawnelytra` |

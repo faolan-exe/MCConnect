@@ -42,6 +42,7 @@ STORE = {
     "easyheaddrop": ("player_head", "Trophäen"),
     "spawnelytra": ("elytra", "Bewegung"),
     "easynewcraftingrecipes": ("crafting_table", "Crafting"),
+    "discoveries": ("filled_map", "Entdecken"),
 }
 
 ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,39}$")

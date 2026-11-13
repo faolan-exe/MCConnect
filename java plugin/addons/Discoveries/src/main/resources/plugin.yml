@@ -1,0 +1,17 @@
+name: Discoveries
+version: '${project.version}'
+main: org.tobias.mcconnect.discoveries.Discoveries
+api-version: '1.13'
+depend: [MCDataLink]
+authors: [Tobias Auer]
+description: Orte entdecken – eigene Advancements beim ersten Betreten (MCConnect-Erweiterung)
+website: mc.tobisit.de
+commands:
+  discovery:
+    description: Orte von Discoveries anlegen und löschen
+    usage: /discovery [info|pos1|pos2|create <name>|circle <name> <radius> [höhe]|delete <name>|list]
+    permission: discoveries.admin
+permissions:
+  discoveries.admin:
+    description: Discoveries im Spiel einstellen
+    default: op

@@ -1,0 +1,57 @@
+{
+  "id": "discoveries",
+  "name": "Discoveries",
+  "summary": "Orte entdecken: wer einen Bereich zum ersten Mal betritt, bekommt ein eigenes Advancement.",
+  "description": "Lege Orte an – ein Dorf, eine Höhle, ein Bauwerk. Wer einen davon zum ersten Mal betritt, bekommt ein echtes Minecraft-Advancement mit Toast und Chatzeile, im Advancement-Menü im eigenen Tab „Entdeckungen“. Die Website zeigt, wer was entdeckt hat, und hebt die Erstentdecker hervor.",
+  "features": [
+    "Echte Advancements mit Toast, Chatzeile und eigenem Tab",
+    "Rechtecke und Kreise mit eigenem Titel, Text und Icon",
+    "Erstentdecker werden im Chat und auf der Website hervorgehoben",
+    "Spielerprofil: Entdeckungen mit Datum, unentdeckte bleiben geheim",
+    "Übersicht aller Orte und neue Entdeckungen im Live-Feed",
+    "Im Spiel anlegen: /discovery pos1, pos2, create, circle"
+  ],
+  "settings": [
+    {
+      "title": "Orte",
+      "description": "Im Spiel: Rechteck mit /discovery pos1 und pos2 an den Ecken, dann /discovery create <name>. Kreis um deine Position mit /discovery circle <name> <radius> [höhe]. Titel, Text und Icon stellst du danach hier ein. Wer beim Anlegen schon im Bereich steht, entdeckt ihn erst beim nächsten Betreten.",
+      "fields": [
+        {"key": "areas", "type": "list", "label": "Orte", "item_label": "Ort", "title_key": "title", "max_items": 100,
+         "fields": [
+           {"key": "name", "type": "text", "max": 32, "required": true, "default": "ort", "label": "Kennung",
+            "help": "Für die Befehle im Spiel, ohne Leerzeichen. Eine neue Kennung ist ein neuer Ort: alle können ihn noch einmal entdecken."},
+           {"key": "title", "type": "text", "max": 40, "required": true, "default": "Neuer Ort", "label": "Titel",
+            "help": "So heißt das Advancement im Spiel und der Ort auf der Website."},
+           {"key": "description", "type": "text", "max": 120, "default": "", "label": "Text",
+            "help": "Steht unter dem Titel im Advancement und auf der Website."},
+           {"key": "icon", "type": "material", "default": "filled_map", "label": "Icon"},
+           {"key": "enabled", "type": "toggle", "default": true, "label": "Aktiv",
+            "help": "Aus: niemand kann den Ort gerade entdecken, und die Website zeigt ihn nicht. Bisherige Entdeckungen bleiben."},
+           {"key": "shape", "type": "select", "default": "rectangle", "label": "Form",
+            "options": [{"value": "rectangle", "label": "Rechteck zwischen zwei Ecken"},
+                        {"value": "circle", "label": "Kreis um einen Punkt"}]},
+           {"key": "world", "type": "text", "max": 64, "default": "", "label": "Welt", "help": "Leer = die Hauptwelt.", "suggest": "worlds"},
+           {"key": "pos1", "type": "position", "default": {"x": -10, "y": 60, "z": -10}, "label": "Ecke 1",
+            "show_if": {"key": "shape", "in": ["rectangle"]}},
+           {"key": "pos2", "type": "position", "default": {"x": 10, "y": 90, "z": 10}, "label": "Ecke 2",
+            "help": "Der Bereich reicht genau von der Höhe der einen Ecke bis zu der der anderen.",
+            "show_if": {"key": "shape", "in": ["rectangle"]}},
+           {"key": "center", "type": "position", "default": {"x": 0, "y": 64, "z": 0}, "label": "Mittelpunkt",
+            "show_if": {"key": "shape", "in": ["circle"]}},
+           {"key": "radius", "type": "number", "default": 20, "min": 2, "max": 1000, "step": 1, "unit": "Blöcke", "label": "Radius",
+            "show_if": {"key": "shape", "in": ["circle"]}},
+           {"key": "height", "type": "number", "default": 0, "min": 0, "max": 384, "step": 1, "unit": "Blöcke", "label": "Höhe (optional)",
+            "help": "Gilt von der Y-Koordinate des Mittelpunkts bis so viele Blöcke darüber, darunter nie. 0 = ohne Höhengrenze.",
+            "show_if": {"key": "shape", "in": ["circle"]}}
+         ]}
+      ]
+    },
+    {
+      "title": "Ansage",
+      "fields": [
+        {"key": "first_broadcast", "type": "toggle", "default": true, "label": "Erstentdecker im Chat hervorheben",
+         "help": "Zusätzlich zur Advancement-Zeile: „… hat … als Erster entdeckt!“"}
+      ]
+    }
+  ]
+}

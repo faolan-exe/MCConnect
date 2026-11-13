@@ -15,6 +15,7 @@
         <module>BetterJoinMessages</module>
         <module>EasyHeadDrop</module>
         <module>EasyNewCraftingRecipes</module>
+        <module>Discoveries</module>
         <module>SpawnElytra</module>
         <module>SpawnProtect</module>
     </modules>

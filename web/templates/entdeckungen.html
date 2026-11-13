@@ -1,0 +1,40 @@
+{% extends "server_base.html" %}
+{% block title %}Entdeckungen · {{ server_name }}{% endblock %}
+{% block head %}
+<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>
+<link href="{{ url_for('static', filename='css/minecraft.css') }}" rel="stylesheet"/>
+{% endblock %}
+
+{% block content %}
+<h1>Entdeckungen</h1>
+<p class="srv-lead">Orte auf {{ server_name }}, die man finden kann. Wer einen zum ersten Mal betritt, bekommt ein Advancement –
+  wer ihn als Erster findet, steht hier für immer.{% if logged_in %} Du hast <b>{{ my_count }} von {{ total }}</b> entdeckt.{% endif %}</p>
+
+<div class="pi-tiles ac-tiles">
+  {% for p in places %}
+  {% if p.known %}
+  <div class="pi-tile ac-tile dc-tile"{% if p.mine %} style="--tier: var(--srv-green-dark)"{% endif %}>
+    <span class="dc-head">
+      {% if p.sprite %}<i class="icon-minecraft icon-minecraft-{{ p.icon | replace('_', '-') }}" aria-hidden="true"></i>{% else %}<span class="dc-letter" aria-hidden="true">{{ p.title[:1] }}</span>{% endif %}
+      <span class="ac-name">{{ p.title }}</span>
+      {% if p.mine %}<span class="ac-tier">Gefunden</span>{% endif %}
+    </span>
+    {% if p.description %}<span class="pi-tile-detail">{{ p.description }}</span>{% endif %}
+    <span class="ac-next">
+      {% if p.count %}
+      <span>{{ p.count }} {{ "Spieler hat" if p.count == 1 else "Spieler haben" }} ihn entdeckt</span>
+      <span class="dc-first">Als Erster:
+        {% if p.first_name %}<img src="https://mc-heads.net/avatar/{{ p.first_uuid }}/32" alt="" width="18" height="18" loading="lazy"/>
+        <a href="/spieler?player={{ p.first_name | urlencode }}">{{ p.first_name }}</a>{% else %}jemand{% endif %} · {{ p.first_date }}</span>
+      {% endif %}
+    </span>
+  </div>
+  {% else %}
+  <div class="pi-tile ac-tile ac-locked dc-tile">
+    <span class="dc-head"><span class="dc-letter" aria-hidden="true">?</span><span class="ac-name">???</span></span>
+    <span class="pi-tile-detail">Noch hat niemand diesen Ort gefunden. Wer ist der Erste?</span>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endblock %}
