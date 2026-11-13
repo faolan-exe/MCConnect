@@ -1,14 +1,22 @@
 package org.tobias.mcconnect.easynewcraftingrecipes;
 
 import org.bukkit.ChatColor;
+import org.bukkit.GameMode;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
+import org.bukkit.entity.Fireball;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.SmallFireball;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.FurnaceRecipe;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.Recipe;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.ShapelessRecipe;
@@ -37,6 +45,8 @@ import java.util.Set;
 public final class EasyNewCraftingRecipes extends JavaPlugin implements Addon, Listener {
     private AddonHandle handle;
     private final List<NamespacedKey> registered = new ArrayList<>();
+    /** results of the presets that are thrown on a right click (compared with isSimilar: type, name, lore) */
+    private final Map<ItemStack, SpecialItems.Use> throwables = new LinkedHashMap<>();
     private boolean discover;
 
     @Override
@@ -91,13 +101,57 @@ public final class EasyNewCraftingRecipes extends JavaPlugin implements Addon, L
         if (discover) discoverAll(event.getPlayer());
     }
 
+    /** Fireballs of the presets "fireball" and "small_fireball": thrown where the player looks, one item each. */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onUse(PlayerInteractEvent event) {
+        if (throwables.isEmpty() || event.getItem() == null) return;
+        if (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+        SpecialItems.Use use = null;
+        for (Map.Entry<ItemStack, SpecialItems.Use> entry : throwables.entrySet()) {
+            if (entry.getKey().isSimilar(event.getItem())) use = entry.getValue();
+        }
+        if (use == null) return;
+        event.setCancelled(true);  // no fire on the clicked block
+        Player player = event.getPlayer();
+        Material type = event.getItem().getType();
+        if (player.hasCooldown(type)) return;
+        if (use == SpecialItems.Use.FIREBALL) {
+            Fireball ball = player.launchProjectile(Fireball.class);
+            ball.setYield(1.5F);
+            ball.setIsIncendiary(false);
+        } else {
+            SmallFireball ball = player.launchProjectile(SmallFireball.class);
+            ball.setIsIncendiary(true);
+        }
+        player.setCooldown(type, 20);
+        if (player.getGameMode() == GameMode.CREATIVE) return;
+        PlayerInventory inventory = player.getInventory();
+        boolean offHand = event.getHand() == EquipmentSlot.OFF_HAND;
+        ItemStack hand = offHand ? inventory.getItemInOffHand() : inventory.getItemInMainHand();
+        hand.setAmount(hand.getAmount() - 1);
+        if (offHand) inventory.setItemInOffHand(hand.getAmount() > 0 ? hand : null);
+        else inventory.setItemInMainHand(hand.getAmount() > 0 ? hand : null);
+    }
+
     // ------------------------------------------------------------------ recipes
 
     /** Adds one recipe; returns the problem, or null if it worked. */
     private String add(AddonConfig row, NamespacedKey key) {
-        Material resultType = material(row.getString("result", ""));
-        if (resultType == null) return itemProblem(row.getString("result", ""), "Ergebnis");
-        ItemStack result = new ItemStack(resultType, Math.max(1, Math.min(64, row.getInt("amount", 1))));
+        String preset = row.getString("preset", "none");
+        ItemStack result;
+        try {
+            result = SpecialItems.preset(preset);
+            if (result == null) {
+                Material resultType = material(row.getString("result", ""));
+                String data = row.getString("result_data", "").trim();
+                if (!data.isEmpty()) result = SpecialItems.parse(data, resultType);
+                else if (resultType == null) return itemProblem(row.getString("result", ""), "Ergebnis");
+                else result = new ItemStack(resultType);
+            }
+        } catch (SpecialItems.Problem problem) {
+            return problem.getMessage();
+        }
+        result.setAmount(Math.max(1, Math.min(64, row.getInt("amount", 1))));
         String customName = row.getString("result_name", "");
         if (!customName.isEmpty()) {
             ItemMeta meta = result.getItemMeta();
@@ -129,6 +183,8 @@ public final class EasyNewCraftingRecipes extends JavaPlugin implements Addon, L
         }
         if (!getServer().addRecipe(recipe)) return "Der Server hat das Rezept abgelehnt (gibt es dieses Rezept schon?).";
         registered.add(key);
+        SpecialItems.Use use = SpecialItems.use(preset);
+        if (use != SpecialItems.Use.NONE) throwables.put(result.clone(), use);
         return null;
     }
 
@@ -200,6 +256,7 @@ public final class EasyNewCraftingRecipes extends JavaPlugin implements Addon, L
             }
         }
         registered.clear();
+        throwables.clear();
     }
 
     /** Paper: send the changed recipes to the players' clients (recipe book). */

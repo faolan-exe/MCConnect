@@ -372,6 +372,11 @@
       default:
         put(wrap, label, el("p", { class: "hint", text: "Diese Einstellung kann die Seite nicht anzeigen." }));
     }
+    if (moderator && field.owner_only && !data.rights.protected) {  // the server checks it as well
+      wrap.querySelectorAll("input, select, textarea, button").forEach((control) => (control.disabled = true));
+      wrap.classList.add("ext-locked");
+      put(wrap, el("p", { class: "hint ext-help", text: "🔒 Nur der Owner kann das ändern." }));
+    }
     put(wrap, error);
     return wrap;
   }
@@ -697,6 +702,8 @@
     return el("div", { class: "ext-owner" },
       toggle("moderators", "Moderatoren dürfen die Erweiterungen einstellen",
         "– auf der Verwaltungsseite des Servers; installieren, freigeben und entfernen kannst nur du"),
+      toggle("protected", "Moderatoren dürfen auch geschützte Felder ändern",
+        "– z. B. die Item-Daten in Rezepten; ohne diesen Haken bleiben sie bei dir (auch Änderungen per Befehl im Spiel)"),
       toggle("auto_update", "Offizielle Erweiterungen automatisch aktualisieren",
         "– neue Versionen aus dem Store werden geladen und sind nach dem nächsten Server-Neustart aktiv"),
       message);
