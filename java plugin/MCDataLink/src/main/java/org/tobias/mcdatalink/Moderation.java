@@ -73,10 +73,17 @@ final class Moderation implements Listener {
         return false;
     }
 
-    /** Main thread: !whitelist~remove (a moderator cleans up the whitelist on the website, plugin 3.23). */
-    void unwhitelist(String name) {
-        if (!NAME.matcher(name).matches()) return;
+    /**
+     * Main thread: !whitelist~remove (a moderator cleans up the whitelist on the website, plugin 3.23). Returns
+     * whether the name is off the whitelist now.
+     */
+    boolean unwhitelist(String name) {
+        if (!NAME.matcher(name).matches()) return true;  // such a name cannot be on it
         plugin.getServer().dispatchCommand(plugin.getServer().getConsoleSender(), "whitelist remove " + name);
+        for (OfflinePlayer player : plugin.getServer().getWhitelistedPlayers()) {
+            if (name.equalsIgnoreCase(player.getName())) return false;
+        }
+        return true;
     }
 
     private String muteMessage(UUID uuid) {

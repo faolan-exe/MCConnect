@@ -29,7 +29,8 @@ Plugin -> server:
                                  older plugins get the label only),
                                  "addons" = other plugins extend MCConnect through MCDataLink (3.22, below),
                                  "unwhitelist" = understands !whitelist~remove (3.23),
-                                 "whitelistack" = answers !whitelist~add with !WHITELISTED (3.26)
+                                 "whitelistack" = answers !whitelist~add with !WHITELISTED (3.26),
+                                 "confirm" = answers !ban, !unban and !whitelist~remove (3.27, see below)
     !ADDONS~<json list>          the registered addons (3.22, after auth and on every change): [{"id", "plugin",
                                  "version", "file", "sha256" (of the jar), "manifest" (mcconnect-addon.json),
                                  "commands"}]; answered with !addonstate for each (see database/addons.py)
@@ -43,6 +44,11 @@ Plugin -> server:
                                  {"version", "blocks": [namespaced ids], "items": [...]}, also those of mods and data
                                  packs; stored for this server (database/registry.py)
     !STATSRESET~<all|uuid>|<ok|failed>|<text>   result of !statsreset; only ok clears the database (3.25)
+    !BANNED~<uuid>|<1|0>         after !ban: whether the name is on the server's ban list now (3.27); only 1 marks the
+                                 website ban as delivered, otherwise it is sent again (a missing undelivered ban is
+                                 never taken for a /pardon)
+    !UNBANNED~<uuid>|<1|0>|<name>   after !unban (3.27); the unban stays in plugin_tasks until 1
+    !UNWHITELISTED~<name>|<1|0>  after !whitelist~remove (3.27); the removal stays in plugin_tasks until 1
     !WHITELISTED~<name>|<1|0>    after !whitelist~add: whether the name is on the server's whitelist now (3.26).
                                  0 (e.g. the server could not reach Mojang to look up the name): the name is sent
                                  again every WHITELIST_RETRY_INTERVAL seconds and after every reconnect
@@ -113,6 +119,7 @@ Success codes:
 107: addons noted
 108: registry noted
 """
+import functools
 import html
 import json
 import os
@@ -618,11 +625,12 @@ class SocketServer:
                         "Die Spieler merken das als Ruckeln.")
             body = (f"<p>Hallo,</p><p>{text}</p><p>Serverzustand: <a href=\"{url}\">{url}</a></p>"
                     "<p>Diese E-Mails kannst du auf der Verwaltungsseite von MCConnect abschalten.</p>")
-            if self.mailer:
-                self.mailer.send_email(alert["email"], subject, body)
+            before = self.db.mark_alert_sent(alert["server_id"], alert["kind"])
+            if self.mailer:  # not sent (SMTP down): due again on the next check
+                self.mailer.send_email(alert["email"], subject, body, on_failure=functools.partial(
+                    self.db.restore_alert, alert["server_id"], alert["kind"], before))
             else:
                 logger.warning(f"No SMTP configured, alert not sent: {subject}")
-            self.db.mark_alert_sent(alert["server_id"], alert["kind"])
 
     @staticmethod
     def db_alert_tps():
@@ -688,11 +696,74 @@ class SocketServer:
     def send_mute(self, server_id, mojang_uuid, until, reason):
         return self._send_to_server(server_id, self.mute_message(mojang_uuid, until, reason))
 
+    def _confirms(self, server_id):
+        """The connected plugin confirms bans, unbans and removals from the whitelist (3.27, "confirm")."""
+        with self._lock:
+            client = self.active_connections.get(server_id)
+        return client is not None and "confirm" in client.features
+
     def send_ban(self, server_id, ban):
+        """A website ban; delivered when sent, with "confirm" only when the plugin answers !BANNED~uuid|1."""
         end_ms = int(ban["end"].timestamp() * 1000) if ban["end"] else 0
         if self._send_to_server(server_id, f"!ban~{ban['uuid']}|{self._clean(ban['name'])}|{end_ms}|"
-                                           f"{self._clean(ban['reason'])}|{self.until_text(end_ms, True)}"):
+                                           f"{self._clean(ban['reason'])}|{self.until_text(end_ms, True)}") \
+                and not self._confirms(server_id):
             self.db.mark_ban_delivered(server_id, ban["uuid"])
+
+    def send_plugin_tasks(self, server_id):
+        """
+        Unbans and removals from the whitelist (DatabaseManager.get_plugin_tasks). Done when sent, with "confirm"
+        only when the plugin answers (!UNBANNED, !UNWHITELISTED); then they are sent again until it worked.
+        """
+        with self._lock:
+            client = self.active_connections.get(server_id)
+        if client is None or not client.features:
+            return  # right after the auth: sent when !FEATURES tells whether the plugin confirms them
+        for task in self.db.get_plugin_tasks(server_id):
+            if task["kind"] == "unban":
+                message = f"!unban~{task['target']}|{self._clean(task['name'])}"
+            elif "unwhitelist" in client.features:
+                message = f"!whitelist~remove|{self._clean(task['name'])}"
+            else:
+                continue  # the plugin cannot do it (before 3.23)
+            if self._send_to_server(server_id, message) and "confirm" not in client.features:
+                self.db.finish_plugin_task(server_id, task["kind"], task["target"])
+
+    def retry_unconfirmed(self, server_id):
+        """What the plugin could not do yet: whitelist entries, website bans, unbans, removals."""
+        self.sync_whitelist(server_id)
+        if self._confirms(server_id):
+            for ban in self.db.get_undelivered_web_bans(server_id):
+                self.send_ban(server_id, ban)
+            self.send_plugin_tasks(server_id)
+
+    def plugin_confirmed(self, server_id, command, value):
+        """!BANNED~uuid|1/0, !UNBANNED~uuid|1/0|name, !UNWHITELISTED~name|1/0 (plugin 3.27)."""
+        parts = value.split("|")
+        if len(parts) < 2 or parts[1] not in ("0", "1"):
+            raise ValueError("confirmation must be target|0 or target|1")
+        ok = parts[1] == "1"
+        if command == "!BANNED":
+            mojang_uuid = parse_uuid(parts[0])
+            if ok:
+                self.db.mark_ban_delivered(server_id, mojang_uuid)
+            else:
+                logger.warning(f"Server {server_id} could not ban {mojang_uuid}, trying again later")
+                self.db.mark_ban_undelivered(server_id, mojang_uuid)
+        elif command == "!UNBANNED":  # the task stays until it worked (sent only after !FEATURES)
+            mojang_uuid = str(parse_uuid(parts[0]))
+            if ok:
+                self.db.finish_plugin_task(server_id, "unban", mojang_uuid)
+            else:
+                logger.warning(f"Server {server_id} could not unban {mojang_uuid}, trying again later")
+        else:
+            name = parts[0]
+            if not PLAYER_NAME_RE.match(name):
+                raise ValueError("bad player name")
+            if ok:
+                self.db.finish_plugin_task(server_id, "unwhitelist", name.lower())
+            else:
+                logger.warning(f"Server {server_id} could not take {name} off the whitelist, trying again later")
 
     # ------------------------------------------------------------------ in-game commands
     def tell(self, server_id, mojang_uuid, text):
@@ -852,11 +923,10 @@ class SocketServer:
                 self._send_to_server(server_id, self.prefix_message(server_id, mojang_uuid))
         elif kind == "ban":
             end_ms = int(event.get("end_ms") or 0)
-            if self._send_to_server(server_id, f"!ban~{event['uuid']}|{self._clean(event['name'])}|{end_ms}|"
-                                               f"{self._clean(event.get('reason'))}|{self.until_text(end_ms, True)}"):
-                self.db.mark_ban_delivered(server_id, event["uuid"])
-        elif kind == "unban":
-            self._send_to_server(server_id, f"!unban~{event['uuid']}|{self._clean(event['name'])}")
+            self.send_ban(server_id, {"uuid": event["uuid"], "name": event["name"], "reason": event.get("reason"),
+                                      "end": datetime.fromtimestamp(end_ms / 1000, timezone.utc) if end_ms else None})
+        elif kind in ("unban", "whitelist_remove"):
+            self.send_plugin_tasks(server_id)  # stored by the website (DatabaseManager.add_plugin_task)
         elif kind == "broadcast":
             self.broadcast(server_id, event.get("color") or "gold", event.get("text"))
         elif kind == "tell":
@@ -868,9 +938,6 @@ class SocketServer:
             self.request_stats_reset(server_id, event)
         elif kind == "whitelist":
             self.sync_whitelist(server_id)
-        elif kind == "whitelist_remove":
-            for name in event.get("names", []):
-                self._send_to_server(server_id, f"!whitelist~remove|{self._clean(name)}")
         elif kind == "mute":
             until = datetime.fromtimestamp(event["until_ms"] / 1000, timezone.utc) if event.get("until_ms") else None
             self.send_mute(server_id, event["uuid"], until, event.get("reason"))
@@ -1008,8 +1075,8 @@ class SocketServer:
                 if now - last_received > self.heartbeat_timeout:
                     logger.info(f"{addr} sent nothing for {self.heartbeat_timeout}s, disconnecting")
                     break
-                if "whitelistack" in client.features and now - last_whitelist >= self.whitelist_retry_interval:
-                    self.sync_whitelist(client.server_id)  # the names the plugin could not add before
+                if ({"whitelistack", "confirm"} & client.features) and now - last_whitelist >= self.whitelist_retry_interval:
+                    self.retry_unconfirmed(client.server_id)  # what the plugin could not do before (Mojang down)
                     last_whitelist = now
 
                 # TLS may hold decrypted data that select() does not see
@@ -1157,6 +1224,7 @@ class SocketServer:
                         client.send(f"!prefix~{mojang_uuid}|{color}|{self._clean(text)}")  # now with the icons
                 if "addons" in client.features:
                     self.send_addon_actions(client.server_id)  # installs and removals asked for while offline
+                self.send_plugin_tasks(client.server_id)  # unbans and removals from the whitelist while offline
             elif command == "!ADDONS":
                 self.addons_reported(client, value)
                 client.send("success|107")
@@ -1183,6 +1251,8 @@ class SocketServer:
                 if state not in ("ok", "failed"):
                     raise ValueError("unknown stats reset result")
                 self.finish_stats_reset(client.server_id, target, state, text)
+            elif command in ("!BANNED", "!UNBANNED", "!UNWHITELISTED"):
+                self.plugin_confirmed(client.server_id, command, value)
             elif command == "!WHITELISTED":
                 self.whitelist_confirmed(client.server_id, value)
             elif command == "!ADDONPROBLEMS":

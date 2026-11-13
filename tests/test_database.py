@@ -341,6 +341,7 @@ def test_email_verification_expires(db):
 def test_migration_from_version_1(db):
     with db._cursor() as cur:
         # back to schema version 1
+        cur.execute("DROP TABLE plugin_tasks")
         cur.execute("DROP TABLE discoveries")
         cur.execute("DROP INDEX server_admins_username_lower_idx, server_admins_email_lower_idx")
         cur.execute("DROP TABLE server_registry")

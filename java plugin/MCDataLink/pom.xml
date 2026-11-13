@@ -6,7 +6,7 @@
 
     <groupId>org.tobias</groupId>
     <artifactId>MCDataLink</artifactId>
-    <version>3.26</version>
+    <version>3.27</version>
     <packaging>jar</packaging>
 
     <name>MCDataLink</name>

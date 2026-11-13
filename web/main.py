@@ -2578,6 +2578,8 @@ def mod_whitelist_remove_api():
         return {"error": "Dafür braucht der Server MCDataLink 3.23 oder neuer (kommt mit auto-update beim nächsten Neustart)."}, 409
     if not db().is_plugin_online(server_id):
         return {"error": "Der Server ist gerade nicht verbunden. Versuche es, wenn er online ist."}, 409
+    for name in names:  # kept until the plugin confirms it (plugin 3.27; older ones: when sent)
+        db().add_plugin_task(server_id, "unwhitelist", name.lower(), name)
     db().notify_server_event(server_id, "whitelist_remove", names=names)
     db().add_mod_log(server_id, mod_name(), "whitelist_remove", names[0] if len(names) == 1 else None,
                      None if len(names) == 1 else f"{len(names)} Spieler: " + ", ".join(names)[:250])
