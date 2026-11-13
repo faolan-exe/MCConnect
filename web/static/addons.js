@@ -148,7 +148,11 @@
         onclick: () => choose(id) }, itemIcon(id), el("span", { text: prettyItem(id) }))));
       if (!matches.length) results.append(el("p", { class: "hint", text: "Nichts gefunden. Du kannst die ID auch direkt eintippen." }));
     };
-    const choose = (id) => { closePicker(); if (pickerDone) pickerDone(id); };
+    const choose = (id) => {
+      const done = pickerDone;  // closePicker() forgets it
+      closePicker();
+      if (done) done(id);
+    };
     search.addEventListener("input", render);
     search.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
