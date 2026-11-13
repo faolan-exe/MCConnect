@@ -92,6 +92,7 @@
 .ext-section > .hint { margin: 2px 0 0; }
 .ext-fields { display: grid; gap: 4px; }
 .ext-field { padding: 6px 0; }
+.ext-locked input, .ext-locked select, .ext-locked button { opacity: 0.6; cursor: not-allowed; }
 .ext-field > label, .ext-label { display: block; font-weight: 600; margin: 8px 0 6px; }
 .ext-label-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .ext-label-row .ext-label { margin-right: auto; }

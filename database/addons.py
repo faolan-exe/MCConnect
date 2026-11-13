@@ -265,6 +265,8 @@ def _check_field(field, nested):
     if kind not in TYPES or (nested and kind == "list"):
         raise ManifestError(f"invalid type of {key}")
     checked = {"key": key, "type": kind, "label": _text(field.get("label"), 80) or key, "help": _text(field.get("help"), 300)}
+    if field.get("owner_only") is True:  # only the owner may change it (see owner_only_changes)
+        checked["owner_only"] = True
     condition = field.get("show_if")
     if isinstance(condition, dict) and isinstance(condition.get("key"), str):
         if isinstance(condition.get("is"), bool):
@@ -339,6 +341,40 @@ def normalize(sections, data):
     if len(json.dumps(result, ensure_ascii=False)) > MAX_CONFIG_BYTES:
         errors.append({"path": "", "message": "Die Einstellungen sind zu groß."})
     return result, errors
+
+
+def owner_only_changes(sections, old, new):
+    """
+    The fields marked "owner_only" whose value in the checked settings new differs from old: [{"path", "message"}].
+    In a list a row is the old row with the same title (first unused one); a new row must keep the default.
+    Rows may be removed and moved; renaming a row with such a value counts as a change.
+    """
+    changes = []
+    old = old if isinstance(old, dict) else {}
+
+    def compare(fields, old_scope, new_scope, prefix):
+        for field in fields:
+            path = f"{prefix}{field['key']}"
+            if field["type"] == "list":
+                if any(f.get("owner_only") for f in field["fields"]):
+                    compare_rows(field, old_scope.get(field["key"]) or [], new_scope.get(field["key"]) or [], path)
+            elif field.get("owner_only"):
+                before = old_scope.get(field["key"], field["default"]) if old_scope is not None else field["default"]
+                if new_scope.get(field["key"], field["default"]) != before:
+                    changes.append({"path": path, "message": f"»{field['label']}« darf nur der Owner ändern."})
+
+    def compare_rows(field, old_rows, new_rows, path):
+        title = field.get("title_key")
+        unused = [row for row in old_rows if isinstance(row, dict)]
+        for index, row in enumerate(new_rows):
+            match = next((o for o in unused if title and o.get(title) == row.get(title)), None)
+            if match is not None:
+                unused.remove(match)
+            compare([f for f in field["fields"] if f.get("owner_only")], match, row, f"{path}.{index}.")
+
+    for section in sections:
+        compare(section["fields"], old, new, "")
+    return changes
 
 
 def _object(fields, data, errors, prefix):

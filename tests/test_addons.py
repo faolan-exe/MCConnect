@@ -346,7 +346,7 @@ def test_automatic_updates_only_for_official_older_jars(db, server, admin_id, pl
 
 def test_owner_switches(admin_client, db, server, store):
     response = admin_client.post(f"/api/servers/{server['id']}/addons/rights", json={"moderators": True}, **on(None))
-    assert response.json["rights"] == {"moderators": True, "auto_update": False, "moderator": False}
+    assert response.json["rights"] == {"moderators": True, "auto_update": False, "moderator": False, "protected": False}
     assert db.get_addon_rights(server["id"]) == (True, False)
     assert admin_client.post(f"/api/servers/{server['id']}/addons/rights", json={"auto_update": True},
                              **on(None)).json["rights"]["auto_update"] is True

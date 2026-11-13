@@ -3421,7 +3421,8 @@ def addons_view(server, moderator=False):
         views = [v for v in views if v["state"] not in ("available", "remove")]
     return {"addons": views, "plugin": {"online": bool(server["plugin_online"]), "supports": "addons" in features,
                                         "known": bool(features)},
-            "rights": {"moderators": mods, "auto_update": auto_update, "moderator": moderator},
+            "rights": {"moderators": mods, "auto_update": auto_update, "moderator": moderator,
+                       "protected": db().may_mods_edit_protected(server["id"])},
             "players": [p["name"] for p in db().get_players_overview_from_subdomain(server["subdomain"])][:500]}
 
 
@@ -3516,10 +3517,11 @@ def admin_addon_config_api(server_id, addon_id):
 @main_bp.route("/api/servers/<int:server_id>/addons/rights", methods=["POST"])
 @admin_required
 def admin_addon_rights_api(server_id):
-    """{"moderators": bool} and/or {"auto_update": bool}."""
+    """{"moderators": bool}, {"protected": bool} (moderators may also change protected fields) and/or {"auto_update": bool}."""
     server = owned_server_or_404(server_id)
     data = request.get_json(silent=True) or {}
-    fields = {column: bool(data[key]) for key, column in (("moderators", "addon_mods"), ("auto_update", "addon_auto_update"))
+    fields = {column: bool(data[key]) for key, column in (("moderators", "addon_mods"), ("auto_update", "addon_auto_update"),
+                                                          ("protected", "addon_mods_protected"))
               if key in data}
     if fields:
         db().update_server(server_id, session["admin_id"], **fields)
@@ -3553,9 +3555,14 @@ def mod_addon_config_api(addon_id):
     """Moderators edit the settings of installed addons (if the owner allows it); nothing else."""
     server = addon_moderation_allowed()
     row = _addon_or_404(server["id"], addon_id)
-    settings, errors = addons.normalize((row["manifest"] or {}).get("settings", []), (request.get_json(silent=True) or {}).get("config"))
+    sections = (row["manifest"] or {}).get("settings", [])
+    settings, errors = addons.normalize(sections, (request.get_json(silent=True) or {}).get("config"))
     if errors:
         return {"error": "Bitte die markierten Felder prüfen.", "errors": errors}, 400
+    if not db().may_mods_edit_protected(server["id"]):
+        changes = addons.owner_only_changes(sections, row["config"], settings)
+        if changes:
+            return {"error": "Geschützte Felder kann nur der Owner ändern.", "errors": changes}, 403
     db().set_addon_config(server["id"], addon_id, settings)
     db().notify_server_event(server["id"], "addon", addon_id=addon_id)
     db().add_mod_log(server["id"], mod_name(), "addon_config", None, row["name"])

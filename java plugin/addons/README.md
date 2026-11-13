@@ -8,7 +8,7 @@ Plugins that extend MCConnect through MCDataLink (3.22+). Background and securit
 | BetterJoinMessages | MCConnect's join/leave messages (reward levels, `/profil`), first-join message, greeting, fixed lines per player, silent players, no message on quick reconnects | `/joinmessage` |
 | Discoveries | places to discover (rectangles, circles): the first visit gives a real advancement (toast, chat line, own tab), the website shows who found what and the first discoverers ([ADR 0007](../../docs/adr/0007-discoveries.md)) | `/discovery` |
 | EasyHeadDrop | player heads (date, killer, weapon) with chance, looting bonus and anti-farming cooldown; optional mob heads and chat announcement | – |
-| EasyNewCraftingRecipes | own shaped, shapeless and furnace recipes, applied without a restart, problems shown on the website | – |
+| EasyNewCraftingRecipes | own shaped, shapeless and furnace recipes, applied without a restart, problems shown on the website; special results (invisible item frames, knockback stick, throwable fireballs, …) and own item data like `/give` (owner only, [ADR 0009](../../docs/adr/0009-protected-addon-fields.md)) | – |
 | SpawnElytra | double jump in rectangles and circles, each with its own boost, starts a glide without an elytra, no fall damage | `/spawnelytra` |
 | SpawnProtect | protected regions (box or circle around the spawn) with 13 protections, bypass, greeting | `/spawnprotect` (`/sprot`) |
 
@@ -28,7 +28,8 @@ Build: `mvn package` in `java plugin/` (builds MCDataLink and all addons). The D
       {"key": "prize", "type": "material", "default": "diamond", "label": "Preis"}]}]}
    ```
 
-   Field types and their options are documented in `database/addons.py`. `show_if` hides a field unless a sibling
+   Field types and their options are documented in `database/addons.py`. `"owner_only": true` protects a field:
+   moderators (and in-game changes) cannot change it unless the owner allows it. `show_if` hides a field unless a sibling
    has a value (`{"key": "mode", "in": ["custom"]}` or `{"key": "enabled", "is": true}`).
 3. Register in `onEnable` and react to the settings:
 

@@ -1039,6 +1039,10 @@ class SocketServer:
         settings, errors = addons.normalize(addon["manifest"]["settings"], json.loads(data))
         if errors:
             logger.info(f"Server {server_id}: settings of {addon_id} from the game corrected: {errors[:3]}")
+        # who changed it in the game is unknown: protected fields stay with the owner (unless moderators may)
+        if not self.db.may_mods_edit_protected(server_id) and \
+                addons.owner_only_changes(addon["manifest"]["settings"], addon["config"], settings):
+            raise ValueError(f"protected settings of {addon_id} cannot be changed in the game")
         self.db.set_addon_config(server_id, addon_id, settings)
         self.db.add_mod_log(server_id, actor[:16] or "Server", "addon_config", None, f"{addon['name']} (im Spiel)")
         self.send_addon_state(server_id, dict(addon, config=settings))
