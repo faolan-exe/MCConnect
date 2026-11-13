@@ -577,6 +577,17 @@ MIGRATIONS = {
              END IF;
            END $$""",
     ],
+    32: [
+        # Places found with the addon Discoveries (see DatabaseManager.add_discovery). place: the lower case id of the
+        # place in the addon's settings; rows of deleted places stay (the website shows only the configured ones).
+        """CREATE TABLE discoveries (
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             place text NOT NULL,
+             player_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             found_at timestamptz NOT NULL,
+             PRIMARY KEY (server_id, place, player_id))""",
+        "CREATE INDEX discoveries_player_idx ON discoveries (player_id)",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -2122,7 +2133,8 @@ class DatabaseManager:
         """
         Latest events of a server, newest first: [{"at", "kind", "name", "uuid", "detail", "tier"}].
         kind: join, new, achievement, competition_start, competition_end, record (detail: metric),
-        streak / anniversary (detail: days / years), goal (detail: title), player_of_week (detail: week).
+        streak / anniversary (detail: days / years), goal (detail: title), player_of_week (detail: week),
+        discovery / discovery_first (detail: the place id; first: nobody found it earlier).
         Players who hide their stats, silent achievements, records and milestones and bulks of
         achievements (more than 2 at once) are left out.
         """
@@ -2166,9 +2178,54 @@ class DatabaseManager:
                 UNION ALL
                 SELECT t.awarded_at, 'player_of_week', v.name, v.mojang_uuid::text, t.title, NULL FROM trophies t
                 JOIN visible v USING (player_id) WHERE t.kind = 'player_of_week' AND t.awarded_at > now() - %s * interval '1 day'
+                UNION ALL
+                SELECT d.found_at, CASE WHEN EXISTS (SELECT 1 FROM discoveries o WHERE o.server_id = d.server_id
+                         AND o.place = d.place AND (o.found_at, o.player_id) < (d.found_at, d.player_id))
+                       THEN 'discovery' ELSE 'discovery_first' END, v.name, v.mojang_uuid::text, d.place, NULL
+                FROM discoveries d JOIN visible v USING (player_id)
+                WHERE d.server_id = %s AND d.found_at > now() - %s * interval '1 day'
             ) events ORDER BY at DESC LIMIT %s""", (server_id, days, days, server_id, days, server_id, days,
-                                                   server_id, days, days, server_id, days, days, limit))
+                                                   server_id, days, days, server_id, days, days, server_id, days, limit))
         return [dict(zip(("at", "kind", "name", "uuid", "detail", "tier"), row)) for row in rows]
+
+    ###----------------------------- Discoveries (addon) ------------------------------------###
+
+    def add_discovery(self, server_id, mojang_uuid, place, found_at):
+        """
+        Store that a player found a place (repeated reports change nothing). found_at: when the plugin saw it, not
+        later than now. Returns {"new", "first", "player_id"}: first = nobody found the place before.
+        """
+        player_id = self.ensure_player_on_server(server_id, mojang_uuid)
+        with self._cursor() as cur:
+            cur.execute("SELECT 1 FROM servers WHERE id = %s FOR UPDATE", (server_id,))  # one "first" per place
+            cur.execute("SELECT EXISTS (SELECT 1 FROM discoveries WHERE server_id = %s AND place = %s)", (server_id, place))
+            known = cur.fetchone()[0]
+            cur.execute("""INSERT INTO discoveries (server_id, place, player_id, found_at) VALUES (%s, %s, %s, least(%s, now()))
+                           ON CONFLICT DO NOTHING RETURNING 1""", (server_id, place, player_id, found_at))
+            new = cur.fetchone() is not None
+        return {"new": new, "first": new and not known, "player_id": player_id}
+
+    def get_player_discoveries(self, player_id):
+        """{place: {"at", "first"}} of a player; first: nobody found the place earlier."""
+        rows = self._fetchall("""
+            SELECT d.place, d.found_at, NOT EXISTS (SELECT 1 FROM discoveries o WHERE o.server_id = d.server_id
+                   AND o.place = d.place AND (o.found_at, o.player_id) < (d.found_at, d.player_id))
+            FROM discoveries d WHERE d.player_id = %s""", (player_id,))
+        return {place: {"at": at, "first": first} for place, at, first in rows}
+
+    def get_discovery_overview(self, server_id):
+        """
+        {place: {"count", "first_at", "first_name", "first_uuid"}}. The first discoverer is the earliest one (ties: the
+        lower player id, as in get_player_discoveries); players who hide their stats count but are not named.
+        """
+        rows = self._fetchall("""
+            SELECT DISTINCT ON (d.place) d.place, count(*) OVER (PARTITION BY d.place), d.found_at,
+                   CASE WHEN psi.hide_stats THEN NULL ELSE p.name END,
+                   CASE WHEN psi.hide_stats THEN NULL ELSE psi.mojang_uuid::text END
+            FROM discoveries d JOIN player_server_info psi USING (player_id) JOIN player p ON p.uuid = psi.mojang_uuid
+            WHERE d.server_id = %s ORDER BY d.place, d.found_at, d.player_id""", (server_id,))
+        return {place: {"count": count, "first_at": at, "first_name": name, "first_uuid": uuid}
+                for place, count, at, name, uuid in rows}
 
     ###----------------------------- Moderation log and notes ------------------------------------###
 

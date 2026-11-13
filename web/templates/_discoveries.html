@@ -1,0 +1,21 @@
+{# Places a player found with the addon Discoveries (extras.discoveries from web.main.player_discoveries). #}
+<h2>Entdeckungen · {{ extras.discoveries.count }} von {{ extras.discoveries.total }}</h2>
+<div class="pi-tiles ac-tiles">
+  {% for p in extras.discoveries["items"] %}
+  {% if p.found %}
+  <div class="pi-tile ac-tile dc-tile"{% if p.first %} style="--tier: #c9a227"{% endif %}>
+    <span class="dc-head">
+      {% if p.sprite %}<i class="icon-minecraft icon-minecraft-{{ p.icon | replace('_', '-') }}" aria-hidden="true"></i>{% else %}<span class="dc-letter" aria-hidden="true">{{ p.title[:1] }}</span>{% endif %}
+      <span class="ac-name">{{ p.title }}</span>
+    </span>
+    {% if p.description %}<span class="pi-tile-detail">{{ p.description }}</span>{% endif %}
+    <span class="ac-next ac-done">{% if p.first %}Als Erster entdeckt am {{ p.date }}{% else %}Entdeckt am {{ p.date }}{% endif %}</span>
+  </div>
+  {% else %}
+  <div class="pi-tile ac-tile ac-locked dc-tile">
+    <span class="dc-head"><span class="dc-letter" aria-hidden="true">?</span><span class="ac-name">???</span></span>
+    <span class="pi-tile-detail">Noch nicht entdeckt</span>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>

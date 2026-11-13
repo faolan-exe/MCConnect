@@ -75,6 +75,7 @@
 }
 :root[data-dark] .cmp-detail-table td.cmp-best { color: var(--dk-tint-green-text); }
 :root[data-dark] .ac-locked { background: #161b18; }
+:root[data-dark] .dc-letter { background: #232a26; }
 :root[data-dark] .pi-nodata { fill: #242c28; }
 :root[data-dark] .nt-card { background: #1f2622; border-color: var(--srv-border); }
 :root[data-dark] .st-hint { background: var(--srv-card); color: var(--srv-text); }

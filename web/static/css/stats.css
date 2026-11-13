@@ -1430,3 +1430,13 @@ details.md-create[open] > .mcc-form { margin-top: 12px; padding: 14px; border: 1
   .rw-condition .mcc-input { flex: 1 1 90px; }
   .rw-name { max-width: 100%; }
 }
+
+/* ---------------------------------------------------------------- discoveries (addon Discoveries) */
+.dc-head { display: flex; align-items: center; gap: 10px; }
+.dc-head .ac-tier { margin-left: auto; }
+.dc-head .icon-minecraft { flex: none; }
+.dc-letter { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 6px;
+  background: #e6e9e6; color: var(--srv-muted); font-family: var(--font-display); font-weight: 700; }
+.dc-first { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.dc-first img { border-radius: 3px; }
+.dc-first a { color: inherit; font-weight: 700; }

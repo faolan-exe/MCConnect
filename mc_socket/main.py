@@ -134,7 +134,8 @@ if PROJECT_ROOT not in sys.path:
 from colorlogx import get_logger
 import requests
 
-from database import achievements, addons, badges, config, glyphs, metrics, motivation, plugin_jar, registry, rewards
+from database import (achievements, addons, badges, config, discoveries, glyphs, metrics, motivation, plugin_jar,
+                      registry, rewards)
 from database import chat as chat_markup
 from mc_socket import commands, tlscert
 from database.databaseManagerV2 import DatabaseManager
@@ -170,7 +171,7 @@ MAX_COORDINATE = 30_000_000
 # Names the plugin reports for players: Java names, Bedrock names with a prefix (Floodgate, e.g. ".Steve"). Others
 # (spaces, markup, protocol separators, too long) are ignored, the stored name stays.
 PLAYER_NAME_RE = re.compile(r"^[A-Za-z0-9_.*+\-]{1,32}$")
-# Handlers of !ADDON messages: addon id -> function(server, server_id, message). The official addons need none yet.
+# Handlers of !ADDON messages: addon id -> function(server, server_id, message), see the end of this module.
 ADDON_HANDLERS = {}
 
 
@@ -640,6 +641,26 @@ class SocketServer:
         sent = [name for name in names if self._send_to_server(server_id, f"!whitelist~add|{self._clean(name)}")]
         if sent and (client is None or "whitelistack" not in client.features):
             self.db.mark_whitelist_synced(server_id, sent)
+
+    def discovery_reported(self, server_id, message):
+        """
+        Addon Discoveries: "found|<uuid>|<place>|<epoch ms>". Stored (repeats change nothing) and confirmed with
+        "ok|<uuid>|<place>": the addon keeps the discovery until then. The game announces it as an advancement; the
+        first discoverer of a place also gets a line from MCConnect.
+        """
+        kind, mojang_uuid, place, at_ms = (message.split("|") + ["", "", ""])[:4]
+        if kind != "found" or not discoveries.PLACE_RE.match(place):
+            raise ValueError("discovery must be found|uuid|place|ms")
+        found_at = datetime.fromtimestamp(int(at_ms) / 1000, timezone.utc)
+        result = self.db.add_discovery(server_id, parse_uuid(mojang_uuid), place, found_at)
+        self._send_to_server(server_id, f"!addon~{discoveries.ADDON_ID}|ok|{mojang_uuid}|{place}")
+        if not result["first"]:
+            return
+        addon = self.db.get_addon(server_id, discoveries.ADDON_ID)
+        title = next((p["title"] for p in discoveries.places(addon) if p["id"] == place), None)
+        if title and (addon.get("config") or {}).get("first_broadcast", True) and not self.db.is_stats_hidden(result["player_id"]):
+            name = self.db.get_player_name_from_player_id(result["player_id"])
+            self.broadcast(server_id, "gold", f"&6✦ &e{name} &7hat &f»{title}« &7als Erster entdeckt!")
 
     def whitelist_confirmed(self, server_id, value):
         """!WHITELISTED~name|1/0 of the plugin."""
@@ -1205,9 +1226,12 @@ class SocketServer:
             client.send("error|005")
 
 
+ADDON_HANDLERS[discoveries.ADDON_ID] = SocketServer.discovery_reported
+
 if __name__ == "__main__":
     mailer = None
     if config.SMTP_HOST:
         from database.SMTPMailer import SMTPMailer
         mailer = SMTPMailer(config.SMTP_HOST, config.SMTP_PORT, config.SMTP_USER, config.SMTP_PASSWORD)
     SocketServer(DatabaseManager(), mailer=mailer).serve_forever()
+

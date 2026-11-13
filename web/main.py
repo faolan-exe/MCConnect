@@ -36,6 +36,7 @@ from database import achievements as achievements_mod
 from database import addons
 from database import badges as badges_mod
 from database import config
+from database import discoveries as discoveries_mod
 from database import glyphs
 from database import metrics as metrics_mod
 from database import motivation
@@ -250,6 +251,7 @@ def inject_server_context():
                 mc_server_domain=server["mc_server_domain"],
                 whitelist=server["whitelist"],
                 rules_enabled=settings["rules_enabled"], access_open=settings["access_mode"] != "off",
+                discoveries_open=bool(discovery_places(server["id"])),
                 server_name=server["server_name"])
 
 
@@ -638,6 +640,48 @@ def hall_of_fame_page():
         achievement_total=len(achievements_mod.ACHIEVEMENTS) * len(achievements_mod.TIERS), goals=goals)
 
 
+def discovery_places(server_id):
+    """The active places of the addon Discoveries (database/discoveries.py), [] without it."""
+    return discoveries_mod.places(db().get_addon(server_id, discoveries_mod.ADDON_ID))
+
+
+def player_discoveries(server_id, player_id):
+    """For the player page: {"items", "count", "total"}, found places first (oldest first), or None without places."""
+    places = discovery_places(server_id)
+    if not places:
+        return None
+    found = db().get_player_discoveries(player_id)
+    sprites = minecraft_sprites()
+    items = [dict(p, found=p["id"] in found, first=p["id"] in found and found[p["id"]]["first"],
+                  at=found[p["id"]]["at"] if p["id"] in found else None, sprite=p["icon"] in sprites) for p in places]
+    items.sort(key=lambda p: (not p["found"], p["at"] or datetime.max.replace(tzinfo=timezone.utc)))
+    for item in items:
+        item["date"] = item["at"].strftime("%d.%m.%Y") if item["at"] else None
+    return {"items": items, "count": sum(p["found"] for p in items), "total": len(items)}
+
+
+@server_bp.route("/entdeckungen")
+@feature_rankings_required
+def discoveries_page():
+    """Every active place: how many found it and who was first. Places nobody found yet keep their name secret."""
+    server_id = g.server["id"]
+    places = discovery_places(server_id)
+    if not places:
+        abort(404)
+    overview = db().get_discovery_overview(server_id)
+    player_id = logged_in_player_id()
+    mine = db().get_player_discoveries(str(player_id)) if player_id else {}
+    sprites = minecraft_sprites()
+    rows = []
+    for p in places:
+        o = overview.get(p["id"])
+        rows.append(dict(p, count=o["count"] if o else 0, first_name=o and o["first_name"], first_uuid=o and o["first_uuid"],
+                         first_date=o["first_at"].strftime("%d.%m.%Y") if o else None, mine=p["id"] in mine,
+                         known=bool(o) or p["id"] in mine, sprite=p["icon"] in sprites))
+    return render_template("entdeckungen.html", places=rows, logged_in=bool(player_id),
+                           my_count=sum(p["mine"] for p in rows), total=len(rows))
+
+
 GOAL_RECENT_DAYS = 7
 
 
@@ -878,7 +922,8 @@ def player_extras(player_id):
     extras = {"highlights": highlights, "places": [], "activity": None, "achievements": achievements,
               "cabinet": trophy_cabinet(player_id),
               "achievement_count": sum(a["tier"] + 1 for a in achievements),
-              "achievement_total": len(achievements_mod.ACHIEVEMENTS) * len(achievements_mod.TIERS)}
+              "achievement_total": len(achievements_mod.ACHIEVEMENTS) * len(achievements_mod.TIERS),
+              "discoveries": player_discoveries(g.server["id"], player_id)}
     if not current_app.config["FEATURE_RANKINGS"]:
         return extras
 
@@ -1562,9 +1607,17 @@ FEED_TEXTS = {
 @feature_rankings_required
 def feed_api():
     events = []
+    place_titles = None
     for e in db().get_feed(g.server["id"]):
         if e["kind"] in FEED_TEXTS:
             text = FEED_TEXTS[e["kind"]]
+        elif e["kind"] in ("discovery", "discovery_first"):
+            if place_titles is None:
+                place_titles = {p["id"]: p["title"] for p in discovery_places(g.server["id"])}
+            if e["detail"] not in place_titles:
+                continue  # place deleted or switched off
+            first = " als Erster" if e["kind"] == "discovery_first" else ""
+            text = f"hat »{place_titles[e['detail']]}«{first} entdeckt"
         elif e["kind"] == "achievement":
             achievement = achievements_mod.ACHIEVEMENTS_BY_KEY.get(e["detail"])
             if achievement is None:
@@ -3511,6 +3564,19 @@ _items_cache = {}
 ITEMS_CACHE_SECONDS = 3600  # the block registry grows with new Minecraft versions (database/registry.py)
 
 
+_sprites = {}
+
+
+def minecraft_sprites():
+    """The item ids that have an icon in css/minecraft.css (read once)."""
+    if "ids" not in _sprites:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "web", "static", "css", "minecraft.css"), encoding="utf-8") as file:
+            _sprites["ids"] = frozenset(m.replace("-", "_") for m in
+                                        re.findall(r"^\.icon-minecraft-([a-z0-9-]+)\{", file.read(), re.MULTILINE))
+    return _sprites["ids"]
+
+
 @main_bp.route("/api/minecraft/items")
 @server_bp.route("/api/minecraft/items")  # the moderators' page on the server's subdomain
 def minecraft_items_api():
@@ -3519,9 +3585,7 @@ def minecraft_items_api():
     cannot read the stylesheet of the main domain (cross-origin)."""
     if time.monotonic() - _items_cache.get("loaded", -ITEMS_CACHE_SECONDS) >= ITEMS_CACHE_SECONDS:
         names = db().get_lookup_names()
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        with open(os.path.join(root, "web", "static", "css", "minecraft.css"), encoding="utf-8") as file:
-            sprites = {m.replace("-", "_") for m in re.findall(r"^\.icon-minecraft-([a-z0-9-]+)\{", file.read(), re.MULTILINE)}
+        sprites = minecraft_sprites()
         _items_cache["body"] = json.dumps({
             "items": sorted(n for n in names if addons.MATERIAL_RE.match(n) and not n.endswith("air")),
             "sprites": sorted(sprites)})

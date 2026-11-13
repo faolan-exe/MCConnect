@@ -58,7 +58,7 @@
           <li>
             <div class="dropdown">
               <button
-                class="dropbtn dd-group {% if request.path in ('/rangliste', '/wettbewerbe', '/server-statistik', '/ruhmeshalle') %} current{% endif %}"
+                class="dropbtn dd-group {% if request.path in ('/rangliste', '/wettbewerbe', '/server-statistik', '/ruhmeshalle', '/entdeckungen') %} current{% endif %}"
               >
                 <span class="dd-arrow" aria-hidden="true">▼ </span>Statistiken
               </button>
@@ -66,6 +66,7 @@
                 <a href="/rangliste">Rangliste</a>
                 <a href="/wettbewerbe">Wettbewerbe &amp; Ziele</a>
                 <a href="/ruhmeshalle">Ruhmeshalle</a>
+                {% if discoveries_open %}<a href="/entdeckungen">Entdeckungen</a>{% endif %}
                 <a href="/server-statistik">Server-Statistik</a>
               </div>
             </div>

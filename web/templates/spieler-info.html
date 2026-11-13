@@ -516,6 +516,12 @@
           </div>
           {% endif %}
 
+          {% if extras.discoveries %}
+          <div id="discoveries">
+            {% include "_discoveries.html" %}
+          </div>
+          {% endif %}
+
           {% if builds %}
           <h2>Bauten in der Galerie</h2>
           <div class="bg-grid bg-grid-small">
