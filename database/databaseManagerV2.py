@@ -3285,6 +3285,11 @@ class DatabaseManager:
         self._execute("""UPDATE access_requests SET synced = true WHERE server_id = %s AND status = 'accepted'
                            AND lower(name) = ANY(%s)""", (server_id, [n.lower() for n in names]))
 
+    def mark_whitelist_unsynced(self, server_id, name):
+        """The plugin could not put the name on the whitelist: send it again later."""
+        self._execute("""UPDATE access_requests SET synced = false WHERE server_id = %s AND status = 'accepted'
+                           AND lower(name) = lower(%s)""", (server_id, name))
+
     ###----------------------------- Warnings and mutes ------------------------------------###
 
     def warn_player(self, server_id, player_id, reason, created_by):

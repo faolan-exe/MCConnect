@@ -28,7 +28,8 @@ Plugin -> server:
                                  "hover" = tooltips ⟦label⇝line¶line⟧ in chat lines (3.20, see database/chat.py;
                                  older plugins get the label only),
                                  "addons" = other plugins extend MCConnect through MCDataLink (3.22, below),
-                                 "unwhitelist" = understands !whitelist~remove (3.23)
+                                 "unwhitelist" = understands !whitelist~remove (3.23),
+                                 "whitelistack" = answers !whitelist~add with !WHITELISTED (3.26)
     !ADDONS~<json list>          the registered addons (3.22, after auth and on every change): [{"id", "plugin",
                                  "version", "file", "sha256" (of the jar), "manifest" (mcconnect-addon.json),
                                  "commands"}]; answered with !addonstate for each (see database/addons.py)
@@ -42,6 +43,9 @@ Plugin -> server:
                                  {"version", "blocks": [namespaced ids], "items": [...]}, also those of mods and data
                                  packs; stored for this server (database/registry.py)
     !STATSRESET~<all|uuid>|<ok|failed>|<text>   result of !statsreset; only ok clears the database (3.25)
+    !WHITELISTED~<name>|<1|0>    after !whitelist~add: whether the name is on the server's whitelist now (3.26).
+                                 0 (e.g. the server could not reach Mojang to look up the name): the name is sent
+                                 again every WHITELIST_RETRY_INTERVAL seconds and after every reconnect
     !DISCONNECT                  close the connection
 
 Server -> plugin:
@@ -60,7 +64,8 @@ Server -> plugin:
     !sidebar~<uuid>|<title>|<line>|...   scoreboard sidebar of a player ("&" color codes); empty title hides it
     !metrics~<name>|<name>|...   metric names for the tab completion of /top and /duell (after auth)
     !statsreset~<all|uuid>       set the stats in the game to 0 (plugin 3.25 with "statsreset"), answered with !STATSRESET
-    !whitelist~add|<name>        put a player on the server's whitelist (accepted application or invite code)
+    !whitelist~add|<name>        put a player on the server's whitelist (accepted application or invite code);
+                                 plugins with "whitelistack" answer with !WHITELISTED
     !whitelist~remove|<name>     take a player off the whitelist (moderators, plugin 3.23 with "unwhitelist")
     !joininfo~<url>              where players who are not on the whitelist can apply (kick message; empty = none)
     !mute~<uuid>|<until ms, 0 = unmuted>|<reason>[|<until text>]   block the chat of a player (plugin 3.6);
@@ -146,6 +151,8 @@ HEARTBEAT_TIMEOUT = 20
 MAX_UNAUTHORIZED_MESSAGES = 5
 # How often the "plugin alive" timestamp is written to the database.
 PLUGIN_TOUCH_INTERVAL = 30
+# Seconds between two tries to put the accepted names on the whitelist that a plugin could not add (Mojang down).
+WHITELIST_RETRY_INTERVAL = 300
 # How often started/ended competitions, reached community goals and the player of the week are checked.
 COMPETITION_CHECK_INTERVAL = 60
 # Plugin 3.13 sends the stats of online players every few seconds. Achievements, records and streaks of a
@@ -251,8 +258,10 @@ class SocketServer:
     def __init__(self, db_manager, host=config.SOCKET_HOST, port=config.SOCKET_PORT,
                  heartbeat_interval=HEARTBEAT_SEND_INTERVAL, heartbeat_timeout=HEARTBEAT_TIMEOUT,
                  poll_interval=1.0, mailer=None, tls_cert=config.SOCKET_TLS_CERT, tls_key=config.SOCKET_TLS_KEY,
-                 tls_dir=config.SOCKET_TLS_DIR, registry_url=config.REGISTRY_URL):
+                 tls_dir=config.SOCKET_TLS_DIR, registry_url=config.REGISTRY_URL,
+                 whitelist_retry_interval=WHITELIST_RETRY_INTERVAL):
         self.db = db_manager
+        self.whitelist_retry_interval = whitelist_retry_interval
         self.registry_url = None if registry_url == "off" else registry_url
         self.tls_cert, self.tls_key, self.tls_dir = tls_cert, tls_key, tls_dir
         self._tls_context = None
@@ -621,10 +630,27 @@ class SocketServer:
 
     # ------------------------------------------------------------------ whitelist, mutes
     def sync_whitelist(self, server_id):
+        """
+        Send the accepted names the server does not have yet. Plugins with "whitelistack" confirm each one
+        (!WHITELISTED), only then it counts as synced; older plugins: synced when sent.
+        """
         names = self.db.get_unsynced_whitelist(server_id)
+        with self._lock:
+            client = self.active_connections.get(server_id)
         sent = [name for name in names if self._send_to_server(server_id, f"!whitelist~add|{self._clean(name)}")]
-        if sent:
+        if sent and (client is None or "whitelistack" not in client.features):
             self.db.mark_whitelist_synced(server_id, sent)
+
+    def whitelist_confirmed(self, server_id, value):
+        """!WHITELISTED~name|1/0 of the plugin."""
+        name, sep, ok = value.partition("|")
+        if not sep or ok not in ("0", "1"):
+            raise ValueError("whitelist answer must be name|0 or name|1")
+        if ok == "1":
+            self.db.mark_whitelist_synced(server_id, [name])
+        else:
+            logger.warning(f"Server {server_id} could not put {name} on the whitelist, trying again later")
+            self.db.mark_whitelist_unsynced(server_id, name)
 
     @staticmethod
     def until_text(until_ms, with_year=False):
@@ -950,7 +976,7 @@ class SocketServer:
     def handle_client_connection(self, conn, addr):
         client = ClientConnection(conn, addr)
         logger.info(f"{addr} connected")
-        last_received = last_sent = last_touch = time.monotonic()
+        last_received = last_sent = last_touch = last_whitelist = time.monotonic()
         unauthorized_messages = 0
         try:
             while not self._stop.is_set():
@@ -961,6 +987,9 @@ class SocketServer:
                 if now - last_received > self.heartbeat_timeout:
                     logger.info(f"{addr} sent nothing for {self.heartbeat_timeout}s, disconnecting")
                     break
+                if "whitelistack" in client.features and now - last_whitelist >= self.whitelist_retry_interval:
+                    self.sync_whitelist(client.server_id)  # the names the plugin could not add before
+                    last_whitelist = now
 
                 # TLS may hold decrypted data that select() does not see
                 pending = isinstance(conn, ssl.SSLSocket) and conn.pending()
@@ -1133,6 +1162,8 @@ class SocketServer:
                 if state not in ("ok", "failed"):
                     raise ValueError("unknown stats reset result")
                 self.finish_stats_reset(client.server_id, target, state, text)
+            elif command == "!WHITELISTED":
+                self.whitelist_confirmed(client.server_id, value)
             elif command == "!ADDONPROBLEMS":
                 addon_id, sep, problems = value.partition("|")
                 problems = json.loads(problems)

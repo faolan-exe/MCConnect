@@ -242,7 +242,7 @@ public final class MCDataLink extends JavaPlugin {
                     send("!REGISTRY~" + RegistryReporter.json(getServer().getBukkitVersion()));
                     // chat messages may contain buttons and tooltips (ChatMarkup) and icons (Glyphs); updates (PluginUpdater);
                     // addons (AddonManager, AddonInstaller)
-                    send("!FEATURES~click,glyphs,update,hover,addons,unwhitelist,statsreset");
+                    send("!FEATURES~click,glyphs,update,hover,addons,unwhitelist,statsreset,whitelistack");
                     runOnMainThread(addons::report);
                     sendOnlinePlayers();
                     runOnMainThread(this::sendBanList);
@@ -353,7 +353,8 @@ public final class MCDataLink extends JavaPlugin {
                 break;
             }
             case "!whitelist":  // add|name or remove|name
-                if (fields.length >= 2 && fields[0].equals("add")) runOnMainThread(() -> moderation.whitelist(fields[1]));
+                if (fields.length >= 2 && fields[0].equals("add")) runOnMainThread(() ->  // confirmed, see Moderation.whitelist
+                        sendAsync("!WHITELISTED~" + fields[1] + "|" + (moderation.whitelist(fields[1]) ? "1" : "0")));
                 if (fields.length >= 2 && fields[0].equals("remove")) runOnMainThread(() -> moderation.unwhitelist(fields[1]));
                 break;
             case "!joininfo":  // url of the application page (empty: none)

@@ -1,6 +1,7 @@
 package org.tobias.mcdatalink;
 
 import org.bukkit.ChatColor;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -58,10 +59,18 @@ final class Moderation implements Listener {
         joinUrl = url == null ? "" : url.trim();
     }
 
-    /** Main thread: put an accepted player on the whitelist. */
-    void whitelist(String name) {
-        if (!NAME.matcher(name).matches()) return;
+    /**
+     * Main thread: put an accepted player on the whitelist. Returns whether the name is on it now: "whitelist add"
+     * looks the name up at Mojang (unless the server knows the player already) and only logs an error when that
+     * fails, so MCConnect sends the name again later.
+     */
+    boolean whitelist(String name) {
+        if (!NAME.matcher(name).matches()) return false;
         plugin.getServer().dispatchCommand(plugin.getServer().getConsoleSender(), "whitelist add " + name);
+        for (OfflinePlayer player : plugin.getServer().getWhitelistedPlayers()) {
+            if (name.equalsIgnoreCase(player.getName())) return true;
+        }
+        return false;
     }
 
     /** Main thread: !whitelist~remove (a moderator cleans up the whitelist on the website, plugin 3.23). */

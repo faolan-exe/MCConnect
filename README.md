@@ -51,7 +51,7 @@ fingerprint of the local socket certificate (`certs/`) for a test plugin's `tls-
 
 ## Status
 
-State of 2026-11-08: schema version 30, plugin 3.25 (stats reset). Written as a handoff for the next development session.
+State of 2026-11-13: schema version 30, plugin 3.26 (whitelist confirmation). Written as a handoff for the next development session.
 
 ### Features
 
@@ -107,7 +107,9 @@ join messages moved into BetterJoinMessages, `/joinmessage` is its command. · 3
 absent players off the whitelist on `/users/spieler` (no console commands any more). · 3.24 `!REGISTRY` after auth:
 the server's blocks and items (`RegistryReporter`: `Material` plus Paper's `Registry.BLOCK`/`ITEM` by reflection, so
 also mods on hybrid servers and data packs), stored per server (`server_registry`). · 3.25 `!statsreset` / `!STATSRESET`
-(`!FEATURES~…,statsreset`): owners set the stats of a player or the server to 0 ([ADR 0005](docs/adr/0005-stats-reset.md)).
+(`!FEATURES~…,statsreset`): owners set the stats of a player or the server to 0 ([ADR 0005](docs/adr/0005-stats-reset.md)). · 3.26 `!WHITELISTED`
+(`!FEATURES~…,whitelistack`): the plugin confirms each `whitelist add`, failed ones (Mojang not reachable) are sent
+again ([ADR 0006](docs/adr/0006-whitelist-confirmation.md)).
 
 Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss the newer features.
 
