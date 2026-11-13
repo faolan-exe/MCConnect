@@ -101,6 +101,31 @@ def test_a_reached_level_stays_when_the_facts_drop(db, server, two_players):
     assert rewards.player_state(db, a)["level"] == 1  # harder levels do not take it away
 
 
+def test_ops_have_every_option_from_the_start(db, server, two_players):
+    a, b = two_players
+    db.set_player_op(server["id"], PLAYER_UUID, True)
+    # a level list that unlocks almost nothing: the OP has everything all the same, the other player only level 1
+    db.set_reward_settings(server["id"], levels=[dict(rewards.DEFAULT_LEVELS[0], unlocks={"colors": ["white"]})])
+    op, other = rewards.player_state(db, a), rewards.player_state(db, b)
+    assert op["level"] == 0 and op["op"] and op["moderator"]
+    for kind, values in rewards.DEFAULT_CATALOG.kinds.items():
+        assert set(values) <= set(op["available"][kind]), kind
+    assert set(rewards.MOD_COLORS) <= set(op["available"]["colors"])
+    assert other["available"]["colors"] == ["white"] and not other["op"]
+    assert rewards.check_choice("sound", "fanfare", op["available"]) is None
+    db.set_player_op(server["id"], PLAYER_UUID, False)  # no OP any more: back to the levels
+    assert rewards.player_state(db, a)["available"]["colors"] == ["white"]
+
+
+def test_ops_choose_anything_on_the_website(me, db, server):
+    db.set_player_op(server["id"], PLAYER_UUID, True)
+    html = me.get("/profil", **on("testdomain")).get_data(as_text=True)
+    assert "🔒" not in html and "Dunkelrot" in html
+    assert "Als OP hast du alle" in html and "Nächste Stufe" not in html
+    for field, value in (("color", "dark_red"), ("sound", "fanfare"), ("join_text", "legend"), ("style", "rainbow")):
+        assert me.post("/api/joinstyle", json={"field": field, "value": value}, **on("testdomain")).status_code == 200, field
+
+
 # ------------------------------------------------------------------ website
 
 def test_profile_shows_the_join_message(me, db):

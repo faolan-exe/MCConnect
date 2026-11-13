@@ -1496,7 +1496,7 @@ def join_view(player_id, state=None):
                            "web": rewards.COLOR_CODES[v][1] if kind == "colors" else None,
                            "icon": glyph_url(v) if glyphs.is_icon(v) else None}
                           for v in values if v in available[kind] or (kind, v) in first]
-    return {"enabled": state["enabled"], "level": state["level"],
+    return {"enabled": state["enabled"], "level": state["level"], "op": state["op"],
             "levels": [dict(level, hint=rewards.level_hint(level), reached=i <= state["level"]) for i, level in enumerate(levels)],
             "preview_join": mc_html(rewards.render(name, style, available, "join", catalog)),
             "preview_leave": mc_html(rewards.render(name, style, available, "leave", catalog)),

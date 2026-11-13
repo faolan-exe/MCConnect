@@ -1568,6 +1568,10 @@ class DatabaseManager:
             FROM player_server_info psi JOIN servers s ON s.id = psi.server_id
             WHERE psi.player_id = %s""", (MODERATOR_LEVEL, player_id)))
 
+    def is_player_op(self, player_id):
+        """OP on the server (as the plugin reported at the last join)."""
+        return bool(self._fetchvalue("SELECT is_op FROM player_server_info WHERE player_id = %s", (player_id,)))
+
     def set_moderator(self, server_id, player_name, moderator):
         """Grant or revoke moderator rights by player name. Returns the player's name or None if unknown."""
         return self._fetchvalue("""
