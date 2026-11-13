@@ -3249,7 +3249,11 @@ class DatabaseManager:
                                 (code_id, server_id))
 
     def redeem_invite_code(self, server_id, name, code):
-        """Whitelist a name with an invite code. Returns "ok", "invalid" or "already"."""
+        """
+        Whitelist a name with an invite code. Returns "ok", "invalid" or "resent": the name was accepted
+        before, it is sent to the plugin once more (it may have been taken off the server's whitelist in
+        the meantime) without using up the code.
+        """
         with self._cursor() as cur:
             cur.execute("""SELECT id FROM invite_codes WHERE server_id = %s AND upper(code) = upper(%s)
                              AND (max_uses IS NULL OR uses < max_uses) AND (expires_at IS NULL OR expires_at > now())
@@ -3260,7 +3264,9 @@ class DatabaseManager:
             cur.execute("""SELECT 1 FROM access_requests WHERE server_id = %s AND lower(name) = lower(%s)
                              AND status = 'accepted'""", (server_id, name))
             if cur.fetchone():
-                return "already"
+                cur.execute("""UPDATE access_requests SET synced = false WHERE server_id = %s AND lower(name) = lower(%s)
+                                 AND status = 'accepted'""", (server_id, name))
+                return "resent"
             cur.execute("UPDATE invite_codes SET uses = uses + 1 WHERE id = %s", (row[0],))
             cur.execute("""UPDATE access_requests SET status = 'rejected', handled_by = 'Einladungscode', handled_at = now()
                            WHERE server_id = %s AND lower(name) = lower(%s) AND status = 'pending'""", (server_id, name))

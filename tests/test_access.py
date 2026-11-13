@@ -69,6 +69,20 @@ def test_invite_codes(client, mod_client, db, server):
     assert db.get_unsynced_whitelist(server["id"]) == ["Neuling_1"]
 
 
+def test_redeeming_again_sends_the_name_again(client, mod_client, db, server):
+    """Taken off the server whitelist (by a moderator or the console): a valid code puts the name back on."""
+    db.update_server_settings(server["id"], access_mode="code")
+    mod_client.post("/api/mod/codes", json={"code": "HERBST-26", "max_uses": 2}, **on("testdomain"))
+    redeem = lambda name: client.post("/api/access/redeem", json={"name": name, "code": "herbst-26"}, **on("testdomain"))
+    assert redeem("Neuling_1").status_code == 200
+    db.mark_whitelist_synced(server["id"], ["Neuling_1"])
+    assert db.get_unsynced_whitelist(server["id"]) == []
+    assert redeem("neuling_1").status_code == 200  # any case of the name
+    assert db.get_unsynced_whitelist(server["id"]) == ["Neuling_1"]
+    assert db.list_invite_codes(server["id"])[0]["uses"] == 1  # the code is not used up again
+    assert [r["status"] for r in db.list_access_requests(server["id"])] == ["accepted"]  # no second entry
+
+
 def test_applications_per_client_are_limited(client, db, server):
     db.update_server_settings(server["id"], access_mode="application")
     apply = lambda i: client.post("/api/access/apply", json={"name": f"Neuling_{i}", "message": "Ich baue gern Häfen."},
