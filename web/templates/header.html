@@ -1,9 +1,7 @@
 <script src="{{ url_for('static', filename='actions.js') }}"></script>
 {% include "_theme.html" %}
-<script
-  src="{{ url_for('static', filename='vendor/messageBoxLib/messageBoxes.js') }}"
-  defer
-></script>
+<script src="{{ url_for('static', filename='messagebox.js') }}" defer></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/messagebox.css') }}"/>
 <link
   rel="stylesheet"
   href="{{ url_for('static', filename='css/responsiveHeader.css') }}"

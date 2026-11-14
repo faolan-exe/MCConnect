@@ -3751,7 +3751,7 @@ def content_security_policy():
         f"style-src 'self' {static} 'unsafe-inline'",
         f"font-src 'self' {static} data:",
         f"img-src 'self' {static} https: data: blob:",
-        # MineRender also reports every page view to minerender.org: not allowed
+        # MineRender would report every page view to minerender.org (switched off with sendStats: false; not allowed)
         "connect-src 'self'",
         "frame-ancestors 'self'", "object-src 'none'", "base-uri 'self'", "form-action 'self'",
     ))

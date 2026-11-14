@@ -8,10 +8,8 @@
     <link href="{{ url_for('static', filename='css/fonts.css') }}" rel="stylesheet" />
     <link href="{{ url_for('static', filename='images/favicon.ico') }}" rel="icon" type="image/vnd.microsoft.icon"/>
 
-    <script
-      src="{{ url_for('static', filename='vendor/messageBoxLib/messageBoxes.js') }}"
-      defer
-    ></script>
+    <script src="{{ url_for('static', filename='messagebox.js') }}" defer></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/messagebox.css') }}" />
     <script src="{{ url_for('static', filename='actions.js') }}"></script>
     {% include "_theme.html" %}
   </head>
@@ -222,24 +220,25 @@
               if (data["status"] == "success") {
                 resolve(true);
               } else {
-                messagebox_info(
-                  data["response"],
-                  data["info"],
+                // "response" is the English code, "info" the German text; "reset": the login starts over, also when
+                // the box is closed with × or Escape
+                messagebox_error(
+                  data["status"] == "reset" ? "Login neu starten" : "Login nicht möglich",
+                  data["info"] || data["response"],
                   { confirmationButton: "OK" },
-                  {confirmationCallback: reload, confirmationParams: [data["status"]]}
+                  { confirmationCallback: reload, confirmationParams: [data["status"]],
+                    cancelCallback: reload, cancelParams: [data["status"]] }
                 );
-                if (data["status"] == "reset") {
-                 // window.location.reload();
-                }
                 reject(false);
               }
             })
             .catch((error) => {
+              // no answer or no JSON (server down, connection lost): there is no data to show here
               messagebox_error(
-                data["response"],
-                data["info"],
+                "Keine Verbindung",
+                "Der Login-Server antwortet gerade nicht. Versuch es gleich noch einmal.",
                 { confirmationButton: "OK" },
-                {confirmationCallback: reload, confirmationParams: ["reset"]}
+                {}
               );
               console.log("ERROR", error);
               reject(false);
