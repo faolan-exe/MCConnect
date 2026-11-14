@@ -1,5 +1,10 @@
 {% extends "mod/_layout.html" %}
 {% block mod_content %}
+<nav class="md-nav" aria-label="Bereiche" data-live="access-nav">
+  <a href="#access">Whitelist{% if tasks.applications[0] %} <b>{{ tasks.applications[0] }}</b>{% endif %}</a>
+  <a href="#rules">Regeln &amp; FAQ</a>
+</nav>
+
 <section class="srv-card" id="access">
   <h2>Zugang zur Whitelist</h2>
   <p class="mcc-hint">Auf <a href="/mitmachen">/mitmachen</a> können sich Spieler bewerben oder einen Einladungscode einlösen.

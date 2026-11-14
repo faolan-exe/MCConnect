@@ -323,7 +323,7 @@ def test_moderators_see_that_the_join_addon_is_missing(client, db, server, two_p
     login_player(client, db, two_players[0])
     db.set_moderator(server["id"], "_Tobias4444", True)
     assert "BetterJoinMessages" in client.get("/users/belohnungen", **on("testdomain")).get_data(as_text=True)
-    assert 'id="join"' not in client.get("/profil", **on("testdomain")).get_data(as_text=True)
+    assert 'id="join"' not in client.get("/profil/spiel", **on("testdomain")).get_data(as_text=True)
     assert client.post("/api/joinstyle", json={"field": "color", "value": "white"}, **on("testdomain")).status_code == 409
 
 
@@ -366,9 +366,9 @@ def test_moderators_edit_settings_only_if_allowed(mod, db, server, admin_id, sto
     db.sync_reported_addons(server["id"], [entry(sha256=store)])
     assert mod.get("/users/erweiterungen", **on("testdomain")).status_code == 403
     assert mod.get("/api/mod/addons", **on("testdomain")).status_code == 403
-    assert "/users/erweiterungen" not in mod.get("/users", **on("testdomain")).get_data(as_text=True)  # no tab
+    assert "/users/erweiterungen" not in mod.get("/users/belohnungen", **on("testdomain")).get_data(as_text=True)  # no entry under "Im Spiel"
     assert db.update_server(server["id"], admin_id, addon_mods=True)
-    assert "/users/erweiterungen" in mod.get("/users", **on("testdomain")).get_data(as_text=True)
+    assert "/users/erweiterungen" in mod.get("/users/belohnungen", **on("testdomain")).get_data(as_text=True)
     view = mod.get("/api/mod/addons", **on("testdomain")).json
     assert [a["id"] for a in view["addons"]] == ["spawnelytra"] and view["rights"]["moderator"]
     bad = mod.post("/api/mod/addons/spawnelytra/config", json={"config": {"radius": 1}}, **on("testdomain"))

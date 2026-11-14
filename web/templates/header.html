@@ -2,163 +2,99 @@
 {% include "_theme.html" %}
 <script src="{{ url_for('static', filename='messagebox.js') }}" defer></script>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/messagebox.css') }}"/>
-<link
-  rel="stylesheet"
-  href="{{ url_for('static', filename='css/responsiveHeader.css') }}"
-/>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/nav.css') }}"/>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}"/>
-<header class="sticky">
-  <div class="container-util-wide">
-    <nav aria-label="Hauptmenü">
-      <div class="mh-bar">
-        <a class="mh-logo" href="/"><img alt="Startseite" width="40" height="40" src="{{ url_for('static', filename='images/logo2.png') }}"/></a>
-        <span class="mh-title">{{ mc_server_domain if (mc_server_domain and not whitelist) else server_name }}</span>
-        <button class="mh-toggle" type="button" aria-controls="nav-bar" aria-expanded="false" data-on-click="toggleNavMenu">
-          <span class="mh-toggle-icon" aria-hidden="true"><i></i><i></i><i></i></span><span class="mh-toggle-text">Menü</span>
-        </button>
-      </div>
-      <div class="mainHeader">
-        <img
-          class="normal-icon"
-          alt="logo"
-          height="60px"
-          id="logo"
-          src="{{ url_for('static', filename='images/logo2.png') }}"
-        />
-        <ul id="nav-bar">
-          <li>
-            <div class="dropdown">
-              <button
-                class="dropbtn {% if request.path=='/' %} current{% endif %}"
-                data-on-click="go" data-args='["/"]'
-              >
-                Startseite
-              </button>
-            </div>
-          </li>
-          <li>
-            <div class="dropdown">
-              <button
-                class="dropbtn dd-group {% if request.path in ('/spieler', '/vergleich', '/teams') %} current{% endif %}"
-              >
-                <span class="dd-arrow" aria-hidden="true">▼ </span>Spieler
-              </button>
-              <div class="dropdown-content">
-                <a href="/spieler">Alle Spieler</a>
-                {% if config.FEATURE_RANKINGS %}
-                <a href="/vergleich">Spieler vergleichen</a>
-                <a href="/teams">Teams</a>
-                {% endif %}
-              </div>
-            </div>
-          </li>
-          {% if config.FEATURE_RANKINGS %}
-          <li>
-            <div class="dropdown">
-              <button
-                class="dropbtn dd-group {% if request.path in ('/rangliste', '/wettbewerbe', '/server-statistik', '/ruhmeshalle', '/entdeckungen') %} current{% endif %}"
-              >
-                <span class="dd-arrow" aria-hidden="true">▼ </span>Statistiken
-              </button>
-              <div class="dropdown-content">
-                <a href="/rangliste">Rangliste</a>
-                <a href="/wettbewerbe">Wettbewerbe &amp; Ziele</a>
-                <a href="/ruhmeshalle">Ruhmeshalle</a>
-                {% if discoveries_open %}<a href="/entdeckungen">Entdeckungen</a>{% endif %}
-                <a href="/server-statistik">Server-Statistik</a>
-              </div>
-            </div>
-          </li>
-          <li>
-            <div class="dropdown">
-              <button
-                class="dropbtn dd-group {% if request.path in ('/duelle', '/melden', '/events', '/umfragen', '/galerie', '/regeln', '/mitmachen') %} current{% endif %}"
-              >
-                <span class="dd-arrow" aria-hidden="true">▼ </span>Community
-              </button>
-              <div class="dropdown-content">
-                <a href="/events">Events</a>
-                <a href="/umfragen">Umfragen</a>
-                <a href="/galerie">Baugalerie</a>
-                <a href="/duelle">Duelle</a>
-                <span class="dropdown-sep" role="separator"></span>
-                {% if rules_enabled %}<a href="/regeln">Regeln</a>{% endif %}
-                {% if access_open %}<a href="/mitmachen">Mitmachen</a>{% endif %}
-                <a href="/melden">Etwas melden</a>
-              </div>
-            </div>
-          </li>
-          {% endif %}
-          {% if config.FEATURE_ADMIN_PANEL and perm <= 1 %}
-          <li>
-            <div class="dropdown">
-              <button
-                class="dropbtn {% if request.path.startswith('/users') %} current{% endif %}"
-                data-on-click="go" data-args='["/users"]'
-              >
-                Verwaltung
-              </button>
-            </div>
-          </li>
-          {% endif %}
-          <li class="mh-account">
-            {% if name == "" %}
-            <a class="mh-login" href="/login">Login</a>
-            {% else %}
-            <div class="mh-me"><img alt="" width="32" height="32" src="/mc/avatar/{{ uuid_profile }}/64"/><b>{{ name }}</b></div>
-            <a href="/spieler?player={{ name | urlencode }}">Meine Statistiken</a>
-            <a href="/profil">Mein Profil</a>
-            {% if config.FEATURE_PREFIXES %}
-            <a href="/add_pref">Mein Prefix</a>
-            <a href="/join_pref">Prefix beitreten</a>
-            {% endif %}
-            <a class="mh-logout" data-on-click="askLogout" href="#">Logout</a>
-            {% endif %}
-          </li>
-          <li class="theme-item">
-            <span class="mh-theme-label">Farbschema</span>
-            <button type="button" class="theme-switch" id="theme-switch" data-on-click="mccCycleTheme"
-                    title="Farbschema: Auto (wie das System), Dunkel oder Hell">Auto</button>
-            <script nonce="{{ csp_nonce() }}">window.mccApplyTheme();</script>
-          </li>
-        </ul>
-
-        <div class="login-group dropdown">
-          {% if name == "" %}{{ loginVar | safe }} {% else %}
-          <button class="dropbtn">
-            <img
-              alt=""
-              class="profile-image"
-              src="/mc/avatar/{{uuid_profile}}/64"
-            />
-          </button>
-          <div class="dropdown-content">
-            <a
-              style="
-                font-size: 25px;
-                padding-top: 8px;
-                padding-bottom: 8px;
-                line-height: 1.6;
-              "
-              href="/spieler?player={{name}}"
-              >Statistiken</a
-            >
-            <a href="/profil" style="padding-top: 6px; padding-bottom: 6px">Mein Profil</a>
-            {% if config.FEATURE_PREFIXES %}
-            <a href="/add_pref" style="padding-top: 6px; padding-bottom: 6px">Mein Prefix</a>
-            <a href="/join_pref" style="padding-top: 6px; padding-bottom: 6px">Prefix beitreten</a>
-            {% endif %}
-            <a
-              style="color: red; padding-top: 6px; padding-bottom: 6px"
-              data-on-click="askLogout"
-              >Logout</a
-            >
-          </div>
-          {% endif %}
+{#
+  One menu for all widths: on wide screens a bar with dropdowns, below 576px a panel under the menu button.
+  Groups: who plays (Spieler), numbers (Statistiken), playing against each other (Wettkämpfe), doing things
+  together and the server's info pages (Community). Account and color scheme on the right.
+#}
+{% macro nav_link(href, label, hint=None) -%}
+<a href="{{ href }}"{% if request.path == href %} aria-current="page"{% endif %}><b>{{ label }}</b>{% if hint %}<span>{{ hint }}</span>{% endif %}</a>
+{%- endmacro %}
+{% macro nav_group(label, paths) -%}
+<button class="nav-top{% if request.path in paths %} current{% endif %}" type="button" aria-expanded="false"
+        data-on-click="toggleNavGroup">{{ label }}<i class="nav-chev" aria-hidden="true"></i></button>
+{%- endmacro %}
+<header class="mcc-header sticky">
+  <nav class="mcc-nav" aria-label="Hauptmenü">
+    <div class="mh-bar">
+      <a class="mh-logo" href="/"><img alt="Startseite" width="40" height="40" src="{{ url_for('static', filename='images/logo2.png') }}"/></a>
+      <a class="mh-title" href="/">{{ server_name }}</a>
+      <button class="mh-toggle" type="button" aria-controls="nav-bar" aria-expanded="false" data-on-click="toggleNavMenu">
+        <span class="mh-toggle-icon" aria-hidden="true"><i></i><i></i><i></i></span><span class="mh-toggle-text">Menü</span>
+      </button>
+    </div>
+    <ul id="nav-bar">
+      <li><a class="nav-top{% if request.path == '/' %} current{% endif %}" href="/">Start</a></li>
+      {% if config.FEATURE_RANKINGS %}
+      <li class="nav-group">
+        {{ nav_group("Spieler", ("/spieler", "/teams", "/vergleich")) }}
+        <div class="nav-menu">
+          {{ nav_link("/spieler", "Alle Spieler", "Suchen, sortieren, Favoriten") }}
+          {{ nav_link("/teams", "Teams", "Prefixes mit ihren Werten") }}
+          {{ nav_link("/vergleich", "Spieler vergleichen", "2 bis 4 Spieler nebeneinander") }}
         </div>
-      </div>
-    </nav>
-  </div>
+      </li>
+      <li class="nav-group">
+        {{ nav_group("Statistiken", ("/rangliste", "/server-statistik", "/ruhmeshalle", "/entdeckungen")) }}
+        <div class="nav-menu">
+          {{ nav_link("/rangliste", "Rangliste", "Wer bei was vorne liegt") }}
+          {{ nav_link("/server-statistik", "Server-Statistik", "Online-Verlauf, Summen, Fun Facts") }}
+          {{ nav_link("/ruhmeshalle", "Ruhmeshalle", "Rekorde, Sieger, Serien") }}
+          {% if discoveries_open %}{{ nav_link("/entdeckungen", "Entdeckungen", "Besondere Orte der Welt") }}{% endif %}
+        </div>
+      </li>
+      <li class="nav-group">
+        {{ nav_group("Wettkämpfe", ("/wettbewerbe", "/duelle")) }}
+        <div class="nav-menu">
+          {{ nav_link("/wettbewerbe", "Wettbewerbe & Ziele", "Zeiträume und Gemeinschaftsziele") }}
+          {{ nav_link("/duelle", "Duelle", "Fordere jemanden heraus") }}
+        </div>
+      </li>
+      <li class="nav-group">
+        {{ nav_group("Community", ("/events", "/galerie", "/regeln", "/mitmachen", "/melden")) }}
+        <div class="nav-menu">
+          {{ nav_link("/events", "Events & Umfragen", "Termine, Anmeldung, Abstimmungen") }}
+          {{ nav_link("/galerie", "Baugalerie", "Screenshots der schönsten Bauten") }}
+          <span class="nav-sep" role="separator"></span>
+          {% if rules_enabled %}{{ nav_link("/regeln", "Regeln & FAQ") }}{% endif %}
+          {% if access_open %}{{ nav_link("/mitmachen", "Mitmachen", "Zugang zum Server bekommen") }}{% endif %}
+          {{ nav_link("/melden", "Etwas melden") }}
+        </div>
+      </li>
+      {% else %}
+      <li><a class="nav-top{% if request.path == '/spieler' %} current{% endif %}" href="/spieler">Spieler</a></li>
+      {% endif %}
+      {% if config.FEATURE_ADMIN_PANEL and perm <= 1 %}
+      <li><a class="nav-top{% if request.path.startswith('/users') %} current{% endif %}" href="/users">Verwaltung</a></li>
+      {% endif %}
+      <li class="mh-account{% if name %} nav-group{% endif %}">
+        {% if name == "" %}
+        <a class="mh-login" href="/login">Login</a>
+        {% else %}
+        <button class="nav-top nav-me{% if request.path.startswith('/profil') %} current{% endif %}" type="button" aria-expanded="false"
+                data-on-click="toggleNavGroup" title="Mein Konto">
+          <img alt="" width="32" height="32" src="/mc/avatar/{{ uuid_profile }}/64"/><span class="nav-me-name">{{ name }}</span><i class="nav-chev" aria-hidden="true"></i>
+        </button>
+        <div class="nav-menu nav-menu-right">
+          {{ nav_link("/spieler?player=" ~ (name | urlencode), "Meine Spielerseite") }}
+          {{ nav_link("/profil", "Mein Profil", "Über mich, Privatsphäre, Favoriten") }}
+          {{ nav_link("/profil/spiel", "Im Spiel", "Seitenleiste, Name, Join-Nachricht") }}
+          {% if config.FEATURE_PREFIXES %}{{ nav_link("/profil/prefix", "Prefix", "Eigenen erstellen oder beitreten") }}{% endif %}
+          <span class="nav-sep" role="separator"></span>
+          <a class="mh-logout" data-on-click="askLogout" href="#"><b>Logout</b></a>
+        </div>
+        {% endif %}
+      </li>
+      <li class="theme-item">
+        <span class="mh-theme-label">Farbschema</span>
+        <button type="button" class="theme-switch" id="theme-switch" data-on-click="mccCycleTheme"
+                title="Farbschema: Auto (wie das System), Dunkel oder Hell">Auto</button>
+        <script nonce="{{ csp_nonce() }}">window.mccApplyTheme();</script>
+      </li>
+    </ul>
+  </nav>
 </header>
 
 <script nonce="{{ csp_nonce() }}">
@@ -167,14 +103,25 @@
     button.setAttribute("aria-expanded", String(open));
     document.documentElement.classList.toggle("mh-open", open);
   }
-  // the mobile menu closes with Escape and when a link in it is followed (e.g. an anchor on the same page)
-  document.addEventListener("keydown", (event) => {
-    const button = document.querySelector(".mh-toggle");
-    if (event.key === "Escape" && button && button.getAttribute("aria-expanded") === "true") toggleNavMenu(button);
-  });
-  for (const link of document.querySelectorAll("#nav-bar a[href^='/']")) {
-    if (link.getAttribute("href") === location.pathname) link.setAttribute("aria-current", "page");
+  // groups open on hover and by click (touch screens, keyboard); one at a time, closed by Escape or a click outside
+  function closeNavGroups(except) {
+    for (const button of document.querySelectorAll(".mcc-nav .nav-group > button[aria-expanded='true']")) {
+      if (button !== except) button.setAttribute("aria-expanded", "false");
+    }
   }
+  function toggleNavGroup(button) {
+    closeNavGroups(button);
+    button.setAttribute("aria-expanded", String(button.getAttribute("aria-expanded") !== "true"));
+  }
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".mcc-nav .nav-group")) closeNavGroups();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    closeNavGroups();
+    const button = document.querySelector(".mh-toggle");
+    if (button && button.getAttribute("aria-expanded") === "true") toggleNavMenu(button);
+  });
   function askLogout(element, event) {
     if (event) event.preventDefault();
     logout();
@@ -191,20 +138,9 @@
     }
     const formData = new FormData();
     formData.append("text_input", "logout");
-
-    fetch("/login", {
-      method: "POST",
-      body: formData,
-    })
-      .then((response) => response.text())
-      .then((data) => {
-        // Handle the response from the server
-        console.log(data);
-        window.location = "/";
-      })
-      .catch((error) => {
-        console.error("Error:", error);
-      });
+    fetch("/login", { method: "POST", body: formData })
+      .then(() => { window.location = "/"; })
+      .catch(() => { window.location = "/"; });
   }
 </script>
 

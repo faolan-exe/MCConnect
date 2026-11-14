@@ -1253,17 +1253,16 @@ def events_page():
         view = event_view(event, mine)
         view["people"] = db().get_event_signups(event["id"])
         upcoming.append(view)
+    votes = db().get_player_votes(viewer) if viewer else {}
+    polls = [poll_view(p, votes) for p in db().list_polls(g.server["id"])]
     return render_template("events.html", upcoming=upcoming, logged_in=bool(viewer),
-                           past=[event_view(e) for e in db().list_events(g.server["id"], upcoming=False, limit=10)])
+                           past=[event_view(e) for e in db().list_events(g.server["id"], upcoming=False, limit=10)],
+                           open_polls=[p for p in polls if p["open"]], closed_polls=[p for p in polls if not p["open"]])
 
 
 @server_bp.route("/umfragen")
 def polls_page():
-    viewer = logged_in_player_id()
-    mine = db().get_player_votes(viewer) if viewer else {}
-    polls = [poll_view(p, mine) for p in db().list_polls(g.server["id"])]
-    return render_template("umfragen.html", open_polls=[p for p in polls if p["open"]],
-                           closed_polls=[p for p in polls if not p["open"]], logged_in=bool(viewer))
+    return redirect("/events#umfragen", 301)  # events and polls share one page
 
 
 @server_bp.route("/galerie")
@@ -1422,13 +1421,36 @@ def guestbook_report_api():
 BIO_MAX_LENGTH = 160
 
 
-@server_bp.route("/profil")
+# The profile has three tabs: what others see (/profil), settings in the game (/profil/spiel) and the prefix.
+PROFILE_TABS = (("", "Profil"), ("spiel", "Im Spiel"), ("prefix", "Prefix"))
+
+
+@server_bp.route("/profil", defaults={"tab": ""})
+@server_bp.route("/profil/<tab>")
 @player_required
-def profile_page():
+def profile_page(tab):
+    if tab not in dict(PROFILE_TABS) or (tab == "prefix" and not current_app.config["FEATURE_PREFIXES"]):
+        abort(404)
     player_id = logged_in_player_id()
-    return render_template("profil.html", profile=db().get_profile(player_id), bio_max=BIO_MAX_LENGTH,
-                           favorites=db().get_favorites(player_id), sidebar=db().get_sidebar(player_id),
-                           join=join_view(player_id), badges=badges_view(player_id))
+    tabs = tuple(t for t in PROFILE_TABS if t[0] != "prefix" or current_app.config["FEATURE_PREFIXES"])
+    context = dict(tab=tab, tabs=tabs, profile=db().get_profile(player_id))
+    if tab == "":
+        context.update(bio_max=BIO_MAX_LENGTH, favorites=db().get_favorites(player_id))
+    elif tab == "spiel":
+        context.update(sidebar=db().get_sidebar(player_id), join=join_view(player_id), badges=badges_view(player_id))
+    else:
+        context.update(prefix_context(player_id))
+    return render_template("profil.html", **context)
+
+
+@server_bp.route("/add_pref")
+def prefix_edit_page():
+    return redirect("/profil/prefix", 301)
+
+
+@server_bp.route("/join_pref")
+def prefix_join_page():
+    return redirect("/profil/prefix#beitreten", 301)
 
 
 MC_CODE_COLORS = {code: web for code, web in rewards.COLOR_CODES.values()}
@@ -1661,27 +1683,17 @@ def feed_api():
     return {"events": events}
 
 
-@server_bp.route("/add_pref")
-@player_required
-def prefix_edit_page():
-    player_id = logged_in_player_id()
+def prefix_context(player_id):
+    """The prefix tab of the profile: the own prefix (create or edit) and the list to join one."""
     is_moderator = db().is_moderator(player_id)
     colors = {name: hex_color for name, hex_color in PREFIX_COLORS.items()
               if is_moderator or name not in MODERATOR_PREFIX_COLORS}
     icons = server_icons()
     own = db().get_owned_prefix(player_id)
-    return render_template("prefix_edit.html", own_prefix=own, own_text=icons.to_tokens(own["text"]) if own else "",
-                           current_prefix=db().get_player_prefix(player_id), selectable_colors=colors,
-                           is_moderator=is_moderator,
-                           icons=[{"name": i["name"], "url": glyph_url(i["char"])} for i in icons.custom])
-
-
-@server_bp.route("/join_pref")
-@player_required
-def prefix_join_page():
-    player_id = logged_in_player_id()
-    return render_template("prefix_join.html", prefixes=db().list_prefixes(g.server["id"]),
-                           current_prefix=db().get_player_prefix(player_id))
+    return dict(own_prefix=own, own_text=icons.to_tokens(own["text"]) if own else "",
+                current_prefix=db().get_player_prefix(player_id), selectable_colors=colors, is_moderator=is_moderator,
+                icons=[{"name": i["name"], "url": glyph_url(i["char"])} for i in icons.custom],
+                prefixes=db().list_prefixes(g.server["id"]))
 
 
 # Moderation pages: (path below /users, tab label). Every page shows the tabs with the open tasks.
@@ -1707,12 +1719,23 @@ def mod_tasks(server_id):
 MOD_PAGE_TASKS = {"spieler": ("reports", "xray"), "inhalte": ("builds", "guestbook"), "zugang": ("applications",)}
 
 
+# The tabs of the moderation pages; "Im Spiel" holds the pages about what players see in the game.
+MOD_TABS = (("", "Übersicht", ("",)), ("spieler", "Spieler", ("spieler",)), ("inhalte", "Inhalte", ("inhalte",)),
+            ("zugang", "Zugang & Regeln", ("zugang",)),
+            ("belohnungen", "Im Spiel", ("belohnungen", "icons", "erweiterungen")), ("protokoll", "Protokoll", ("protokoll",)))
+MOD_SUB_LABELS = {"belohnungen": "Join-Nachrichten & Belohnungen", "icons": "Eigene Icons", "erweiterungen": "Erweiterungen"}
+
+
 def render_mod(page, template, **context):
     tasks = mod_tasks(g.server["id"])
-    pages = MOD_PAGES if db().get_addon_rights(g.server["id"])[0] else tuple(p for p in MOD_PAGES if p[0] != "erweiterungen")
-    return render_template(template, mod_page=page, mod_pages=pages, tasks=tasks,
-                           tab_counts={key: sum(tasks[t][0] for t in MOD_PAGE_TASKS.get(key, ())) for key, _ in MOD_PAGES},
-                           **context)
+    allowed = {key for key, _ in MOD_PAGES if key != "erweiterungen" or db().get_addon_rights(g.server["id"])[0]}
+    counts = {key: sum(tasks[t][0] for t in MOD_PAGE_TASKS.get(key, ())) for key, _ in MOD_PAGES}
+    tabs = [{"path": path, "label": label, "current": page in pages, "count": sum(counts[p] for p in pages),
+             "sub": [{"path": p, "label": MOD_SUB_LABELS[p], "current": p == page} for p in pages if p in allowed]
+             if len(pages) > 1 else []}
+            for path, label, pages in MOD_TABS]
+    sub_nav = next((t["sub"] for t in tabs if t["current"] and len(t["sub"]) > 1), [])
+    return render_template(template, mod_page=page, mod_tabs=tabs, mod_sub_nav=sub_nav, tasks=tasks, **context)
 
 
 @server_bp.route("/users")

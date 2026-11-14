@@ -89,7 +89,7 @@
                 </a>
                 {% endfor %}
                 {% for p in polls %}
-                <a class="cm-card" href="/umfragen">
+                <a class="cm-card" href="/events#umfragen">
                     <span class="cm-icon" aria-hidden="true">?</span>
                     <span class="cm-body"><span class="cm-kicker">Umfrage · bis {{ p.ends }}</span>
                         <b>{{ p.question }}</b><span class="gl-meta">{{ p.total }} {{ "Stimme" if p.total == 1 else "Stimmen" }} – jetzt abstimmen</span></span>

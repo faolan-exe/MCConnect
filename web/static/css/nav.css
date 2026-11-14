@@ -1,0 +1,325 @@
+/* Header of the server pages (header.html). One menu for all widths: a bar with dropdowns, below 576px a
+   menu button with a panel. Scoped to .mcc-header because the old header.css still styles plain nav/ul/li
+   elements (the footer uses them). */
+:root { --mcc-header-h: 64px; }
+
+.mcc-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100% !important;
+  margin: 0 !important;
+  z-index: 999;
+  background: #0b0f0d;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-family: var(--font-body, sans-serif);
+}
+.mcc-header .mcc-nav {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  max-width: 1240px;
+  height: var(--mcc-header-h);
+  margin: 0 auto !important;
+  padding: 0 20px !important;
+  background: transparent;
+}
+
+/* brand (logo + server name) */
+.mcc-header .mh-bar { display: flex; align-items: center; gap: 12px; flex: none; min-width: 0; margin-right: 20px; }
+.mcc-header .mh-logo { display: flex; flex: none; }
+.mcc-header .mh-logo img { width: 40px; height: 40px; }
+.mcc-header .mh-title {
+  color: #fff;
+  font-family: var(--font-display, sans-serif);
+  font-weight: 700;
+  font-size: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+  text-decoration: none;
+}
+.mcc-header .mh-toggle { display: none; }
+
+/* the entries */
+.mcc-header #nav-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  margin: 0 !important;
+  padding: 0 !important;
+  list-style: none;
+}
+.mcc-header #nav-bar > li { display: block; margin: 0; position: relative; }
+.mcc-header .nav-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.86);
+  font-family: var(--font-display, sans-serif);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mcc-header .nav-top:hover, .mcc-header .nav-group:hover > .nav-top, .mcc-header .nav-top[aria-expanded="true"] {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+.mcc-header .nav-top.current { color: #53ffb1; }
+.mcc-header .nav-top.current::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -12px;
+  height: 2px;
+  border-radius: 2px;
+  background: #53ffb1;
+}
+.mcc-header .nav-top:focus-visible, .mcc-header .nav-menu a:focus-visible, .mcc-header .theme-switch:focus-visible {
+  outline: 2px solid #53ffb1;
+  outline-offset: 2px;
+}
+.mcc-header .nav-chev {
+  width: 7px;
+  height: 7px;
+  margin-top: -3px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  opacity: 0.7;
+}
+.mcc-header .nav-top[aria-expanded="true"] .nav-chev { transform: rotate(225deg); margin-top: 3px; }
+
+/* dropdowns: hover on devices with a mouse, click everywhere */
+.mcc-header .nav-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 250px;
+  padding: 8px;
+  margin-top: 6px;
+  background: #fff;
+  border: 1px solid #dfe3df;
+  border-radius: 12px;
+  box-shadow: 0 18px 40px -12px rgba(10, 14, 12, 0.35);
+  z-index: 10;
+}
+.mcc-header .nav-menu::before { content: ""; position: absolute; left: 0; right: 0; top: -8px; height: 8px; }  /* hover bridge */
+.mcc-header .nav-menu-right { left: auto; right: 0; }
+@media (hover: hover) and (min-width: 576px) {
+  .mcc-header .nav-group:hover > .nav-menu { display: block; }
+}
+.mcc-header .nav-top[aria-expanded="true"] + .nav-menu { display: block; }
+.mcc-header .nav-menu a {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: #1b1f1d;
+  text-decoration: none;
+  line-height: 1.3;
+}
+.mcc-header .nav-menu a b { display: block; font-family: var(--font-display, sans-serif); font-size: 15px; font-weight: 700; }
+.mcc-header .nav-menu a span { display: block; margin-top: 2px; color: #5c6862; font-size: 13px; }
+.mcc-header .nav-menu a:hover { background: #f1f2f0; }
+.mcc-header .nav-menu a[aria-current="page"] { background: #e7f8ee; }
+.mcc-header .nav-menu a[aria-current="page"] b { color: #1f8f47; }
+.mcc-header .nav-menu a.mh-logout b { color: #c22f2f; }
+.mcc-header .nav-sep { display: block; height: 1px; margin: 6px 10px; background: #e6e9e6; }
+.mcc-header .nav-sep:last-child, .mcc-header .nav-sep:first-child { display: none; }
+
+/* right side: color scheme and account */
+.mcc-header .theme-item { order: 1; margin-left: auto !important; display: flex; align-items: center; }
+.mcc-header .mh-account { order: 2; margin-left: 8px !important; }
+.mcc-header .mh-theme-label { display: none; }
+.mcc-header .theme-switch {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  background: none;
+  color: rgba(255, 255, 255, 0.86);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.mcc-header .theme-switch:hover { border-color: #53ffb1; color: #fff; }
+.mcc-header .nav-me { padding: 0 8px 0 4px; gap: 8px; }
+.mcc-header .nav-me img { width: 32px; height: 32px; border-radius: 6px; image-rendering: pixelated; }
+.mcc-header .nav-me-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.mcc-header .nav-me.current::after { display: none; }
+.mcc-header .mh-login {
+  display: inline-flex;
+  align-items: center;
+  height: 38px;
+  padding: 0 18px;
+  border-radius: 8px;
+  background: #2fbf62;
+  color: #fff;
+  font-family: var(--font-display, sans-serif);
+  font-weight: 700;
+  text-decoration: none;
+}
+.mcc-header .mh-login:hover { background: #1f8f47; }
+
+/* dark mode: the bar is dark anyway, the dropdowns follow the page */
+:root[data-dark] .mcc-header .nav-menu { background: #161d1a; border-color: #28322d; box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.8); }
+:root[data-dark] .mcc-header .nav-menu a { color: #e8ede9; }
+:root[data-dark] .mcc-header .nav-menu a span { color: #a3aea8; }
+:root[data-dark] .mcc-header .nav-menu a:hover { background: #1e2723; }
+:root[data-dark] .mcc-header .nav-menu a[aria-current="page"] { background: #173524; }
+:root[data-dark] .mcc-header .nav-menu a[aria-current="page"] b { color: #6ee09a; }
+:root[data-dark] .mcc-header .nav-menu a.mh-logout b { color: #ff8a8a; }
+:root[data-dark] .mcc-header .nav-sep { background: #28322d; }
+
+/* medium screens: names get shorter instead of wrapping */
+@media (max-width: 1100px) {
+  .mcc-header .mh-title { display: none; }
+  .mcc-header .nav-me-name { display: none; }
+}
+@media (max-width: 760px) {
+  .mcc-header .mcc-nav { padding: 0 10px !important; }
+  .mcc-header .mh-bar { margin-right: 6px; }
+  .mcc-header .nav-top { padding: 0 8px; font-size: 15px; }
+  .mcc-header .nav-chev { display: none; }
+}
+
+/* ---------------------------------------------------------------- phones: bar + panel */
+.mcc-header .mh-toggle-icon { display: flex; flex-direction: column; gap: 4px; }
+.mcc-header .mh-toggle-icon i { display: block; width: 18px; height: 2px; border-radius: 1px; background: currentColor; }
+@media (max-width: 575px) {
+  :root { --mcc-header-h: 56px; }
+  .mcc-header .mcc-nav { display: block; height: auto; padding: 0 !important; }
+  .mcc-header .mh-bar { height: 56px; margin: 0; padding: 0 8px 0 16px; box-sizing: border-box; }
+  .mcc-header .mh-title { display: block; flex: 1; max-width: none; text-align: center; font-size: 17px; }
+  .mcc-header .mh-toggle {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 48px;
+    height: 44px;
+    padding: 0 10px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 10px;
+    background: transparent;
+    color: #fff;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .mcc-header .mh-toggle[aria-expanded="true"] { background: rgba(255, 255, 255, 0.12); }
+  .mcc-header .mh-toggle-icon i { transition: transform 0.15s ease, opacity 0.15s ease; }
+  .mcc-header .mh-toggle[aria-expanded="true"] .mh-toggle-icon i:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+  .mcc-header .mh-toggle[aria-expanded="true"] .mh-toggle-icon i:nth-child(2) { opacity: 0; }
+  .mcc-header .mh-toggle[aria-expanded="true"] .mh-toggle-icon i:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+
+  .mcc-header #nav-bar {
+    display: none;
+    width: 100%;
+    max-height: calc(100vh - 56px);
+    max-height: calc(100dvh - 56px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 4px 0 20px !important;
+    box-sizing: border-box;
+    background: #0f1512;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  .mcc-header #nav-bar.menueToggle { display: block !important; }
+  .mcc-header #nav-bar > li { display: block; }
+
+  /* top level links and group headings; the groups are always open */
+  .mcc-header .nav-top {
+    display: flex;
+    width: 100%;
+    height: auto;
+    min-height: 48px;
+    padding: 12px 20px;
+    border-radius: 0;
+    font-size: 17px;
+    text-align: left;
+  }
+  .mcc-header .nav-top.current::after { display: none; }
+  .mcc-header .nav-group > .nav-top {
+    min-height: 0;
+    padding: 18px 20px 6px;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.55);
+    background: none;
+    pointer-events: none;
+  }
+  .mcc-header .nav-chev { display: none; }
+  .mcc-header .nav-menu, .mcc-header .nav-top[aria-expanded="true"] + .nav-menu {
+    display: block;
+    position: static;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent !important;
+  }
+  .mcc-header .nav-menu a {
+    display: flex;
+    align-items: center;
+    min-height: 48px;
+    padding: 0 20px 0 32px;
+    border-radius: 0;
+    color: #fff !important;
+  }
+  .mcc-header .nav-menu a b { font-family: var(--font-body, sans-serif); font-size: 17px; font-weight: 400; }
+  .mcc-header .nav-menu a span { display: none; }
+  .mcc-header .nav-menu a:hover, .mcc-header .nav-menu a:active { background: rgba(255, 255, 255, 0.08) !important; }
+  .mcc-header .nav-menu a[aria-current="page"] { background: transparent; }
+  .mcc-header .nav-menu a[aria-current="page"] b { color: #53ffb1; font-weight: 700; }
+  .mcc-header .nav-sep { margin: 4px 20px 4px 32px; background: rgba(255, 255, 255, 0.12) !important; }
+
+  /* account: the player's head and name as the heading, then the links */
+  .mcc-header .mh-account {
+    margin: 12px 0 0 !important;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  .mcc-header .mh-account > .nav-me {
+    padding: 10px 20px;
+    font-size: 17px;
+    letter-spacing: 0;
+    text-transform: none;
+    color: #fff;
+  }
+  .mcc-header .nav-me-name { display: inline; max-width: none; }
+  .mcc-header .nav-menu a.mh-logout b { color: #ff8a8a; }
+  .mcc-header .mh-login { display: flex; justify-content: center; height: 48px; margin: 8px 20px; }
+
+  .mcc-header #nav-bar > li.theme-item {
+    display: flex;
+    justify-content: space-between;
+    min-height: 48px;
+    margin: 0 !important;
+    padding: 4px 20px;
+  }
+  .mcc-header .mh-theme-label { display: inline; color: rgba(255, 255, 255, 0.7); font-size: 15px; }
+  .mcc-header .theme-switch { height: 40px; padding: 0 16px; }
+
+  /* the page behind an open menu does not scroll */
+  html.mh-open, html.mh-open body { overflow: hidden; }
+  .content { margin-top: 56px; }  /* old pages without the srv layout (player page) */
+}
+@media (prefers-reduced-motion: reduce) { .mcc-header .mh-toggle-icon i { transition: none; } }

@@ -157,7 +157,7 @@ def test_polls_page_and_api(mod_client, db, server):
     body["options"] = ["Hafen", "Burg"]
     poll_id = mod_client.post("/api/mod/polls", json=body, **on("testdomain")).json["id"]
     assert mod_client.post("/api/polls/vote", json={"id": poll_id, "option": 1}, **on("testdomain")).status_code == 200
-    html = mod_client.get("/umfragen", **on("testdomain")).get_data(as_text=True)
+    html = mod_client.get("/events", **on("testdomain")).get_data(as_text=True)
     assert "Was bauen wir?" in html and "100 %" in html and "du kannst deine Stimme noch ändern" in html
     assert "Was bauen wir?" in mod_client.get("/", **on("testdomain")).get_data(as_text=True)
 
@@ -257,7 +257,7 @@ def test_guestbook_delete_rights(player_client, db, server, two_players):
 
 
 def test_community_pages_render(client, server):
-    for path in ("/events", "/umfragen", "/galerie"):
+    for path in ("/events", "/galerie"):
         assert client.get(path, **on("testdomain")).status_code == 200
 
 

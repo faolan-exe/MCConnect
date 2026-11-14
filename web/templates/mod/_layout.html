@@ -1,13 +1,21 @@
 {% extends "server_base.html" %}
 {% block title %}Verwaltung – {{ server_name }}{% endblock %}
 {% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block page_class %}srv-page-wide{% endblock %}
 {% block content %}
 <h1>Verwaltung</h1>
 <nav class="md-tabs" aria-label="Verwaltung" data-live="tabs">
-  {% for path, label in mod_pages %}
-  <a href="/users{{ '/' ~ path if path }}"{% if path == mod_page %} aria-current="page"{% endif %}>{{ label }}{% if tab_counts[path] %} <b>{{ tab_counts[path] }}</b>{% endif %}</a>
+  {% for t in mod_tabs %}
+  <a href="/users{{ '/' ~ t.path if t.path }}"{% if t.current %} aria-current="page"{% endif %}>{{ t.label }}{% if t.count %} <b>{{ t.count }}</b>{% endif %}</a>
   {% endfor %}
 </nav>
+{% if mod_sub_nav %}
+<nav class="md-nav md-subnav" aria-label="Im Spiel">
+  {% for s in mod_sub_nav %}
+  <a href="/users/{{ s.path }}"{% if s.current %} aria-current="page"{% endif %}>{{ s.label }}</a>
+  {% endfor %}
+</nav>
+{% endif %}
 {% block mod_content %}{% endblock %}
 {% endblock %}
 

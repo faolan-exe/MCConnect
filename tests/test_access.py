@@ -413,7 +413,7 @@ def test_banned_player_cannot_take_part_despite_the_login(mod_client, db, server
                        ("/api/sidebar", {"mode": "off"}), ("/api/mod/ban", {"name": "Notch"})):
         response = mod_client.post(path, json=body, **on("testdomain"))
         assert response.status_code == 403 and response.json["error"] == "Du bist auf diesem Server gebannt.", path
-    for page in ("/profil", "/melden", "/add_pref", "/users"):
+    for page in ("/profil", "/profil/spiel", "/profil/prefix", "/melden", "/users"):
         response = mod_client.get(page, **on("testdomain"))
         assert response.status_code == 403 and "Du bist gebannt" in response.get_data(as_text=True), page
     assert mod_client.get("/rangliste", **on("testdomain")).status_code == 200  # looking is fine

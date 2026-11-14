@@ -279,12 +279,12 @@ def test_impressum_shows_configured_operator(client, monkeypatch):
 
 def test_prefix_menu_is_shown(client, server):
     body = client.get("/", **on("testdomain")).data.decode()
-    assert "/add_pref" not in body and "/users" not in body  # prefixes in the player's menu, "Verwaltung" for moderators
+    assert "/profil/prefix" not in body and "/users" not in body  # prefixes in the player's menu, "Verwaltung" for moderators
 
 
 def test_player_menu_has_profile_and_prefixes(player_client):
     body = player_client.get("/", **on("testdomain")).data.decode()
-    assert "/profil" in body and "/add_pref" in body and "/join_pref" in body and "/users" not in body
+    assert "/profil" in body and "/profil/spiel" in body and "/profil/prefix" in body and "/users" not in body
 
 
 def test_menu_items_can_be_disabled(db, server):
@@ -294,7 +294,8 @@ def test_menu_items_can_be_disabled(db, server):
     db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
     login_player(client, db, db.get_player_id_from_mojang_uuid_and_server_id(PLAYER_UUID, server["id"]))
     assert "/profil" in client.get("/", **on("testdomain")).data.decode()
-    assert "/add_pref" not in client.get("/", **on("testdomain")).data.decode()
+    assert "/profil/prefix" not in client.get("/", **on("testdomain")).data.decode()
+    assert client.get("/profil/prefix", **on("testdomain")).status_code == 404
 
 
 def test_server_description_is_escaped(client, db, admin_id):
@@ -733,20 +734,35 @@ def player_client(client, db, online_player):
     return client
 
 
+def test_old_prefix_and_poll_urls_lead_to_the_new_pages(client, server):
+    """Links in old chat lines and bookmarks keep working after the pages moved."""
+    assert client.get("/add_pref", **on("testdomain")).location.endswith("/profil/prefix")
+    assert client.get("/join_pref", **on("testdomain")).location.endswith("/profil/prefix#beitreten")
+    assert client.get("/umfragen", **on("testdomain")).location.endswith("/events#umfragen")
+
+
+def test_profile_tabs(player_client):
+    for path, text in (("/profil", "Meine Statistiken verbergen"), ("/profil/spiel", "Unter deinem Namen"),
+                       ("/profil/prefix", "Einem Prefix beitreten")):
+        html = player_client.get(path, **on("testdomain")).data.decode()
+        assert text in html and f'href="{path}" aria-current="page"' in html, path
+    assert player_client.get("/profil/nichts", **on("testdomain")).status_code == 404
+
+
 def test_prefix_pages_require_login(client, server):
-    response = client.get("/add_pref", **on("testdomain"))
-    assert response.status_code == 302 and "next=/add_pref" in response.location
+    response = client.get("/profil/prefix", **on("testdomain"))
+    assert response.status_code == 302 and "next=/profil/prefix" in response.location
     assert client.post("/api/prefix/save", json={}, **on("testdomain")).status_code == 401
 
 
 def test_create_prefix_and_show_it(player_client, db, server, online_player):
-    assert player_client.get("/add_pref", **on("testdomain")).status_code == 200
+    assert player_client.get("/profil/prefix", **on("testdomain")).status_code == 200
     response = player_client.post("/api/prefix/save", json={"text": "Bauteam", "color": "aqua"}, **on("testdomain"))
     assert response.status_code == 200
     assert db.get_player_prefix(online_player)["text"] == "Bauteam"
     assert "[Bauteam]" in player_client.get("/spieler", **on("testdomain")).data.decode()
     assert "[Bauteam]" in player_client.get("/spieler?player=_Tobias4444", **on("testdomain")).data.decode()
-    assert "[Bauteam]" in player_client.get("/join_pref", **on("testdomain")).data.decode()
+    assert "[Bauteam]" in player_client.get("/profil/prefix", **on("testdomain")).data.decode()
 
 
 @pytest.mark.parametrize("body", [
@@ -789,7 +805,7 @@ def test_prefix_is_escaped_on_pages(player_client, db, server):
     with db._cursor() as cur:  # bypasses the web validation on purpose
         cur.execute("INSERT INTO prefixes (prefix_owner_id, server_id, prefix_text) VALUES (%s, %s, '<b>x</b>')",
                     (owner, server["id"]))
-    assert "<b>x</b>" not in player_client.get("/join_pref", **on("testdomain")).data.decode()
+    assert "<b>x</b>" not in player_client.get("/profil/prefix", **on("testdomain")).data.decode()
 
 
 # ------------------------------------------------------------------ moderation
@@ -885,11 +901,11 @@ def test_gold_prefix_only_for_moderators(player_client, db, server, online_playe
     body = {"text": "Gold", "color": "gold"}
     response = player_client.post("/api/prefix/save", json=body, **on("testdomain"))
     assert response.status_code == 403 and "Moderatoren" in response.json["error"]
-    page = player_client.get("/add_pref", **on("testdomain")).data.decode()
+    page = player_client.get("/profil/prefix", **on("testdomain")).data.decode()
     assert 'value="gold"' not in page and 'value="aqua" checked' in page
 
     db.set_moderator(server["id"], "_Tobias4444", True)
-    assert 'value="gold"' in player_client.get("/add_pref", **on("testdomain")).data.decode()
+    assert 'value="gold"' in player_client.get("/profil/prefix", **on("testdomain")).data.decode()
     assert player_client.post("/api/prefix/save", json=body, **on("testdomain")).status_code == 200
     assert db.get_player_prefix(online_player)["color"] == "gold"
 

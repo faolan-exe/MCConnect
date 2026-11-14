@@ -678,7 +678,7 @@ def cmd_joinmessage(ctx, args):
     if level + 1 < len(levels):
         following = levels[level + 1]
         lines.append(f"&7Nächste Stufe »{clean(following['name'])}«: {clean(rewards.level_hint(following))}")
-    lines.append(f"&7Vorschau und Stummschalten: &b{page_url(db, ctx.server_id, '/profil')}")
+    lines.append(f"&7Vorschau und Stummschalten: &b{page_url(db, ctx.server_id, '/profil/spiel')}")
     return lines
 
 

@@ -128,8 +128,9 @@
   white-space: nowrap;
 }
 /* the prefix gives way before the name does */
-.st-name .mcc-prefix { flex: 0 100 auto; min-width: 24px; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
-.st-name > span:last-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.st-name .mcc-prefix { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+.st-name > span:last-child { flex: 0 0 auto; max-width: calc(100% - 34px); overflow: hidden; text-overflow: ellipsis; }
+.st-name > span:only-child { max-width: 100%; }
 .st-name:hover { text-decoration: underline; }
 .st-bar { display: block; height: 4px; border-radius: 2px; background: var(--st-track); }
 .st-bar span { display: block; height: 100%; min-width: 3px; border-radius: 2px; background: var(--srv-green); }
@@ -1440,3 +1441,12 @@ details.md-create[open] > .mcc-form { margin-top: 12px; padding: 14px; border: 1
 .dc-first { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .dc-first img { border-radius: 3px; }
 .dc-first a { color: inherit; font-weight: 700; }
+
+/* section navigation inside a page (moderation, events): the current entry */
+.md-nav a[aria-current="page"] { background: var(--srv-night); border-color: var(--srv-night); color: #fff; }
+.md-subnav { margin-top: -10px; }
+.srv-page .ev-sub { margin: 22px 0 10px; font-size: 17px; }
+.srv-page .ev-sub:first-of-type { margin-top: 0; }
+.pf-wearing { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+  padding: 10px 14px; margin: 4px 0 10px; border-radius: 10px; background: var(--srv-bg); }
+.pf-wearing p { margin: 0 !important; }
