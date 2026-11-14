@@ -18,7 +18,11 @@ Plugin -> server:
     !WEBBANS~<json list>         names of the MCConnect bans still in the server's ban list (plugin 3.7);
                                  a delivered website ban that is missing was lifted with /pardon
     !HEALTH~<json>               once a minute: {"tps", "mem_used_mb", "mem_max_mb", "players", "chunks",
-                                 "entities", "uptime_s", "mc_version", "plugin_version"}
+                                 "entities", "uptime_s", "mc_version", "plugin_version", "ping_avg" (3.28, -1 = nobody)}
+    !CLIENTS~<json list>         once a minute (3.28, "clients"): the online players' connection and client,
+                                 [{"uuid", "ping" (ms), "brand", "version" (with ViaVersion), "locale", "view",
+                                 "bedrock", "device" (with Floodgate)}]; every field but uuid is optional; only
+                                 moderators see it (/users/spieler#clients)
     !CMD~<uuid>|<world>|<x>|<y>|<z>|<command>|<args>   in-game command (stats, top, wettbewerb, duell, report,
                                  seitenleiste, vote, events; see mc_socket/commands.py), answered with !tell
     !FEATURES~<name>,<name>      what the plugin can do (after auth): "click" = buttons in chat messages (3.10),
@@ -30,7 +34,8 @@ Plugin -> server:
                                  "addons" = other plugins extend MCConnect through MCDataLink (3.22, below),
                                  "unwhitelist" = understands !whitelist~remove (3.23),
                                  "whitelistack" = answers !whitelist~add with !WHITELISTED (3.26),
-                                 "confirm" = answers !ban, !unban and !whitelist~remove (3.27, see below)
+                                 "confirm" = answers !ban, !unban and !whitelist~remove (3.27, see below),
+                                 "clients" = sends !CLIENTS once a minute (3.28)
     !ADDONS~<json list>          the registered addons (3.22, after auth and on every change): [{"id", "plugin",
                                  "version", "file", "sha256" (of the jar), "manifest" (mcconnect-addon.json),
                                  "commands"}]; answered with !addonstate for each (see database/addons.py)
@@ -233,7 +238,45 @@ def parse_health(value):
             "mem_max_mb": number("mem_max_mb", int, 0, 10 ** 7), "players": number("players", int, 0, 10 ** 6),
             "chunks": number("chunks", int, 0, 10 ** 8), "entities": number("entities", int, 0, 10 ** 8),
             "uptime_s": number("uptime_s", int, 0, 10 ** 10), "mc_version": text("mc_version"),
-            "plugin_version": text("plugin_version")}
+            "plugin_version": text("plugin_version"), "ping_avg": number("ping_avg", int, 0, MAX_PING)}
+
+
+MAX_PING = 60_000  # ms; anything above is a broken value
+MAX_CLIENT_ENTRIES = 1000
+LOCALE_RE = re.compile(r"^[a-z]{2,3}(?:_[a-z0-9]{2,4})?$")
+
+
+def parse_clients(value):
+    """The validated client report of the plugin: a list of dicts with a uuid; broken fields become None, entries
+    without a valid uuid are dropped."""
+    data = json.loads(value)
+    if not isinstance(data, list):
+        raise ValueError("client report must be a list")
+    result = []
+    for entry in data[:MAX_CLIENT_ENTRIES]:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            uuid = parse_uuid(str(entry.get("uuid") or ""))
+        except ValueError:
+            continue
+
+        def text(key, limit=48):
+            raw = entry.get(key)
+            if not isinstance(raw, str):
+                return None
+            clean = "".join(c for c in raw if c.isprintable()).strip()[:limit]
+            return clean or None
+
+        ping = entry.get("ping")
+        ping = ping if isinstance(ping, int) and not isinstance(ping, bool) and 0 <= ping <= MAX_PING else None
+        view = entry.get("view")
+        view = view if isinstance(view, int) and not isinstance(view, bool) and 1 <= view <= 64 else None
+        locale = (text("locale", 10) or "").lower()
+        result.append({"uuid": uuid, "ping": ping, "brand": text("brand"), "version": text("version", 24),
+                       "locale": locale if LOCALE_RE.match(locale) else None, "view": view,
+                       "bedrock": entry.get("bedrock") is True, "device": text("device", 24)})
+    return result
 
 
 def parse_uuid(value):
@@ -1289,6 +1332,9 @@ class SocketServer:
             elif command == "!HEALTH":
                 self.db.add_health_sample(client.server_id, parse_health(value))
                 client.send("success|104")
+            elif command == "!CLIENTS":
+                self.db.add_client_samples(client.server_id, parse_clients(value))
+                client.send("success|109")
             elif command == "!WEBBANS":
                 names = json.loads(value)
                 if not isinstance(names, list):

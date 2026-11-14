@@ -33,6 +33,10 @@
       <span class="hl-sub">von {{ "{:,}".format(health.latest.mem_max_mb or 0).replace(",", ".") }} MB</span></div>
     <div class="hl-item"><span class="hl-label">Läuft seit</span><strong>{{ health.uptime }}</strong>
       <span class="hl-sub">Erreichbar: {{ health.availability or "–" }} (7 Tage)</span></div>
+    <div class="hl-item"><span class="hl-label">Ping Ø</span>
+      <strong>{% if health.ping is not none %}{{ health.ping }} ms{% else %}–{% endif %}</strong>
+      {% if health.ping_quality %}<span class="hl-status hl-ping-{{ health.ping_quality }}">{{ {"good": "✓ gut", "ok": "! spürbar", "bad": "✕ hoch"}[health.ping_quality] }}</span>
+      {% else %}<span class="hl-sub">{{ "niemand online" if health.latest.players == 0 else "ab Plugin 3.28" }}</span>{% endif %}</div>
     <div class="hl-item"><span class="hl-label">Spieler · Chunks · Entities</span>
       <strong>{{ health.latest.players }} · {{ health.latest.chunks }} · {{ health.latest.entities }}</strong>
       <span class="hl-sub">Stand {{ health.sampled }}</span></div>
@@ -48,9 +52,17 @@
       <script id="mem-data" type="application/json">{{ health.mem_chart | tojson }}</script>
       <div class="cmp-chart" data-line-chart="mem-data" aria-label="Arbeitsspeicher der letzten 24 Stunden"></div>
     </div>
+    {% if health.ping_chart.points | selectattr("v") | list %}
+    <div>
+      <h3>Ping Ø der Spieler (24 Stunden)</h3>
+      <script id="ping-data" type="application/json">{{ health.ping_chart | tojson }}</script>
+      <div class="cmp-chart" data-line-chart="ping-data" aria-label="Durchschnittlicher Ping der letzten 24 Stunden"></div>
+    </div>
+    {% endif %}
   </div>
   <p class="mcc-hint">{{ health.latest.mc_version or "" }} · MCDataLink {{ health.latest.plugin_version or "" }}.
-    20 TPS sind ideal; unter 15 merken Spieler Ruckler.</p>
+    20 TPS sind ideal; unter 15 merken Spieler Ruckler. Mehr zu Ping und Clients der Spieler unter
+    <a href="/users/spieler#clients">Spieler → Verbindungen</a>.</p>
   {% elif health.online %}
   <p class="hl-alert hl-alert-soft"><b>Das Plugin ist verbunden, schickt aber keinen Serverzustand{% if health.stale %} mehr (zuletzt {{ health.last_sample }}){% endif %}.</b><br/>
     Der Serverzustand kommt ab Plugin-Version 3.2. Lade auf der Admin-Seite das aktuelle MCDataLink.jar herunter,

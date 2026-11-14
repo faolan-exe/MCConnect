@@ -69,6 +69,7 @@ public final class MCDataLink extends JavaPlugin {
     private PrefixDisplay prefixDisplay;
     private BanSync banSync;
     private HealthReporter healthReporter;
+    private ClientReporter clientReporter;
     private InGameCommands commands;
     private Sidebar sidebar;
     private Moderation moderation;
@@ -105,6 +106,8 @@ public final class MCDataLink extends JavaPlugin {
                 getConfig().getBoolean("prefix.tablist", true), getConfig().getBoolean("prefix.nametag", true));
         banSync = new BanSync(this);
         getServer().getScheduler().runTaskTimer(this, this::sendBanList, BAN_SYNC_INTERVAL_TICKS, BAN_SYNC_INTERVAL_TICKS);
+        clientReporter = new ClientReporter(this);
+        clientReporter.start();
         healthReporter = new HealthReporter(this);
         healthReporter.start();
         if (getConfig().getBoolean("live-stats", true)) new LiveStats(this, getConfig().getInt("live-stats-interval", 5)).start();
@@ -242,7 +245,7 @@ public final class MCDataLink extends JavaPlugin {
                     send("!REGISTRY~" + RegistryReporter.json(getServer().getBukkitVersion()));
                     // chat messages may contain buttons and tooltips (ChatMarkup) and icons (Glyphs); updates (PluginUpdater);
                     // addons (AddonManager, AddonInstaller)
-                    send("!FEATURES~click,glyphs,update,hover,addons,unwhitelist,statsreset,whitelistack,confirm");
+                    send("!FEATURES~click,glyphs,update,hover,addons,unwhitelist,statsreset,whitelistack,confirm,clients");
                     runOnMainThread(addons::report);
                     sendOnlinePlayers();
                     runOnMainThread(this::sendBanList);
@@ -468,6 +471,15 @@ public final class MCDataLink extends JavaPlugin {
     /** Main thread: health sample as JSON (see HealthReporter). */
     void sendHealth(String json) {
         if (authenticated) sendAsync("!HEALTH~" + json);
+    }
+
+    /** Main thread: connection and client of the online players as JSON (see ClientReporter). */
+    void sendClients(String json) {
+        if (authenticated) sendAsync("!CLIENTS~" + json);
+    }
+
+    ClientReporter clientReporter() {
+        return clientReporter;
     }
 
     PrefixDisplay prefixDisplay() {

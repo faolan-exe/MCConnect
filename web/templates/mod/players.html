@@ -5,6 +5,7 @@
   <a href="#reports">Meldungen{% if tasks.reports[0] %} <b>{{ tasks.reports[0] }}</b>{% endif %}</a>
   <a href="#bans">Bans</a><a href="#warnings">Verwarnungen</a>
   <a href="#xray">X-Ray{% if tasks.xray[0] %} <b>{{ tasks.xray[0] }}</b>{% endif %}</a>
+  <a href="#clients">Verbindungen</a>
   <a href="#activity">Aktivität</a>
 </nav>
 
@@ -91,6 +92,56 @@
   </div>
   {% else %}
   <p class="st-empty">Niemand fällt auf.</p>
+  {% endif %}
+  </div>
+</section>
+
+<section class="srv-card" id="clients">
+  <h2>Verbindungen &amp; Clients</h2>
+  <p class="mcc-hint">Nur für Moderatoren. Das Plugin meldet einmal pro Minute Ping, Client, Sprache und Sichtweite der Spieler,
+    die gerade online sind (ab Plugin-Version 3.28, keine IP-Adressen). Ping Ø, min. und max. über die letzten 7 Tage;
+    unter {{ 80 }} ms merkt niemand etwas, ab {{ 150 }} ms hängen Treffer und Blöcke hinterher.
+    {% if not clients.via %}Die Client-Version kennt der Server nur mit ViaVersion; ohne spielen alle mit seiner Version.{% endif %}</p>
+  <div data-live="clients">
+  {% if clients.rows %}
+  <div class="cl-summary">
+    <div class="cl-box"><span class="hl-label">Ping Ø (30 Tage aktiv)</span>
+      <strong>{% if clients.ping_avg is not none %}{{ clients.ping_avg }} ms{% else %}–{% endif %}</strong>
+      <span class="hl-sub">{{ clients.players }} {{ "Spieler" }}</span></div>
+    {% for title, items in (("Clients", clients.clients), ("Versionen", clients.versions), ("Sprachen", clients.languages)) %}
+    <div class="cl-box"><span class="hl-label">{{ title }}</span>
+      <ul class="cl-shares">
+        {% for item in items[:5] %}
+        <li><span class="cl-share-label">{{ item.label }}</span><span class="cl-share-bar"><i style="width: {{ item.percent }}%"></i></span>
+          <span class="cl-share-n">{{ item.count }}</span></li>
+        {% endfor %}
+      </ul></div>
+    {% endfor %}
+  </div>
+  <div class="mcc-table-wrap">
+    <table class="mcc-table mcc-stack">
+      <thead><tr><th>Spieler</th><th>Ping jetzt</th><th>Ping Ø 7 Tage</th><th>min. – max.</th><th>Client</th><th>Version</th>
+        <th>Sprache</th><th>Sichtweite</th><th>Zuletzt</th></tr></thead>
+      <tbody>
+        {% for c in clients.rows %}
+        <tr>
+          <td data-label="Spieler"><a href="/spieler?player={{ c.name | urlencode }}">{{ c.name }}</a></td>
+          <td data-label="Ping jetzt" class="num">{% if c.online and c.ping is not none %}{{ c.ping }} ms{% else %}–{% endif %}</td>
+          <td data-label="Ping Ø 7 Tage" class="num">{% if c.ping_avg is not none %}<b class="cl-ping cl-ping-{{ c.quality }}">{{ c.ping_avg }} ms</b>{% else %}–{% endif %}</td>
+          <td data-label="min. – max." class="num">{% if c.ping_min is not none %}{{ c.ping_min }} – {{ c.ping_max }} ms{% else %}–{% endif %}</td>
+          <td data-label="Client">{{ c.client }}{% if c.bedrock and c.device %} <span class="mcc-hint">({{ c.device }})</span>{% endif %}
+            {% if c.brand and c.client | lower != c.brand | lower and not c.bedrock %}<span class="mcc-hint" title="{{ c.brand }}">ⓘ</span>{% endif %}</td>
+          <td data-label="Version">{{ c.version or "–" }}</td>
+          <td data-label="Sprache">{{ c.language }}</td>
+          <td data-label="Sichtweite" class="num">{{ c.view_distance or "–" }}</td>
+          <td data-label="Zuletzt">{{ c.seen }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="st-empty">Noch keine Daten. Sie kommen ab Plugin-Version 3.28, sobald jemand online ist.</p>
   {% endif %}
   </div>
 </section>
