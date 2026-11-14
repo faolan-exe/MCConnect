@@ -534,7 +534,7 @@ def test_admin_login_with_email(client, admin_id):
     response = client.post("/api/login", json={"username": " Tobi@example.com ", "password": "testPassword"}, **on(None))
     assert response.status_code == 200
     manage = client.get("/manage", **on(None))
-    assert manage.status_code == 200 and b"Logout (tobi)" in manage.data
+    assert manage.status_code == 200 and b'<span class="nav-me-name">tobi</span>' in manage.data and b"adminLogout" in manage.data
 
 
 def test_fonts_can_be_embedded_from_subdomains(client):

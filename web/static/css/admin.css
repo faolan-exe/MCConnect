@@ -29,44 +29,6 @@ body {
 
 a { color: var(--accent-dark); }
 
-.site-header {
-  background: var(--header);
-  color: #fff;
-  padding: 0 24px;
-}
-.site-header { border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
-.site-header .inner {
-  max-width: 1040px;
-  margin: 0 auto;
-  height: 64px;
-  display: flex;
-  align-items: center;
-  gap: 24px;
-}
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: #fff;
-  text-decoration: none;
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 22px;
-  letter-spacing: 0.01em;
-}
-.brand img { height: 44px; }
-.site-nav { margin-left: auto; display: flex; gap: 20px; align-items: center; }
-.site-nav a, .site-nav button {
-  color: #fff;
-  text-decoration: none;
-  font: inherit;
-  background: none;
-  border: 0;
-  cursor: pointer;
-  padding: 0;
-}
-.site-nav a:hover, .site-nav button:hover { color: var(--accent); }
-
 main {
   flex: 1;
   width: 100%;
@@ -220,9 +182,6 @@ summary { cursor: pointer; font-weight: 600; }
 .warning { background: #fff5d6; border: 1px solid #f0d27a; border-radius: 8px; padding: 12px 14px; }
 
 @media (max-width: 640px) {
-  .site-header .inner { height: auto; padding: 12px 0; flex-wrap: wrap; }
-  .site-nav { margin-left: 0; width: 100%; flex-wrap: wrap; gap: 0 14px; }
-  .site-nav a, .site-nav button { display: inline-flex; align-items: center; min-height: 40px; }
   .site-footer a { display: inline-block; padding: 10px 0; }
   .hero h1 { font-size: 30px; }
 }
@@ -264,7 +223,7 @@ a.server-tile:hover { border-color: var(--accent); }
 .server-tile-facts b { color: var(--text); }
 .server-tile-go { margin-top: auto; color: var(--accent-dark); font-weight: 700; }
 .crumbs { margin: 0 0 8px; font-size: 15px; }
-.admin-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 16px; padding: 4px; border: 1px solid var(--border);
+.admin-tabs { display: flex; flex-wrap: wrap; gap: 4px; width: fit-content; max-width: 100%; margin: 0 0 20px; padding: 4px; border: 1px solid var(--border);
   border-radius: var(--radius); background: var(--card); }
 .admin-tabs button { padding: 8px 14px; border: 0; border-radius: 9px; background: none; color: var(--muted);
   font: inherit; font-weight: 700; cursor: pointer; }
@@ -273,9 +232,32 @@ a.server-tile:hover { border-color: var(--accent); }
 [data-panel] h2 { margin-top: 0; }
 @media (max-width: 600px) { .admin-tabs button { flex: 1 1 auto; } }
 
-/* header links like the server pages' menu */
-.site-nav a, .site-nav button { font-family: var(--font-heading); font-weight: 600; font-size: 16px; color: rgba(255, 255, 255, 0.86);
-  padding: 8px 12px; border-radius: 8px; }
-.site-nav { gap: 4px; }
-.site-nav a:hover, .site-nav button:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
-.site-nav a[aria-current="page"] { color: #53ffb1; }
+/* header (nav.css): the page starts below the fixed bar; the admin's account icon instead of a Minecraft head */
+.mcc-header-main ~ main { margin-top: var(--mcc-header-h, 64px); }
+.mcc-header .nav-me-ico { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08); color: #fff; }
+.mcc-header .nav-me-ico .nav-ico { color: inherit; }
+
+/* dark mode of the main domain (switch in the header, _theme.html) */
+:root[data-dark] {
+  --bg: #0d1210;
+  --card: #161d1a;
+  --text: #e8ede9;
+  --muted: #a3aea8;
+  --border: #28322d;
+  --accent-dark: #6ee09a;
+}
+:root[data-dark] body { background: radial-gradient(1100px 520px at 50% -160px, #15241c 0%, rgba(13, 18, 16, 0) 70%) no-repeat, var(--bg); color: var(--text); }
+:root[data-dark] .card, :root[data-dark] .dir-card { background: var(--card); color: var(--text); border-color: var(--border); }
+:root[data-dark] input, :root[data-dark] select, :root[data-dark] textarea { background: #1e2723; color: var(--text); border-color: var(--border); }
+:root[data-dark] .btn-secondary { background: #1e2723; color: var(--text); border-color: var(--border); }
+:root[data-dark] .message.error, :root[data-dark] .badge-offline { background: #3d1a1a; color: #ffaaaa; }
+:root[data-dark] .message.success, :root[data-dark] .badge-online { background: #173524; color: #8be3ad; }
+:root[data-dark] .warning { background: #3b2c10; border-color: #6b5420; color: #ffd27a; }
+:root[data-dark] .health-grid div { border-color: var(--border); }
+:root[data-dark] .health-grid span, :root[data-dark] .dir-status, :root[data-dark] .dir-meta { color: var(--muted); }
+:root[data-dark] .health-good, :root[data-dark] .dir-online { color: #6ee09a; }
+:root[data-dark] .health-warning { color: #ffd27a; }
+:root[data-dark] .health-critical { color: #ffaaaa; }
+:root[data-dark] .admin-tabs button[aria-selected="true"] { background: rgba(0, 230, 118, 0.12); color: #00e676; }
+:root[data-dark] pre { background: #0a0e0c; border: 1px solid var(--border); }

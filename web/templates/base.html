@@ -10,26 +10,48 @@
     {% block head %}{% endblock %}
     <link href="{{ url_for('static', filename='images/favicon.ico') }}" rel="icon" type="image/vnd.microsoft.icon" />
     <script src="{{ url_for('static', filename='actions.js') }}"></script>
+    <script src="{{ url_for('static', filename='nav.js') }}"></script>
+    <link href="{{ url_for('static', filename='css/nav.css') }}" rel="stylesheet" />
+    {% include "_theme.html" %}
   </head>
   <body>
-    <header class="site-header">
-      <div class="inner">
-        <a class="brand" href="/">
-          <img src="{{ url_for('static', filename='images/logo2.png') }}" alt="" />
-          {% block brand %}MCConnect{% endblock %}
-        </a>
-        <nav class="site-nav">
-          {% block nav %}
+    {% from "_icons.html" import icon %}
+    <header class="mcc-header mcc-header-main">
+      <nav class="mcc-nav" aria-label="Hauptmenü">
+        <div class="mh-bar">
+          <a class="mh-logo" href="/"><img alt="Startseite" width="40" height="40" src="{{ url_for('static', filename='images/logo2.png') }}"/></a>
+          <a class="mh-title" href="/">MCConnect</a>
+          <button class="mh-toggle" type="button" aria-controls="nav-bar" aria-expanded="false" data-on-click="toggleNavMenu">
+            <span class="mh-toggle-icon" aria-hidden="true"><i></i><i></i><i></i></span><span class="mh-toggle-text">Menü</span>
+          </button>
+        </div>
+        <ul id="nav-bar">
+          <li><a class="nav-top{% if request.path == '/' %} current{% endif %}" href="/">Start</a></li>
           {% if admin_username %}
-          <a href="/manage"{% if request.path.startswith('/manage') %} aria-current="page"{% endif %}>Meine Server</a>
-          <a href="/create"{% if request.path == '/create' %} aria-current="page"{% endif %}>Server hinzufügen</a>
-          <button type="button" data-on-click="adminLogout">Logout ({{ admin_username }})</button>
+          <li><a class="nav-top{% if request.path.startswith('/manage') %} current{% endif %}" href="/manage">Meine Server</a></li>
+          <li><a class="nav-top{% if request.path == '/create' %} current{% endif %}" href="/create">Server hinzufügen</a></li>
+          <li class="mh-account nav-group">
+            <button class="nav-top nav-me" type="button" aria-expanded="false" data-on-click="toggleNavGroup" title="Mein Konto">
+              <span class="nav-me-ico">{{ icon("user") }}</span><span class="nav-me-name">{{ admin_username }}</span><i class="nav-chev" aria-hidden="true"></i>
+            </button>
+            <div class="nav-menu nav-menu-right">
+              <a href="/manage"{% if request.path == '/manage' %} aria-current="page"{% endif %}>{{ icon("server") }}<b>Meine Server</b><span>Plugin, Serverseite, Moderation</span></a>
+              <a href="/create"{% if request.path == '/create' %} aria-current="page"{% endif %}>{{ icon("plus") }}<b>Server hinzufügen</b><span>Neue Subdomain und Plugin-Key</span></a>
+              <span class="nav-sep" role="separator"></span>
+              <a class="mh-logout" href="#" data-on-click="adminLogout">{{ icon("logout") }}<b>Logout</b></a>
+            </div>
+          </li>
           {% else %}
-          <a href="/login">Login / Registrieren</a>
+          <li class="mh-account"><a class="mh-login" href="/login">Login / Registrieren</a></li>
           {% endif %}
-          {% endblock %}
-        </nav>
-      </div>
+          <li class="theme-item">
+            <span class="mh-theme-label">Farbschema</span>
+            <button type="button" class="theme-switch dn-switch" id="theme-switch" data-on-click="mccCycleTheme"
+                    aria-pressed="false" title="Hell oder dunkel">{% include "_daynight.html" %}<span class="st-sr">Dunkles Farbschema</span></button>
+            <script nonce="{{ csp_nonce() }}">window.mccApplyTheme();</script>
+          </li>
+        </ul>
+      </nav>
     </header>
 
     <main>{% block content %}{% endblock %}</main>
@@ -56,7 +78,8 @@
         element.textContent = text;
         element.className = "message " + kind;
       }
-      async function adminLogout() {
+      async function adminLogout(element, event) {
+        if (event) event.preventDefault();
         await postJson("/api/logout");
         window.location.href = "/";
       }
