@@ -1504,4 +1504,10 @@ nav.md-nav { margin-bottom: 26px; }
 .an-dl dt { color: var(--srv-muted); }
 .an-dl dd { margin: 0; font-weight: 700; text-align: right; overflow-wrap: anywhere; }
 .an-mods { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
+.an-flag { display: inline-block; margin: 0 4px 2px 0; padding: 1px 8px; border-radius: 999px; font-size: 12px;
+  font-weight: 700; background: rgba(229, 57, 53, 0.12); color: #c62828; border: 1px solid rgba(229, 57, 53, 0.35); }
+:root[data-dark] .an-flag { color: #ff8a80; }
+.srv-page .an-details .an-wide { margin-top: 0 !important; }
+.an-details .an-wide .an-dl { max-width: 560px; margin-bottom: 16px; }
+.an-details .an-wide .an-charts { margin: 8px 0 0; }
 @media (max-width: 800px) { .an-charts { grid-template-columns: 1fr; } }

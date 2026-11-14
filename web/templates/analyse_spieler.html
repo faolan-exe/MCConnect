@@ -14,9 +14,9 @@
 <div class="cl-summary an-kpis">
   <div class="cl-box"><span class="hl-label">Ping jetzt</span><strong>{% if c.online and c.ping is not none %}{{ c.ping }} ms{% else %}–{% endif %}</strong>
     <span class="hl-sub">{{ "online" if c.online else "offline" }}</span></div>
-  <div class="cl-box"><span class="hl-label">Ping Ø 30 Tage</span>
-    <strong{% if c.quality %} class="cl-ping-{{ c.quality }}"{% endif %}>{% if c.ping_avg is not none %}{{ c.ping_avg }} ms{% else %}–{% endif %}</strong>
-    <span class="hl-sub">{% if c.ping_min is not none %}{{ c.ping_min }}–{{ c.ping_max }} ms{% endif %}</span></div>
+  <div class="cl-box"><span class="hl-label">Ping typisch 30 Tage</span>
+    <strong{% if c.quality %} class="cl-ping-{{ c.quality }}"{% endif %}>{% if c.ping_typ is not none %}{{ c.ping_typ }} ms{% else %}–{% endif %}</strong>
+    <span class="hl-sub">{% if c.ping_p90 is not none %}90 % unter {{ c.ping_p90 }} ms · {% endif %}{% if c.ping_avg is not none %}Ø {{ c.ping_avg }} ms{% endif %}{% if c.ping_min is not none %} · {{ c.ping_min }}–{{ c.ping_max }} ms{% endif %}</span></div>
   <div class="cl-box"><span class="hl-label">Ping-Spitzen 30 Tage</span><strong>{{ c.spikes }}</strong>
     <span class="hl-sub">Minuten ab {{ thresholds.spike }} ms</span></div>
   <div class="cl-box"><span class="hl-label">Tage mit Daten</span><strong>{{ c.days }}</strong><span class="hl-sub">von 90</span></div>
@@ -25,9 +25,9 @@
 {% if c.days %}
 <div class="an-charts">
   <div class="srv-card an-chart-card">
-    <h3>Ø Ping pro Tag</h3>
+    <h3>Typischer Ping pro Tag</h3>
     <script id="ping-avg" type="application/json">{{ c.chart_avg | tojson }}</script>
-    <div class="cmp-chart" data-line-chart="ping-avg" aria-label="Durchschnittlicher Ping pro Tag"></div>
+    <div class="cmp-chart" data-line-chart="ping-avg" aria-label="Typischer Ping (Median) pro Tag"></div>
   </div>
   <div class="srv-card an-chart-card">
     <h3>Höchster Ping pro Tag</h3>
@@ -92,6 +92,55 @@
     {% endif %}
     {% if c.unknown_channels %}
     <p class="mcc-hint">Weitere Kanäle: <code>{{ c.unknown_channels | join(", ") }}</code></p>
+    {% endif %}
+  </section>
+  {% set k = c.clicks %}
+  <section class="srv-card an-wide">
+    <h2>Klicks &amp; Rhythmus <span class="mcc-hint">30 Tage</span></h2>
+    {% if not k.rhythm %}
+    <p class="mcc-hint">Noch keine Daten (ab Plugin 3.30, nur Java-Spieler).</p>
+    {% else %}
+    <dl class="an-dl">
+      {{ row("Klicks", k.clicks) }}
+      {% if k.summary %}
+      {{ row("Klicks in Folge", k.summary.n) }}
+      {{ row("Ø pro Sekunde in Folge", k.summary.cps) }}
+      {{ row("Höchstens pro Sekunde", k.cps_max) }}
+      {{ row("Kürzester Abstand", (k.click_min ~ " ms") if k.click_min is not none else none) }}
+      {{ row("Streuung der Abstände", k.summary.cv_percent ~ " %") }}
+      {{ row("Doppelklicks (unter 25 ms)", k.summary.doubles_percent ~ " %") }}
+      {{ row("Hinweise", k.summary.flags | join(", ") if k.summary.flags else "keine") }}
+      {% endif %}
+      {{ row("Aussetzer", k.rhythm.stalls ~ " (" ~ k.rhythm.stalls_per_hour ~ " pro Stunde, ab " ~ k.rhythm.threshold ~ " ms)") }}
+      {{ row("Längste Pause", (k.rhythm.gap_max ~ " ms") if k.rhythm.gap_max is not none else none) }}
+      {{ row("Ticks pro Sekunde des Clients", k.rhythm.tps) }}
+    </dl>
+    {% if k.summary %}
+    <div class="an-charts">
+      <div class="an-chart-card">
+        <h3>Abstände zwischen zwei Klicks</h3>
+        <script id="click-hist" type="application/json">{{ k.hist | tojson }}</script>
+        <div class="pi-chart" data-bar-chart="click-hist" data-every="1" aria-label="Klicks nach Abstand zum vorigen Klick"></div>
+      </div>
+      <div class="an-chart-card">
+        <h3>Streuung pro Tag</h3>
+        <script id="click-cv" type="application/json">{{ k.cv_days | tojson }}</script>
+        <div class="cmp-chart" data-line-chart="click-cv" aria-label="Streuung der Klickabstände pro Tag"></div>
+      </div>
+      <div class="an-chart-card">
+        <h3>Höchstens Klicks pro Sekunde, pro Tag</h3>
+        <script id="click-cps" type="application/json">{{ k.cps_days | tojson }}</script>
+        <div class="pi-chart" data-bar-chart="click-cps" aria-label="Meiste Klicks in einer Sekunde pro Tag"></div>
+      </div>
+      <div class="an-chart-card">
+        <h3>Aussetzer pro Tag</h3>
+        <script id="stall-days" type="application/json">{{ k.stall_days | tojson }}</script>
+        <div class="pi-chart" data-bar-chart="stall-days" aria-label="Aussetzer des Clients pro Tag"></div>
+      </div>
+    </div>
+    {% endif %}
+    <p class="mcc-hint">Gleichmäßige Abstände (Streuung unter 8 % bei 8+ Klicks pro Sekunde) deuten auf einen Autoclicker,
+      viele Abstände unter 25 ms auf eine doppelt klickende Maus oder Butterfly-Klicken. Hinweise, kein Beweis.</p>
     {% endif %}
   </section>
   {% if c.changes %}

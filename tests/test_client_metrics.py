@@ -125,7 +125,7 @@ def test_moderators_see_connections_and_clients(mod, db, server):
 def test_average_ping_on_the_overview(mod, db, server):
     db.add_health_sample(server["id"], dict(HEALTH, ping_avg=95))
     html = mod.get("/users", **S).get_data(as_text=True)
-    assert "Ping Ø" in html and "95 ms" in html and "hl-ping-ok" in html and 'data-line-chart="ping-data"' in html
+    assert "Ping typisch" in html and "95 ms" in html and "hl-ping-ok" in html and 'data-line-chart="ping-data"' in html
 
 
 def test_clients_are_not_public(client, db, server):
@@ -211,3 +211,114 @@ def test_analysis_page_and_player_detail(mod, db, server):
 def test_analysis_without_data(mod):
     html = mod.get("/analyse", **S).get_data(as_text=True)
     assert "Noch keine Daten" in html and "3.28" in html
+
+
+# ------------------------------------------------------------------ plugin 3.30: clicks and rhythm
+
+def minute(intervals, clicks=None, cps_max=6, rhythm="tick", stalls=0, gap_max=60, ticks=1200):
+    """One minute of the plugin's click pattern for the given intervals in ms (all below 500)."""
+    hist = [0] * 8
+    for ms in intervals:
+        hist[next(i for i, high in enumerate((30, 50, 70, 90, 120, 160, 250, 500)) if ms < high)] += 1
+    return {"rhythm": rhythm, "gap_max": gap_max, "stalls": stalls, "ticks": ticks,
+            "clicks": len(intervals) + 1 if clicks is None else clicks, "cps_max": cps_max, "click_n": len(intervals),
+            "click_sum": sum(intervals), "click_sq": sum(ms * ms for ms in intervals),
+            "click_min": min(intervals) if intervals else None, "doubles": sum(1 for ms in intervals if ms < 25),
+            "click_hist": hist}
+
+
+def test_parse_rhythm_keeps_a_consistent_minute():
+    row = parse_clients(json.dumps([sample(**minute([100, 110, 20]))]))[0]
+    assert row["click_n"] == 3 and row["click_sum"] == 230 and row["doubles"] == 1 and row["click_min"] == 20
+    assert row["click_hist"] == [1, 0, 0, 0, 2, 0, 0, 0] and row["rhythm"] == "tick" and row["ticks"] == 1200
+
+
+@pytest.mark.parametrize("broken", [
+    {"click_hist": [1, 2, 3]},                   # wrong number of buckets
+    {"click_hist": [9, 0, 0, 0, 0, 0, 0, 0]},    # buckets do not add up to click_n
+    {"click_n": 5},                              # more intervals than clicks
+    {"click_sum": 3 * 500 + 1},                  # an interval of 500 ms or more is not clicking in a row
+    {"doubles": 4},                              # more double clicks than intervals
+    {"click_min": None},                         # intervals without a shortest one
+    {"cps_max": True},
+])
+def test_parse_rhythm_drops_a_click_pattern_that_does_not_fit(broken):
+    row = parse_clients(json.dumps([sample(**dict(minute([100, 110, 120]), **broken))]))[0]
+    assert row["click_n"] is None and row["click_hist"] is None and row["cps_max"] is None
+    assert row["rhythm"] == "tick" and row["clicks"] == 4  # the rest of the minute stays
+
+
+def test_parse_rhythm_without_data_and_with_a_wrong_rhythm():
+    row = parse_clients(json.dumps([sample(rhythm="frames", gap_max=-1, stalls="2")]))[0]
+    assert row["rhythm"] is None and row["gap_max"] is None and row["stalls"] is None and row["clicks"] is None
+
+
+def even(n, ms=100, jitter=0):
+    return [ms + (jitter if i % 2 else -jitter) for i in range(n)]
+
+
+@pytest.mark.parametrize("intervals,flagged", [
+    (even(150, 100, 4), True),     # 10 per second, 4 % spread: an auto clicker
+    (even(149, 100, 4), False),    # too few intervals to judge
+    (even(150, 125, 4), True),     # exactly 8 per second
+    (even(150, 126, 4), False),    # slower than 8 per second: slow clicks are even anyway
+    (even(150, 100, 8), False),    # 8 % spread is the limit
+    (even(150, 100, 25), False),   # a person
+])
+def test_even_clicks_edges(intervals, flagged):
+    summary = clients.click_summary(minute(intervals))
+    assert ("gleichmäßig" in summary["flags"]) is flagged
+
+
+@pytest.mark.parametrize("cps_max,flagged", [(19, False), (20, True)])
+def test_fast_clicks_edge(cps_max, flagged):
+    assert ("sehr schnell" in clients.click_summary(minute(even(10, 100, 30), cps_max=cps_max))["flags"]) is flagged
+
+
+@pytest.mark.parametrize("doubles,n,flagged", [(10, 100, True), (9, 100, False), (10, 99, False)])
+def test_double_click_edges(doubles, n, flagged):
+    intervals = [20] * doubles + [140, 180] * ((n - doubles) // 2) + [160] * ((n - doubles) % 2)
+    assert ("Doppelklicks" in clients.click_summary(minute(intervals))["flags"]) is flagged
+
+
+def test_click_summary_figures():
+    assert clients.click_summary(minute([])) is None  # one click is no clicking in a row
+    s = clients.click_summary(minute([100, 100, 100, 100]))
+    assert s["cps"] == 10.0 and s["cv"] == 0 and s["doubles_percent"] == 0
+
+
+def test_rhythm_summary():
+    assert clients.rhythm_summary({"rhythm_minutes": 0}) is None
+    r = clients.rhythm_summary({"rhythm_minutes": 30, "tick_minutes": 30, "ticks": 36000, "stalls": 6, "gap_max": 900})
+    assert r["stalls_per_hour"] == 12.0 and r["tps"] == 20.0 and r["threshold"] == 250
+    old = clients.rhythm_summary({"rhythm_minutes": 10, "tick_minutes": 0, "ticks": 0, "stalls": 1, "gap_max": 2000})
+    assert old["tps"] is None and old["threshold"] == 1500
+
+
+def test_minutes_add_up_to_the_day(db, server):
+    db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
+    db.add_client_samples(server["id"], parse_clients(json.dumps([sample(**minute([100, 20], cps_max=4, stalls=1, gap_max=300))])))
+    db.add_client_samples(server["id"], parse_clients(json.dumps([sample(**minute([60], cps_max=7, rhythm="move", gap_max=1600))])))
+    db.add_client_samples(server["id"], parse_clients(json.dumps([sample(ping=30)])))  # a 3.29 report adds nothing
+    day = db.get_rhythm(server["id"])["_Tobias4444"]
+    assert day["rhythm_minutes"] == 2 and day["tick_minutes"] == 1 and day["ticks"] == 1200 and day["stalls"] == 1
+    assert day["gap_max"] == 1600 and day["clicks"] == 5 and day["cps_max"] == 7 and day["click_n"] == 3
+    assert day["click_sum"] == 180 and day["click_min"] == 20 and day["doubles"] == 1
+    assert day["click_hist"] == [1, 0, 1, 0, 1, 0, 0, 0]
+    assert db.get_rhythm_days(server["id"], "_tobias4444")[0][1]["click_n"] == 3
+
+
+def test_analysis_shows_clicks_and_rhythm(mod, db, server):
+    db.add_client_samples(server["id"], parse_clients(json.dumps([sample(**minute(even(160, 90, 2), cps_max=12, stalls=3))])))
+    html = mod.get("/analyse", **S).get_data(as_text=True)
+    for text in ('id="klicks"', 'data-bar-chart="click-hist"', "gleichmäßig", "Meiste Aussetzer", "_Tobias4444"):
+        assert text in html, text
+    detail = mod.get("/analyse/spieler/_Tobias4444", **S).get_data(as_text=True)
+    for text in ("Klicks in Folge", "gleichmäßig", 'data-line-chart="click-cv"', "Ticks pro Sekunde des Clients", "20.0"):
+        assert text in detail, text
+
+
+def test_analysis_without_click_data(mod, db, server):
+    db.add_client_samples(server["id"], parse_clients(json.dumps([sample()])))
+    assert "Noch keine Daten (ab Plugin 3.30)" in mod.get("/analyse", **S).get_data(as_text=True)
+    assert "ab Plugin 3.30, nur Java" in mod.get("/analyse/spieler/_Tobias4444", **S).get_data(as_text=True)

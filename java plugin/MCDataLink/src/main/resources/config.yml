@@ -23,6 +23,10 @@ live-stats: true
 # Seconds between two updates (only what changed is read; the blocks are sent completely once a minute).
 live-stats-interval: 5
 
+# Measure click patterns (clicks per second, how even they are) and stalls of the clients for the moderators'
+# analysis page. Only counts the timing of incoming packets, never changes them.
+input-analysis: true
+
 # Offer the MCConnect resource pack (icons for join messages and the line under the names) when players join.
 # It is optional for the players; whoever declines it sees simple symbols instead. On 1.20.3+ it is loaded next
 # to the server's own pack; on older servers it replaces the pack from server.properties, so switch it off there.

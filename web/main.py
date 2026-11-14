@@ -2043,6 +2043,7 @@ def health_view(server_id):
     history = db().get_health_history(server_id, 24, 10)
     fmt = lambda ts: ts.strftime("%d.%m. %H:%M")
     availability = db().get_health_availability(server_id)
+    latest_ping = latest.get("ping_median") if latest.get("ping_median") is not None else latest.get("ping_avg")
     return {
         "online": online, "offline_since": offline_since, "latest": latest, "status": status,
         "tps": None if tps is None else f"{tps:.1f}".replace(".", ","),
@@ -2053,7 +2054,7 @@ def health_view(server_id):
                                                         for t, v, _, _ in history]},
         "mem_chart": {"unit": " MB", "max": latest["mem_max_mb"],
                       "points": [{"t": fmt(t), "v": None if v is None else round(float(v))} for t, _, v, _ in history]},
-        "ping": latest.get("ping_avg"), "ping_quality": ping_quality(latest.get("ping_avg")),
+        "ping": latest_ping, "ping_quality": ping_quality(latest_ping),
         "ping_chart": {"unit": " ms", "points": [{"t": fmt(t), "v": None if v is None else round(float(v))}
                                                  for t, v in db().get_ping_history(server_id, 24, 10)]},
     }
@@ -2080,8 +2081,13 @@ def client_row(c, now):
     """One player's client data with the labels for the pages."""
     found, unknown = clients_mod.mods(c["channels"])
     avg = None if c["ping_avg"] is None else round(c["ping_avg"])
+    # the typical ping: the median of the minutes, so a few minutes with a hanging connection do not count (the
+    # mean before 3.30, without a histogram)
+    typical = clients_mod.percentile(c.get("ping_hist"), 0.5)
+    typical = avg if typical is None else typical
     return dict(c, client=client_label(c["brand"], c["bedrock"]), language=locale_label(c["locale"]), ping_avg=avg,
-                quality=ping_quality(avg), seen="jetzt" if c["online"] else format_ago(now - c["updated_at"]),
+                ping_typ=typical, ping_p90=clients_mod.percentile(c.get("ping_hist"), 0.9),
+                quality=ping_quality(typical), seen="jetzt" if c["online"] else format_ago(now - c["updated_at"]),
                 mods=[name for name, _ in found], mod_kinds=found, unknown_channels=unknown,
                 version_label=c["version"] or "wie der Server",
                 pack_label=clients_mod.label(clients_mod.PACK_LABELS, c["pack"]),
@@ -2100,7 +2106,8 @@ def clients_view(server_id):
     """The analysis page for moderators: every player with client data, and the shares, charts and figures of the
     players seen in the last 30 days."""
     now = datetime.now(timezone.utc)
-    rows = [client_row(c, now) for c in db().get_player_clients(server_id)]
+    rows = sorted((client_row(c, now) for c in db().get_player_clients(server_id)),
+                  key=lambda r: (r["ping_typ"] is None, -(r["ping_typ"] or 0), r["name"].lower()))
     recent = [r for r in rows if now - r["updated_at"] < timedelta(days=30)]
     for r in recent:
         r["loader"] = next((name for name, kind in r["mod_kinds"] if kind == "loader"), None) or (
@@ -2109,9 +2116,9 @@ def clients_view(server_id):
         r["mod_kinds_labels"] = sorted({clients_mod.MOD_KINDS[k] for _, k in r["mod_kinds"]})
         r["listing_label"], r["cape_label"] = yes_no(r["listing"]), yes_no(r["cape"])
         r["colors_label"], r["filter_label"] = yes_no(r["chat_colors"]), yes_no(r["text_filter"])
-        r["ping_bucket"] = None if r["ping_avg"] is None else clients_mod.ping_bucket(r["ping_avg"])
+        r["ping_bucket"] = None if r["ping_typ"] is None else clients_mod.ping_bucket(r["ping_typ"])
         r["modded_label"] = "mit Mods" if r["mods"] else "ohne erkannte Mods"
-    pings = [r["ping_avg"] for r in recent if r["ping_avg"] is not None]
+    pings = [r["ping_typ"] for r in recent if r["ping_typ"] is not None]
     known = lambda key, missing="–": [r for r in recent if r[key] != missing]  # noqa: E731
     bedrock = [r for r in recent if r["bedrock"]]
     fmt_hour = lambda ts: ts.strftime("%d.%m. %H:%M")  # noqa: E731
@@ -2126,9 +2133,23 @@ def clients_view(server_id):
         if r["view_distance"] is not None:
             views[r["view_distance"]] = views.get(r["view_distance"], 0) + 1
     packs = known("pack_label")
+    rhythm = db().get_rhythm(server_id, 7)
+    for r in rows:
+        sums = rhythm.get(r["name"])
+        r["click"] = clients_mod.click_summary(sums) if sums else None
+        r["rhythm"] = clients_mod.rhythm_summary(sums) if sums else None
+        r["cps_max"] = sums.get("cps_max") if sums else None
+    hist = [0] * len(clients_mod.CLICK_HIST_LABELS)
+    for sums in rhythm.values():
+        for i, value in enumerate(sums["click_hist"] or ()):
+            hist[i] += int(value)
+    clickers = sorted((r for r in rows if r["click"]), key=lambda r: (-len(r["click"]["flags"]), -(r["cps_max"] or 0)))
+    timed = [r for r in rows if r["rhythm"]]
     return {
         "rows": rows, "players": len(recent), "via": any(r["version"] for r in recent),
-        "ping_avg": round(sum(pings) / len(pings)) if pings else None,
+        # the median of the players: a single player far away does not move it, the mean is shown for comparison
+        "ping_typ": None if not pings else round(clients_mod.median(pings)),
+        "ping_mean": round(sum(pings) / len(pings)) if pings else None,
         "spikes": sum(r["spikes"] for r in recent),
         "modded": sum(1 for r in recent if r["mods"]), "channels_known": sum(1 for r in recent if r["channels"] is not None),
         "bedrock": len(bedrock),
@@ -2159,7 +2180,20 @@ def clients_view(server_id):
             "spike_days": [{"label": d.strftime("%d.%m."), "tip": d.strftime("%d.%m.%Y"), "value": int(sp),
                             "text": f"{int(sp)} Minuten ab {clients_mod.PING_SPIKE} ms"} for d, _, _, sp, _ in days],
         },
-        "worst": [r for r in recent if r["ping_avg"] is not None][:5],
+        "worst": sorted((r for r in recent if r["ping_typ"] is not None), key=lambda r: -r["ping_typ"])[:5],
+        "clicks": {
+            "players": len(clickers), "flagged": sum(1 for r in clickers if r["click"]["flags"]),
+            "cps_max": max(clickers, key=lambda r: r["cps_max"] or 0) if clickers else None,
+            "rows": clickers, "hist": [{"label": label.replace(" ms", ""), "tip": label, "value": n,
+                                        "text": f"{n} Klicks"} for label, n in zip(clients_mod.CLICK_HIST_LABELS, hist)],
+            "rhythm_players": len(timed),
+            # median of the players: one player on a bad mobile connection does not make everyone look bad
+            "stalls_per_hour": round(clients_mod.median(r["rhythm"]["stalls_per_hour"] for r in timed), 1) if timed else None,
+            "stallers": sorted(timed, key=lambda r: -r["rhythm"]["stalls_per_hour"])[:5],
+            "thresholds": {"even_cv": round(clients_mod.CLICK_EVEN_CV * 100), "fast": clients_mod.CLICK_FAST_CPS,
+                           "double": round(clients_mod.CLICK_DOUBLE_SHARE * 100),
+                           "even_cps": round(1000 / clients_mod.CLICK_EVEN_MAX_MEAN), "min": clients_mod.CLICK_MIN_INTERVALS},
+        },
         "thresholds": {"good": clients_mod.PING_GOOD, "bad": clients_mod.PING_BAD, "spike": clients_mod.PING_SPIKE},
     }
 
@@ -2173,17 +2207,47 @@ def client_detail_view(server_id, name):
     c = client_row(rows[0], now)
     days = db().get_ping_days(server_id, name, 90)
     changes, last = [], None
-    for d, _, _, _, _, brand, version in days:
+    for d, _, _, _, _, brand, version, _ in days:
         current = (brand, version)
         if (brand or version) and current != last:
             changes.append({"day": d.strftime("%d.%m.%Y"), "client": brand or "–", "version": version or "wie der Server"})
             last = current
-    return dict(c, days=len(days), changes=changes[-10:],
-                chart_avg={"unit": " ms", "clock": False, "empty": "nicht online", "points": [{"t": d.strftime("%d.%m."), "v": None if a is None else round(a)}
-                                                      for d, a, _, _, _, _, _ in days]},
-                chart_max={"unit": " ms", "clock": False, "empty": "nicht online", "points": [{"t": d.strftime("%d.%m."), "v": mx} for d, _, _, mx, _, _, _ in days]},
+    rhythm_days = db().get_rhythm_days(server_id, name, 90)
+    totals = {}
+    for _, r in rhythm_days[-30:]:
+        for key, value in r.items():
+            if value is None:
+                continue
+            if key == "click_hist":
+                totals[key] = [a + b for a, b in zip(totals.get(key) or [0] * len(value), value)]
+            elif key in ("gap_max", "cps_max"):
+                totals[key] = max(totals.get(key) or 0, value)
+            elif key == "click_min":
+                totals[key] = min(totals.get(key, value), value)
+            else:
+                totals[key] = totals.get(key, 0) + value
+    day_label = lambda d: {"label": d.strftime("%d.%m."), "tip": d.strftime("%d.%m.%Y")}  # noqa: E731
+    clicks = {
+        "summary": clients_mod.click_summary(totals) if totals else None,
+        "rhythm": clients_mod.rhythm_summary(totals) if totals else None, "cps_max": totals.get("cps_max"),
+        "click_min": totals.get("click_min"), "clicks": totals.get("clicks", 0),
+        "hist": [{"label": label.replace(" ms", ""), "tip": label, "value": n, "text": f"{n} Klicks"}
+                 for label, n in zip(clients_mod.CLICK_HIST_LABELS, totals.get("click_hist") or [0] * 8)],
+        "cps_days": [dict(day_label(d), value=r["cps_max"] or 0, text=f"höchstens {r['cps_max'] or 0} Klicks pro Sekunde")
+                     for d, r in rhythm_days],
+        "cv_days": {"unit": " %", "clock": False, "empty": "zu wenige Klicks", "points": [
+            {"t": d.strftime("%d.%m."), "v": (lambda cs: cs["cv_percent"] if cs and cs["n"] >= 20 else None)(
+                clients_mod.click_summary(r))} for d, r in rhythm_days]},
+        "stall_days": [dict(day_label(d), value=r["stalls"], text=f"{r['stalls']} Aussetzer in {r['rhythm_minutes']} Minuten")
+                       for d, r in rhythm_days],
+    }
+    return dict(c, days=len(days), changes=changes[-10:], clicks=clicks,
+                chart_avg={"unit": " ms", "clock": False, "empty": "nicht online", "points": [
+                    {"t": d.strftime("%d.%m."), "v": (lambda m: m if m is not None else None if a is None else round(a))(
+                        clients_mod.percentile(hist, 0.5))} for d, a, _, _, _, _, _, hist in days]},
+                chart_max={"unit": " ms", "clock": False, "empty": "nicht online", "points": [{"t": d.strftime("%d.%m."), "v": mx} for d, _, _, mx, _, _, _, _ in days]},
                 chart_spikes=[{"label": d.strftime("%d.%m."), "tip": d.strftime("%d.%m.%Y"), "value": sp,
-                               "text": f"{sp} Minuten ab {clients_mod.PING_SPIKE} ms"} for d, _, _, _, sp, _, _ in days],
+                               "text": f"{sp} Minuten ab {clients_mod.PING_SPIKE} ms"} for d, _, _, _, sp, _, _, _ in days],
                 colors_label=yes_no(c["chat_colors"]), filter_label=yes_no(c["text_filter"]),
                 listing_label=yes_no(c["listing"]), cape_label=yes_no(c["cape"]))
 

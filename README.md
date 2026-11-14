@@ -53,7 +53,7 @@ fingerprint of the local socket certificate (`certs/`) for a test plugin's `tls-
 
 ## Status
 
-State of 2026-11-14: schema version 38, plugin 3.29 (client analysis), addon Discoveries. Written as a handoff for the next development session.
+State of 2026-11-14: schema version 39, plugin 3.30 (client analysis with click patterns), addon Discoveries. Written as a handoff for the next development session.
 
 ### Features
 
@@ -118,7 +118,9 @@ unbans and removals wait in `plugin_tasks` while the server is offline ([ADR 000
 (`!FEATURES~…,clients`) and `ping_avg` in `!HEALTH`: ping, client brand, version (ViaVersion), language, view distance
 and Bedrock device (Floodgate) of the online players once a minute, for moderators only (`/users/spieler#clients`,
 [ADR 0013](docs/adr/0013-client-metrics.md)). · 3.29 more client data in `!CLIENTS`: plugin channels (mods), resource
-pack status, Paper's client options, main hand, join address, Bedrock input/UI/version; shown on `/analyse`.
+pack status, Paper's client options, main hand, join address, Bedrock input/UI/version; shown on `/analyse`. · 3.30
+click patterns and client stalls measured in the Netty pipeline (`InputRhythm`, config `input-analysis`) and
+`ping_median` in `!HEALTH`; the analysis shows medians instead of means.
 
 Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss the newer features.
 

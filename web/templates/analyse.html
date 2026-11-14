@@ -26,11 +26,15 @@
 {% block content %}
 <h1>Analyse</h1>
 <p class="srv-lead">Verbindungen, Clients, Mods und Einstellungen der Spieler. Nur für Moderatoren; das Plugin meldet die Werte
-  einmal pro Minute für alle, die online sind (ab Version 3.28, Mods, Ressourcenpaket und Einstellungen ab 3.29). Anteile und
-  Kennzahlen beziehen sich auf die {{ data.players }} Spieler der letzten 30 Tage, Ping auf 7 Tage. Keine IP-Adressen.</p>
+  einmal pro Minute für alle, die online sind (ab Version 3.28, Mods, Ressourcenpaket und Einstellungen ab 3.29, Klicks
+  und Rhythmus ab 3.30). Anteile und
+  Kennzahlen beziehen sich auf die {{ data.players }} Spieler der letzten 30 Tage, Ping auf 7 Tage. Keine IP-Adressen.
+  „Typisch“ ist der Median: Die Hälfte liegt darunter, die Hälfte darüber, damit einzelne Ausreißer (ein Spieler am
+  anderen Ende der Welt, ein paar Minuten mit hängender Verbindung) das Bild nicht verzerren.</p>
 <nav class="md-nav" aria-label="Bereiche">
   <a href="#ueberblick">Überblick</a><a href="#ping">Ping</a><a href="#clients">Clients &amp; Mods</a>
   <a href="#einstellungen">Einstellungen</a><a href="#verbindung">Paket &amp; Verbindung</a>
+  <a href="#klicks">Klicks &amp; Rhythmus</a>
   {% if data.bedrock %}<a href="#bedrock">Bedrock</a>{% endif %}<a href="#spieler">Spieler</a>
 </nav>
 
@@ -41,8 +45,9 @@
 <section class="st-group" id="ueberblick">
   <h2>Überblick</h2>
   <div class="cl-summary an-kpis">
-    {{ tile("Ping Ø (7 Tage)", (data.ping_avg ~ " ms") if data.ping_avg is not none else "–",
-            "gut unter " ~ data.thresholds.good ~ " ms", data.ping_avg is not none and (["good", "ok", "bad"][(data.ping_avg >= data.thresholds.good) + (data.ping_avg >= data.thresholds.bad)])) }}
+    {{ tile("Ping typisch (7 Tage)", (data.ping_typ ~ " ms") if data.ping_typ is not none else "–",
+            ("Median der Spieler · Ø " ~ data.ping_mean ~ " ms mit Ausreißern") if data.ping_typ is not none else none,
+            data.ping_typ is not none and (["good", "ok", "bad"][(data.ping_typ >= data.thresholds.good) + (data.ping_typ >= data.thresholds.bad)])) }}
     {{ tile("Ping-Spitzen (7 Tage)", data.spikes, "Minuten ab " ~ data.thresholds.spike ~ " ms") }}
     {{ tile("Spieler mit Mods", data.modded ~ " / " ~ data.channels_known, "erkannt an den Plugin-Kanälen") }}
     {{ tile("Ressourcenpaket", (data.pack_ok ~ " / " ~ data.pack_known) if data.pack_known else "–", "angenommen") }}
@@ -55,19 +60,19 @@
   <h2>Ping</h2>
   <div class="an-charts">
     <div class="srv-card an-chart-card">
-      <h3>Ø Ping der Spieler, 7 Tage</h3>
+      <h3>Typischer Ping der Spieler, 7 Tage</h3>
       <script id="ping-week" type="application/json">{{ data.charts.ping_week | tojson }}</script>
-      <div class="cmp-chart" data-line-chart="ping-week" aria-label="Durchschnittlicher Ping pro Stunde der letzten 7 Tage"></div>
+      <div class="cmp-chart" data-line-chart="ping-week" aria-label="Typischer Ping (Median) pro Stunde der letzten 7 Tage"></div>
     </div>
     <div class="srv-card an-chart-card">
-      <h3>Ø Ping nach Uhrzeit</h3>
+      <h3>Typischer Ping nach Uhrzeit</h3>
       <script id="ping-hours" type="application/json">{{ data.charts.ping_hours | tojson }}</script>
-      <div class="pi-chart" data-bar-chart="ping-hours" data-unit="ms" data-every="3" aria-label="Durchschnittlicher Ping nach Uhrzeit"></div>
+      <div class="pi-chart" data-bar-chart="ping-hours" data-unit="ms" data-every="3" aria-label="Typischer Ping (Median) nach Uhrzeit"></div>
     </div>
     <div class="srv-card an-chart-card">
-      <h3>Spieler nach Ø Ping</h3>
+      <h3>Spieler nach typischem Ping</h3>
       <script id="ping-buckets" type="application/json">{{ data.charts.ping_buckets | tojson }}</script>
-      <div class="pi-chart" data-bar-chart="ping-buckets" data-every="1" aria-label="Spieler nach durchschnittlichem Ping"></div>
+      <div class="pi-chart" data-bar-chart="ping-buckets" data-every="1" aria-label="Spieler nach typischem Ping"></div>
     </div>
     <div class="srv-card an-chart-card">
       <h3>Minuten mit Ping-Spitzen, 30 Tage</h3>
@@ -81,7 +86,7 @@
     <ol class="an-list">
       {% for r in data.worst %}
       <li><a href="/analyse/spieler/{{ r.name | urlencode }}">{{ r.name }}</a>
-        <b class="cl-ping cl-ping-{{ r.quality }}">{{ r.ping_avg }} ms</b>
+        <b class="cl-ping cl-ping-{{ r.quality }}">{{ r.ping_typ }} ms</b>
         <span class="mcc-hint">{{ r.ping_min }}–{{ r.ping_max }} ms · {{ r.spikes }} Spitzen · {{ r.client }}</span></li>
       {% endfor %}
     </ol>
@@ -136,6 +141,66 @@
     „Verbunden über“ ist die Adresse, die der Spieler in Minecraft eingetragen hat – hilfreich nach einem Domain-Umzug.</p>
 </section>
 
+{% set k = data.clicks %}
+<section class="st-group" id="klicks">
+  <h2>Klicks &amp; Rhythmus</h2>
+  <p class="mcc-hint">Gemessen an den Paketen der Clients, auf die Millisekunde (ab Plugin 3.30, nur Java, 7 Tage). Abbauen und
+    Rechtsklicks zählen nicht. Die Hinweise sind Anhaltspunkte, kein Beweis: gleichmäßig heißt mindestens {{ k.thresholds.min }}
+    Klicks in Folge mit {{ k.thresholds.even_cps }}+ pro Sekunde und einer Streuung unter {{ k.thresholds.even_cv }} %
+    (Menschen liegen bei 15–40 %), sehr schnell ab {{ k.thresholds.fast }} Klicks in einer Sekunde, Doppelklicks ab
+    {{ k.thresholds.double }} % Abständen unter 25 ms. Bildraten (FPS) kann der Server nicht sehen; der Client sendet pro
+    Tick, nicht pro Bild.</p>
+  {% if not k.players and not k.rhythm_players %}
+  <p class="st-empty">Noch keine Daten (ab Plugin 3.30).</p>
+  {% else %}
+  <div class="cl-summary an-kpis">
+    {{ tile("Spieler mit Klicks", k.players, "in Folge geklickt") }}
+    {{ tile("Hinweise", k.flagged, "Spieler mit auffälligem Muster", "bad" if k.flagged else None) }}
+    {{ tile("Meiste Klicks pro Sekunde", k.cps_max.cps_max if k.cps_max else "–", k.cps_max.name if k.cps_max else None) }}
+    {{ tile("Aussetzer pro Stunde", k.stalls_per_hour if k.stalls_per_hour is not none else "–", "Median der Spieler") }}
+  </div>
+  <div class="an-charts">
+    <div class="srv-card an-chart-card">
+      <h3>Abstände zwischen zwei Klicks</h3>
+      <script id="click-hist" type="application/json">{{ k.hist | tojson }}</script>
+      <div class="pi-chart" data-bar-chart="click-hist" data-every="1" aria-label="Klicks nach Abstand zum vorigen Klick"></div>
+    </div>
+    {% if k.stallers %}
+    <div class="srv-card an-chart-card">
+      <h3>Meiste Aussetzer</h3>
+      <ol class="an-list">
+        {% for r in k.stallers %}
+        <li><a href="/analyse/spieler/{{ r.name | urlencode }}">{{ r.name }}</a> <b>{{ r.rhythm.stalls_per_hour }}/h</b>
+          <span class="mcc-hint">längste Pause {{ r.rhythm.gap_max }} ms{% if r.ping_typ is not none %} · Ping typisch {{ r.ping_typ }} ms{% endif %}</span></li>
+        {% endfor %}
+      </ol>
+    </div>
+    {% endif %}
+  </div>
+  {% if k.rows %}
+  <div class="mcc-table-wrap srv-card an-table">
+    <table class="mcc-table mcc-stack">
+      <thead><tr><th>Spieler</th><th>Klicks in Folge</th><th>Ø pro Sekunde</th><th>Höchstens pro Sekunde</th>
+        <th>Streuung</th><th>Doppelklicks</th><th>Hinweise</th></tr></thead>
+      <tbody>
+        {% for r in k.rows %}
+        <tr>
+          <td data-label="Spieler"><a href="/analyse/spieler/{{ r.name | urlencode }}">{{ r.name }}</a></td>
+          <td data-label="Klicks in Folge" class="num">{{ r.click.n }}</td>
+          <td data-label="Ø pro Sekunde" class="num">{{ r.click.cps }}</td>
+          <td data-label="Höchstens pro Sekunde" class="num">{{ r.cps_max }}</td>
+          <td data-label="Streuung" class="num">{{ r.click.cv_percent }} %</td>
+          <td data-label="Doppelklicks" class="num">{{ r.click.doubles_percent }} %</td>
+          <td data-label="Hinweise">{% for f in r.click.flags %}<span class="an-flag">{{ f }}</span>{% else %}–{% endfor %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% endif %}
+</section>
+
 {% if data.bedrock %}
 <section class="st-group" id="bedrock">
   <h2>Bedrock</h2>
@@ -154,13 +219,13 @@
     <input class="mcc-input" id="an-filter" type="search" placeholder="Spieler, Client oder Mod suchen …" autocomplete="off"/></div>
   <div class="mcc-table-wrap srv-card an-table">
     <table class="mcc-table mcc-stack">
-      <thead><tr><th>Spieler</th><th>Ping Ø 7 T.</th><th>Spitzen</th><th>Client</th><th>Version</th><th>Mods</th><th>Paket</th>
+      <thead><tr><th>Spieler</th><th>Ping typisch</th><th>Spitzen</th><th>Client</th><th>Version</th><th>Mods</th><th>Paket</th>
         <th>Chat</th><th>Sprache</th><th>Zuletzt</th></tr></thead>
       <tbody>
         {% for c in data.rows %}
         <tr data-search="{{ (c.name ~ ' ' ~ c.client ~ ' ' ~ (c.mods | join(' '))) | lower }}">
           <td data-label="Spieler"><a href="/analyse/spieler/{{ c.name | urlencode }}">{{ c.name }}</a></td>
-          <td data-label="Ping Ø 7 T." class="num">{% if c.ping_avg is not none %}<b class="cl-ping cl-ping-{{ c.quality }}">{{ c.ping_avg }} ms</b>{% else %}–{% endif %}</td>
+          <td data-label="Ping typisch" class="num">{% if c.ping_typ is not none %}<b class="cl-ping cl-ping-{{ c.quality }}"{% if c.ping_avg is not none and c.ping_avg != c.ping_typ %} title="Ø {{ c.ping_avg }} ms mit Ausreißern"{% endif %}>{{ c.ping_typ }} ms</b>{% else %}–{% endif %}</td>
           <td data-label="Spitzen" class="num">{{ c.spikes or "–" }}</td>
           <td data-label="Client">{{ c.client }}{% if c.bedrock and c.device %} <span class="mcc-hint">({{ c.device }})</span>{% endif %}</td>
           <td data-label="Version">{{ c.version or "–" }}</td>

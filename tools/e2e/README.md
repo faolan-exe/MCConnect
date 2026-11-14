@@ -16,7 +16,7 @@ MCC_BASE_DOMAIN=mc.t-auer.local:5050 .venv/bin/python mc_socket/main.py &
 docker run -d --name mcc-paper -e EULA=TRUE -e TYPE=PAPER -e VERSION=1.21.4 -e ONLINE_MODE=FALSE \
   -e ENABLE_RCON=true -e RCON_PASSWORD=test -e LEVEL_TYPE=flat -p 25565:25565 -v /tmp/mc:/data itzg/minecraft-server
 
-# 3. bots: node bot.js <name> <chat line | wait:<ms> | dig:<1-4> | sidebar> ...
+# 3. bots: node bot.js <name> <chat line | wait:<ms> | dig:<1-4> | click:<n>:<ms>[:<jitter>] | sidebar> ...
 docker run --rm -v "$PWD/tools/e2e":/bot -w /bot node:20-alpine sh -c "npm i --silent mineflayer@4 && node bot.js TestBot /stats '/top abgebaut'"
 docker exec mcc-paper rcon-cli whitelist on   # console commands
 ```

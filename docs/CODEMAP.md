@@ -66,7 +66,7 @@ overview, plugin, addons, server page, moderation, danger zone in `serverAdminSe
 | Browser: menu, tabs, saving without reload, dark mode | `test_browser_flows.py`, `test_mobile.py` (phone width), `test_messagebox.py`, `test_addon_ui.py` |
 | Rankings, comparison, numbers | `test_metrics.py`, `test_stats.py`, `test_server_stats.py`, `test_registry.py` |
 | Motivation, achievements, rewards, badges, icons | `test_motivation.py`, `test_achievements.py`, `test_rewards.py`, `test_badges.py`, `test_icons.py` |
-| Client analysis (ping, mods, options) | `test_client_metrics.py` |
+| Client analysis (ping, mods, options, clicks, medians) | `test_client_metrics.py` |
 | Community, in game, moderation | `test_community.py`, `test_ingame.py`, `test_moderation_log.py`, `test_confirmations.py` |
 | Plugin connection, addons, updates | `test_socket.py`, `test_socket_tls.py`, `test_addons.py`, `test_addon_protected.py`, `test_plugin_update.py`, `test_discoveries.py` |
 | Skins, item icons, mail, names | `test_skins.py`, `test_item_icons.py`, `test_mailer.py`, `test_mojang_names.py` |

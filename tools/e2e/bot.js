@@ -46,6 +46,15 @@ bot.once("spawn", async () => {
       bot.physicsEnabled = false;
       continue;
     }
+    if (command.startsWith("click:")) {  // click:<count>:<ms>[:<jitter ms>] swings the arm (click patterns, 3.30)
+      const [count, ms, jitter] = command.slice(6).split(":").map(Number);
+      for (let i = 0; i < count; i++) {
+        bot.swingArm("right");
+        await sleep(ms + (jitter ? (Math.random() * 2 - 1) * jitter : 0));
+      }
+      console.log(`[${name}] CLICKED ${count}x every ${ms} ms`);
+      continue;
+    }
     if (command.startsWith("dig:")) {  // break up to 4 blocks next to the feet (block stats)
       const offsets = [[1, -1, 0], [-1, -1, 0], [0, -1, 1], [0, -1, -1]].slice(0, Number(command.slice(4)));
       for (const [x, y, z] of offsets) {

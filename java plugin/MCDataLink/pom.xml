@@ -6,7 +6,7 @@
 
     <groupId>org.tobias</groupId>
     <artifactId>MCDataLink</artifactId>
-    <version>3.29</version>
+    <version>3.30</version>
     <packaging>jar</packaging>
 
     <name>MCDataLink</name>
@@ -49,6 +49,13 @@
             <groupId>org.spigotmc</groupId>
             <artifactId>spigot-api</artifactId>
             <version>1.13.2-R0.1-SNAPSHOT</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- ships with every Spigot/Paper server; only for the packet timing of InputRhythm (3.30) -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-transport</artifactId>
+            <version>4.1.25.Final</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>

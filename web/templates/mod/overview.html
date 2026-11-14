@@ -33,7 +33,7 @@
       <span class="hl-sub">von {{ "{:,}".format(health.latest.mem_max_mb or 0).replace(",", ".") }} MB</span></div>
     <div class="hl-item"><span class="hl-label">Läuft seit</span><strong>{{ health.uptime }}</strong>
       <span class="hl-sub">Erreichbar: {{ health.availability or "–" }} (7 Tage)</span></div>
-    <div class="hl-item"><span class="hl-label">Ping Ø</span>
+    <div class="hl-item"><span class="hl-label">Ping typisch</span>
       <strong>{% if health.ping is not none %}{{ health.ping }} ms{% else %}–{% endif %}</strong>
       {% if health.ping_quality %}<span class="hl-status hl-ping-{{ health.ping_quality }}">{{ {"good": "✓ gut", "ok": "! spürbar", "bad": "✕ hoch"}[health.ping_quality] }}</span>
       {% else %}<span class="hl-sub">{{ "niemand online" if health.latest.players == 0 else "ab Plugin 3.28" }}</span>{% endif %}</div>
@@ -54,9 +54,9 @@
     </div>
     {% if health.ping_chart.points | selectattr("v") | list %}
     <div>
-      <h3>Ping Ø der Spieler (24 Stunden)</h3>
+      <h3>Typischer Ping der Spieler (24 Stunden)</h3>
       <script id="ping-data" type="application/json">{{ health.ping_chart | tojson }}</script>
-      <div class="cmp-chart" data-line-chart="ping-data" aria-label="Durchschnittlicher Ping der letzten 24 Stunden"></div>
+      <div class="cmp-chart" data-line-chart="ping-data" aria-label="Typischer Ping (Median) der letzten 24 Stunden"></div>
     </div>
     {% endif %}
   </div>

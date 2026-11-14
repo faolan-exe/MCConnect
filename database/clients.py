@@ -10,6 +10,10 @@ PING_GOOD, PING_BAD, PING_SPIKE = 80, 150, 250
 PING_BUCKETS = ((0, 50, "unter 50 ms"), (50, 80, "50–79 ms"), (80, 150, "80–149 ms"), (150, 250, "150–249 ms"),
                 (250, None, "ab 250 ms"))
 
+# Histogram of the minute pings per player and day: upper bounds in ms, the last bucket is everything above. The median
+# and the 90th percentile come from it, so a few minutes with a hanging connection do not move the typical value.
+PING_HIST_EDGES = (10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 120, 140, 160, 200, 250, 300, 400, 600, 1000)
+
 CLIENT_BRANDS = (("lunarclient", "Lunar Client"), ("badlion", "Badlion"), ("feather", "Feather"), ("labymod", "LabyMod"),
                  ("neoforge", "NeoForge"), ("forge", "Forge"), ("fabric", "Fabric"), ("quilt", "Quilt"),
                  ("optifine", "OptiFine"), ("vanilla", "Vanilla"), ("geyser", "Bedrock (Geyser)"))
@@ -68,6 +72,39 @@ def ping_bucket(ms):
     return next(label for low, high, label in PING_BUCKETS if ms >= low and (high is None or ms < high))
 
 
+def ping_hist_row(ms):
+    """A histogram with the one sample `ms` (to add to the day)."""
+    row = [0] * (len(PING_HIST_EDGES) + 1)
+    row[next((i for i, high in enumerate(PING_HIST_EDGES) if ms < high), len(PING_HIST_EDGES))] = 1
+    return row
+
+
+def percentile(hist, q):
+    """The q-quantile (0..1) of a ping histogram in ms, linear within its bucket; None without samples. Values in the
+    last bucket (from the highest edge on) count as that edge."""
+    total = sum(hist or ())
+    if not total:
+        return None
+    target, seen = q * total, 0
+    for i, count in enumerate(hist):
+        if count and seen + count >= target:
+            if i == len(PING_HIST_EDGES):
+                return PING_HIST_EDGES[-1]
+            low = PING_HIST_EDGES[i - 1] if i else 0
+            return round(low + (PING_HIST_EDGES[i] - low) * (target - seen) / count)
+        seen += count
+    return PING_HIST_EDGES[-1]
+
+
+def median(values):
+    """The median of the values without None, or None."""
+    values = sorted(v for v in values if v is not None)
+    if not values:
+        return None
+    middle = len(values) // 2
+    return values[middle] if len(values) % 2 else (values[middle - 1] + values[middle]) / 2
+
+
 def client_label(brand, bedrock=False):
     """"Fabric", "Vanilla", ... for the brand a client sends; unknown brands as they are."""
     if bedrock:
@@ -105,3 +142,52 @@ def mods(channels):
 
 def label(mapping, value):
     return mapping.get((value or "").lower(), value) if value else "–"
+
+
+# Click patterns (plugin 3.30). Intervals below 500 ms count as clicking in a row (see InputRhythm.BURST_MS).
+CLICK_HIST_LABELS = ("unter 30 ms", "30–49 ms", "50–69 ms", "70–89 ms", "90–119 ms", "120–159 ms", "160–249 ms",
+                     "250–499 ms")
+# Hints, never proof: an auto clicker clicks unnaturally evenly. Only judged with enough intervals and when the player
+# clicks fast (at least 8 per second in a row), since slow clicks are even anyway. The measured times include the
+# jitter of the connection, so a real auto clicker looks a bit less even than it is.
+CLICK_MIN_INTERVALS = 150
+CLICK_EVEN_MAX_MEAN = 125   # ms between two clicks, i.e. 8 clicks per second or more
+CLICK_EVEN_CV = 0.08        # spread of the intervals relative to their mean; people click with 0.15–0.40
+CLICK_FAST_CPS = 20         # clicks within one second; butterfly clicking reaches this, normal clicking does not
+CLICK_DOUBLE_SHARE = 0.10   # share of intervals below 25 ms: a mouse that double clicks (or butterfly clicking)
+CLICK_DOUBLE_MIN = 100
+# Rhythm: stalls are silences of the client above 250 ms (1.21.2+) or 1.5 s (older clients).
+STALL_TICK_MS, STALL_MOVE_MS = 250, 1500
+
+
+def click_summary(r):
+    """Figures of a summed click pattern (keys as in get_rhythm) or None without clicks in a row: clicks per second
+    in a row, spread (cv), share of double clicks and the hints."""
+    n = r.get("click_n") or 0
+    if n == 0:
+        return None
+    mean = r["click_sum"] / n
+    spread = max(r["click_sq"] / n - mean * mean, 0.0) ** 0.5
+    cv = spread / mean if mean > 0 else 0.0
+    doubles = (r.get("doubles") or 0) / n
+    flags = []
+    if n >= CLICK_MIN_INTERVALS and mean <= CLICK_EVEN_MAX_MEAN and cv < CLICK_EVEN_CV:
+        flags.append("gleichmäßig")
+    if (r.get("cps_max") or 0) >= CLICK_FAST_CPS:
+        flags.append("sehr schnell")
+    if n >= CLICK_DOUBLE_MIN and doubles >= CLICK_DOUBLE_SHARE:
+        flags.append("Doppelklicks")
+    return {"n": n, "mean": round(mean), "cps": round(1000 / mean, 1) if mean > 0 else None, "cv": round(cv, 3),
+            "cv_percent": round(cv * 100), "doubles_percent": round(doubles * 100), "flags": flags}
+
+
+def rhythm_summary(r):
+    """Stalls per hour of play and the client's ticks per second (1.21.2+ clients) of a summed rhythm."""
+    minutes = r.get("rhythm_minutes") or 0
+    if minutes == 0:
+        return None
+    tick_minutes = r.get("tick_minutes") or 0
+    return {"minutes": minutes, "stalls": r.get("stalls") or 0,
+            "stalls_per_hour": round((r.get("stalls") or 0) * 60 / minutes, 1), "gap_max": r.get("gap_max"),
+            "tps": round(r["ticks"] / (tick_minutes * 60), 1) if tick_minutes else None,
+            "threshold": STALL_TICK_MS if tick_minutes * 2 >= minutes else STALL_MOVE_MS}
