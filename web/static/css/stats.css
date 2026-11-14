@@ -531,12 +531,13 @@ body.cmp-bar-open { padding-bottom: 64px; }
   background: var(--srv-card);
   color: var(--srv-text);
   font: inherit;
+  font-family: var(--font-heading);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
 }
 .pl-filters button:hover { border-color: var(--srv-muted); }
-.pl-filters button span { margin-left: 4px; color: var(--srv-muted); font-family: var(--font-display); font-weight: 600; }
+.pl-filters button span { margin-left: 4px; color: var(--srv-muted); font-family: var(--font-heading); font-weight: 600; }
 .pl-filters button[aria-pressed="true"] { background: var(--srv-night); border-color: var(--srv-night); color: #fff; }
 .pl-filters button[aria-pressed="true"] span { color: rgba(255, 255, 255, 0.7); }
 
@@ -1467,3 +1468,15 @@ details.md-create[open] > .mcc-form { margin-top: 12px; padding: 14px; border: 1
 .pf-wearing { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
   padding: 10px 14px; margin: 4px 0 10px; border-radius: 10px; background: var(--srv-bg); }
 .pf-wearing p { margin: 0 !important; }
+
+/* page header of tabbed pages (moderation, profile): heading, tabs and section chips as three clear levels */
+.srv-page h1 + nav.md-tabs { margin-top: 18px; }
+nav.md-tabs { width: fit-content; max-width: 100%; box-sizing: border-box; margin-bottom: 18px; }
+nav.md-tabs + nav.md-nav, nav.md-subnav + nav.md-nav { margin-top: 0; }
+nav.md-nav { margin-bottom: 26px; }
+.md-subnav { margin-top: -4px; }
+.md-nav a { border-color: var(--srv-border); transition: border-color 0.15s ease, background-color 0.15s ease; }
+.md-nav a[aria-current="location"] { background: var(--srv-night); border-color: var(--srv-night); color: #fff; }
+:root[data-dark] .md-nav a[aria-current="page"], :root[data-dark] .md-nav a[aria-current="location"] {
+  background: rgba(0, 230, 118, 0.12); border-color: rgba(0, 230, 118, 0.45); color: #00e676; }
+@media (max-width: 600px) { nav.md-tabs { width: auto; } }

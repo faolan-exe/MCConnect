@@ -146,3 +146,39 @@ def test_pages_run_without_script_errors_in_dark_mode(desk, live_site, path):
     assert desk.evaluate("document.documentElement.hasAttribute('data-dark')")
     # the header stays one row and nothing in it is cut off
     assert desk.evaluate("document.querySelector('.mcc-header').getBoundingClientRect().height") <= 66
+
+
+def test_day_night_switch_follows_the_system_until_clicked(desk, live_site):
+    desk.emulate_media(color_scheme="light")
+    open_page(desk, live_site + "/")
+    switch = desk.locator("#theme-switch")
+    assert switch.get_attribute("aria-pressed") == "false" and not desk.evaluate("document.documentElement.hasAttribute('data-dark')")
+    switch.click()
+    assert switch.get_attribute("aria-pressed") == "true" and desk.evaluate("localStorage.getItem('mcc-theme')") == "dark"
+    desk.emulate_media(color_scheme="light")  # a stored choice wins over the system from now on
+    desk.goto(live_site + "/rangliste", wait_until="networkidle")
+    assert desk.evaluate("document.documentElement.hasAttribute('data-dark')")
+    desk.click("#theme-switch")
+    assert desk.evaluate("localStorage.getItem('mcc-theme')") == "light"
+
+
+def test_the_arrow_points_up_while_a_menu_is_open(desk, live_site):
+    open_page(desk, live_site + "/")
+    chevron = desk.locator("button:has-text('Statistiken') .nav-chev")
+    closed = chevron.evaluate("e => getComputedStyle(e).transform")
+    desk.hover("button:has-text('Statistiken')")
+    desk.wait_for_timeout(250)
+    hovered = chevron.evaluate("e => getComputedStyle(e).transform")
+    desk.mouse.move(640, 600)
+    desk.click("button:has-text('Statistiken')")
+    desk.wait_for_timeout(250)
+    clicked = chevron.evaluate("e => getComputedStyle(e).transform")
+    assert closed != hovered and hovered == clicked
+
+
+def test_section_chips_mark_the_section_in_view(desk, live_site):
+    open_page(desk, live_site + "/users/spieler")
+    desk.wait_for_selector(".md-nav a[href='#reports'][aria-current='location']")
+    desk.click(".md-nav a[href='#activity']")
+    desk.wait_for_selector(".md-nav a[href='#activity'][aria-current='location']")
+    assert desk.locator(".md-nav a[aria-current='location']").count() == 1
