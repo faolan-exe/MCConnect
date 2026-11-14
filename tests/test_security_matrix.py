@@ -25,7 +25,7 @@ PUBLIC_POSTS = {
 MOD_GETS = {"server.mod_addons_api", "server.mod_bans_api"} | {
     "server.moderation_page", "server.moderation_players_page", "server.moderation_content_page",
     "server.moderation_access_page", "server.moderation_icons_page", "server.moderation_rewards_page",
-    "server.moderation_log_page", "server.moderation_addons_page"}
+    "server.moderation_log_page", "server.moderation_addons_page", "server.analysis_page", "server.analysis_player_page"}
 UPLOADS = {"main.upload_server_image_api", "server.build_upload_api"}
 
 

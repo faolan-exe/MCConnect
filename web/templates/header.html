@@ -1,4 +1,5 @@
 <script src="{{ url_for('static', filename='actions.js') }}"></script>
+<script src="{{ url_for('static', filename='nav.js') }}"></script>
 {% include "_theme.html" %}
 <script src="{{ url_for('static', filename='messagebox.js') }}" defer></script>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/messagebox.css') }}"/>
@@ -69,6 +70,7 @@
       {% endif %}
       {% if config.FEATURE_ADMIN_PANEL and perm <= 1 %}
       <li><a class="nav-top{% if request.path.startswith('/users') %} current{% endif %}" href="/users">Verwaltung</a></li>
+      <li><a class="nav-top{% if request.path.startswith('/analyse') %} current{% endif %}" href="/analyse">Analyse</a></li>
       {% endif %}
       <li class="mh-account{% if name %} nav-group{% endif %}">
         {% if name == "" %}
@@ -99,30 +101,6 @@
 </header>
 
 <script nonce="{{ csp_nonce() }}">
-  function toggleNavMenu(button) {
-    const open = document.getElementById("nav-bar").classList.toggle("menueToggle");
-    button.setAttribute("aria-expanded", String(open));
-    document.documentElement.classList.toggle("mh-open", open);
-  }
-  // groups open on hover and by click (touch screens, keyboard); one at a time, closed by Escape or a click outside
-  function closeNavGroups(except) {
-    for (const button of document.querySelectorAll(".mcc-nav .nav-group > button[aria-expanded='true']")) {
-      if (button !== except) button.setAttribute("aria-expanded", "false");
-    }
-  }
-  function toggleNavGroup(button) {
-    closeNavGroups(button);
-    button.setAttribute("aria-expanded", String(button.getAttribute("aria-expanded") !== "true"));
-  }
-  document.addEventListener("click", (event) => {
-    if (!event.target.closest(".mcc-nav .nav-group")) closeNavGroups();
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
-    closeNavGroups();
-    const button = document.querySelector(".mh-toggle");
-    if (button && button.getAttribute("aria-expanded") === "true") toggleNavMenu(button);
-  });
   function askLogout(element, event) {
     if (event) event.preventDefault();
     logout();

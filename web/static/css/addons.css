@@ -221,3 +221,12 @@
   .ext-picker-results { grid-template-columns: 1fr; }
   .ext-actions .btn { flex: 1 1 auto; text-align: center; }
 }
+
+/* dark mode (main domain and moderation): the tinted notes and states on dark surfaces */
+:root[data-dark] .ext-root { --ad-surface: var(--card, #161d1a); --ad-surface-2: var(--card, #161d1a); --ad-soft: #1e2723; }
+:root[data-dark] .ext-note-info, :root[data-dark] .ext-state-install, :root[data-dark] .ext-state-remove { background: #1d2448; color: #aab3ff; }
+:root[data-dark] .ext-note-warn, :root[data-dark] .ext-state-pending, :root[data-dark] .ext-state-changed,
+:root[data-dark] .ext-state-restart, :root[data-dark] .ext-pill-warn { background: #3b2c10; color: #ffd27a; border-color: #6b5420; }
+:root[data-dark] .ext-note-error, :root[data-dark] .ext-state-failed { background: #3d1a1a; color: #ffaaaa; }
+:root[data-dark] .ext-state-active, :root[data-dark] .ext-pill-ok { background: #173524; color: #8be3ad; }
+:root[data-dark] .ext-state, :root[data-dark] .ext-state-paused, :root[data-dark] .ext-pill-muted { background: #242c28; color: #a3aea8; }

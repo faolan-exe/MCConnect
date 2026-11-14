@@ -1,6 +1,7 @@
 // Single series line chart (server health). Plain SVG, no library.
 // <div data-line-chart="<id of a JSON script>" aria-label="...">
-// JSON: {unit: " MB", max: number or null (top of the y axis), points: [{t: label, v: number or null}]}
+// JSON: {unit: " MB", max: number or null (top of the y axis), points: [{t: label, v: number or null}],
+//        clock: false (labels are days, no "Uhr" in the tooltip), empty: tooltip text for gaps}
 // Gaps (null) break the line, e.g. while the server was offline.
 function mccLineChart(root) {
   const data = JSON.parse(document.getElementById(root.dataset.lineChart).textContent);
@@ -54,6 +55,7 @@ function mccLineChart(root) {
       const line = r.map((i, n) => `${n ? "L" : "M"}${x(i).toFixed(1)},${y(points[i].v).toFixed(1)}`).join("");
       el("path", { d: `${line}L${x(r[r.length - 1])},${y(0)}L${x(r[0])},${y(0)}Z`, class: "ss-area" }, svg);
       el("path", { d: line, class: "cmp-line ss-line" }, svg);
+      if (r.length === 1) el("circle", { cx: x(r[0]), cy: y(points[r[0]].v), r: 3.5, class: "cmp-dot ss-dot" }, svg);  // a lone value
     }
 
     const cross = el("line", { y1: pad.top, y2: pad.top + plotH, class: "cmp-cross", visibility: "hidden" }, svg);
@@ -77,9 +79,9 @@ function mccLineChart(root) {
       tip.replaceChildren();
       const title = document.createElement("div");
       title.className = "cmp-tip-date";
-      title.textContent = p.t + " Uhr";
+      title.textContent = p.t + (data.clock === false ? "" : " Uhr");
       const value = document.createElement("strong");
-      value.textContent = p.v == null ? "keine Daten (offline)" : de(p.v, p.v % 1 ? 1 : 0) + (data.unit || "");
+      value.textContent = p.v == null ? (data.empty || "keine Daten (offline)") : de(p.v, p.v % 1 ? 1 : 0) + (data.unit || "");
       tip.append(title, value);
       tip.hidden = false;
       const left = x(current) + 14;
