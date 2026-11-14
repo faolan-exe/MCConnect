@@ -106,11 +106,11 @@ def test_icon_limit(mod, db, server):
 def test_prefix_with_an_icon(me, db, server, two_players):
     a, _ = two_players
     add_logo(db, server)
-    html = me.get("/add_pref", **on("testdomain")).get_data(as_text=True)
+    html = me.get("/profil/prefix", **on("testdomain")).get_data(as_text=True)
     assert 'data-token=":logo:"' in html
     assert me.post("/api/prefix/save", json={"text": ":logo: Bauteam", "color": "aqua"}, **on("testdomain")).status_code == 200
     assert db.get_player_prefix(a)["text"] == f"{LOGO_CHAR} Bauteam"
-    assert 'value=":logo: Bauteam"' in me.get("/add_pref", **on("testdomain")).get_data(as_text=True)
+    assert 'value=":logo: Bauteam"' in me.get("/profil/prefix", **on("testdomain")).get_data(as_text=True)
     assert f'src="/icons/{glyphs.CUSTOM_FIRST}.svg"' in me.get("/teams", **on("testdomain")).get_data(as_text=True)
     too_long = {"text": ":logo:" + "x" * 16, "color": "aqua"}
     assert me.post("/api/prefix/save", json=too_long, **on("testdomain")).status_code == 400

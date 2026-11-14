@@ -157,7 +157,7 @@ def test_polls_page_and_api(mod_client, db, server):
     body["options"] = ["Hafen", "Burg"]
     poll_id = mod_client.post("/api/mod/polls", json=body, **on("testdomain")).json["id"]
     assert mod_client.post("/api/polls/vote", json={"id": poll_id, "option": 1}, **on("testdomain")).status_code == 200
-    html = mod_client.get("/umfragen", **on("testdomain")).get_data(as_text=True)
+    html = mod_client.get("/events", **on("testdomain")).get_data(as_text=True)
     assert "Was bauen wir?" in html and "100 %" in html and "du kannst deine Stimme noch ändern" in html
     assert "Was bauen wir?" in mod_client.get("/", **on("testdomain")).get_data(as_text=True)
 
@@ -257,7 +257,7 @@ def test_guestbook_delete_rights(player_client, db, server, two_players):
 
 
 def test_community_pages_render(client, server):
-    for path in ("/events", "/umfragen", "/galerie"):
+    for path in ("/events", "/galerie"):
         assert client.get(path, **on("testdomain")).status_code == 200
 
 
@@ -274,3 +274,13 @@ def test_new_event_is_announced_at_once(mod_client, db, server, plugin, socket_s
                            **on("testdomain")).status_code == 200
     assert until(connection, "!broadcast~")[-1].startswith("!broadcast~gold|★ Neues Event: »Geplant« am ")
     assert db.take_due_event_announcements([server["id"]]) == []  # the reminder of "Spontan" was already sent
+
+
+def test_settings_in_the_log_are_readable(mod_client, db, server):
+    """The log names the changed settings in German with their new value, also for entries written before."""
+    assert mod_client.post("/api/mod/settings", json={"access_mode": "both", "warn_threshold": 3, "rules": "Kein Griefing"},
+                           **on("testdomain")).status_code == 200
+    assert db.get_mod_log(server["id"])[0]["details"] == "Zugang: Bewerbung oder Code, Bann nach Verwarnungen: 3, Regeln"
+    db.add_mod_log(server["id"], "_Tobias4444", "settings", None, "access_mode, rules_enabled")  # an old entry
+    html = mod_client.get("/users/protokoll", **on("testdomain")).get_data(as_text=True)
+    assert "Zugang, Regelseite" in html and "access_mode" not in html

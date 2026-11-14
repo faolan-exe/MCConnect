@@ -304,3 +304,24 @@ def test_duels_of_hidden_players_are_not_public(app, player_client, db, server, 
 def test_player_values_of_hidden_players_are_not_public(player_client, db, server, two_players, path):
     db.save_profile(two_players[1], None, True)
     assert player_client.get(path, **S).status_code == 404
+
+
+def test_plain_http_behind_the_proxy_goes_to_https(monkeypatch, db, server):
+    """Production: secure-only cookies, so a page over http could not log in. The proxy's X-Forwarded-Proto decides;
+    a direct call without it (the container's health check) is answered as it is."""
+    from database import config
+    monkeypatch.setattr(config, "PUBLIC_SCHEME", "https")
+    app = create_app(db, {"TESTING": True, "SECRET_KEY": "t", "SERVER_NAME": "mc.test", "PROXY_FIX": True})
+    client = app.test_client()
+    response = client.get("/spieler?player=Notch", headers={"X-Forwarded-Proto": "http"}, **S)
+    assert response.status_code == 301 and response.location == "https://testdomain.mc.test/spieler?player=Notch"
+    assert client.post("/api/login", json={}, headers={"X-Forwarded-Proto": "http"}, **MAIN).status_code == 308
+    assert client.get("/healthz", **MAIN).status_code == 200  # no header: no redirect
+    secure = client.get("/", headers={"X-Forwarded-Proto": "https"}, **S)
+    assert secure.status_code == 200 and secure.headers["Strict-Transport-Security"].startswith("max-age=31536000")
+    assert "Strict-Transport-Security" not in client.get("/", **S).headers
+
+
+def test_no_redirect_when_the_site_runs_on_http(db, server):
+    app = create_app(db, {"TESTING": True, "SECRET_KEY": "t", "SERVER_NAME": "mc.test"})
+    assert app.test_client().get("/", headers={"X-Forwarded-Proto": "http"}, **S).status_code == 200

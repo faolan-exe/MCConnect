@@ -122,11 +122,6 @@
 :root[data-dark] .ss-legend-cell[style*="#eef1ee"] { background: #242c28 !important; }
 :root[data-dark] .yr-nav { color: var(--srv-text); }
 
-/* header dropdowns (header.css, responsiveHeader.css) */
-:root[data-dark] .dropdown-content { background-color: #1a201d; box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5); }
-:root[data-dark] .dropdown-content a { color: var(--srv-text); }
-:root[data-dark] .dropdown-content a:hover { background-color: #242c28; }
-
 /* old player page (spieler-info.html, player-info.css) */
 :root[data-dark] .box { background: var(--srv-card); color: var(--srv-text); box-shadow: var(--dk-shadow), 0 0 0 1px var(--srv-border); }
 :root[data-dark] .box img { filter: invert(0.9); }
@@ -148,21 +143,6 @@
   color: #53ffb1;
 }
 :root[data-dark] hr { border-color: var(--srv-border); }
-
-/* theme switch in the header */
-.theme-switch {
-  padding: 4px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 999px;
-  background: none;
-  color: #fff;
-  font: inherit;
-  font-size: 14px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.theme-switch:hover { border-color: #53ffb1; }
-.theme-item { display: flex; align-items: center; }
 
 /* charts, achievement pips, player page leftovers */
 :root[data-dark] .ac-pips span { background: var(--st-track); }
@@ -206,7 +186,6 @@
   border: 1px solid rgba(255, 255, 255, 0.5);
   box-shadow: 0 6px 18px -6px rgba(56, 201, 111, 0.45);
 }
-:root[data-dark] .dropdown-sep { background: rgba(255, 255, 255, 0.12); }
 /* "+ neu" buttons of the moderation pages: dark text on green like the other green buttons */
 :root[data-dark] details.md-create > summary { color: #0b1a10; }
 :root[data-dark] details.md-create[open] > summary { background: var(--srv-raised); color: var(--srv-text); }

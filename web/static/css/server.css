@@ -40,7 +40,7 @@ body {
 /* ---------------------------------------------------------------- hero */
 .srv-hero {
   position: relative;
-  margin-top: 60px; /* below the fixed header */
+  margin-top: var(--mcc-header-h, 64px); /* below the fixed header (nav.css) */
   min-height: 460px;
   display: flex;
   align-items: flex-end;
@@ -209,7 +209,7 @@ body {
 }
 
 /* ---------------------------------------------------------------- sub pages (prefix, moderation) */
-.srv-page { padding-top: 116px; padding-bottom: 64px; max-width: 900px; }
+.srv-page { padding-top: calc(var(--mcc-header-h, 64px) + 44px); padding-bottom: 64px; max-width: 900px; }
 .srv-page h1 { font-size: 40px; margin-bottom: 6px; }
 .srv-lead { color: var(--srv-muted); font-size: 18px; margin: 0 0 24px; }
 .srv-page .srv-card { margin-bottom: 20px; }
@@ -229,3 +229,9 @@ body {
 .srv-prefix-join { display: flex; gap: 8px; align-items: center; }
 .srv-prefix-join input { width: 160px; }
 .srv-current { font-size: 13px; font-weight: 700; color: var(--srv-green-dark); text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* ---------------------------------------------------------------- shared on all sub pages */
+/* anchors (#reports, #umfragen, ...) land below the fixed header */
+.srv-page [id] { scroll-margin-top: calc(var(--mcc-header-h, 64px) + 16px); }
+/* plain links in text and tables in the accent color instead of the browser's blue */
+:where(.srv-page a:not([class])) { color: var(--srv-green-dark); text-underline-offset: 2px; }  /* no specificity: page rules win */

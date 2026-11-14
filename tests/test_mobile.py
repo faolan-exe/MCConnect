@@ -123,7 +123,7 @@ def test_moderation_tables_name_their_columns(mod_client, path):
 def test_server_pages_have_the_mobile_layout(client, two_players, path):
     html = client.get(path, **on("testdomain")).get_data(as_text=True)
     assert 'name="viewport"' in html and "width=device-width" in html
-    assert "css/mobile.css" in html and "css/responsiveHeader.css" in html
+    assert "css/mobile.css" in html and "css/nav.css" in html
     assert 'class="mh-toggle"' in html and 'aria-controls="nav-bar"' in html and 'aria-expanded="false"' in html
     if "player=" not in path:  # the player page keeps its desktop design, phones get responsive-player-info.css
         assert not re.search(r"width:\s*1[0-9]{3}px", html), "fixed widths break small screens"
@@ -131,7 +131,7 @@ def test_server_pages_have_the_mobile_layout(client, two_players, path):
 
 def test_mobile_menu_lists_account_links(mod_client):
     html = mod_client.get("/rangliste", **on("testdomain")).get_data(as_text=True)
-    account = html[html.index('class="mh-account"'):html.index('class="theme-item"')]
+    account = html[html.index('class="mh-account'):html.index('class="theme-item"')]
     for link in ("/spieler?player=_Tobias4444", "/profil", "askLogout"):
         assert link in account
     assert 'href="/login"' not in account
@@ -217,7 +217,7 @@ OVERFLOW = """() => {
 }"""
 
 PAGES = ["/", "/spieler", "/spieler?player=_Tobias4444", "/rangliste", "/vergleich?spieler=_Tobias4444,Notch,jeb_,AlexMines_Longname",
-         "/server-statistik", "/teams", "/wettbewerbe", "/ruhmeshalle", "/events", "/umfragen", "/galerie", "/profil",
+         "/server-statistik", "/teams", "/wettbewerbe", "/ruhmeshalle", "/events", "/galerie", "/profil", "/profil/spiel", "/profil/prefix",
          "/users", "/users/spieler", "/users/inhalte", "/users/zugang", "/users/protokoll", "/users/belohnungen"]
 
 

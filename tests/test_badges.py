@@ -97,7 +97,7 @@ def test_line_respects_hidden_stats(db, server, two_players):
 
 def test_choose_badges_on_the_profile(me, db, two_players):
     a, _ = two_players
-    html = me.get("/profil", **on("testdomain")).get_data(as_text=True)
+    html = me.get("/profil/spiel", **on("testdomain")).get_data(as_text=True)
     assert "Unter deinem Namen" in html and 'data-badge="streak" aria-pressed="true"' in html
     response = me.post("/api/badges", json={"keys": ["hours", "trophies"]}, **on("testdomain"))
     assert response.status_code == 200 and response.json["keys"] == ["hours", "trophies"]

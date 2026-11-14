@@ -33,5 +33,7 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - name: Lint
         run: ruff check .
+      - name: Code map up to date
+        run: python tools/codemap.py --check
       - name: Tests
         run: pytest -q

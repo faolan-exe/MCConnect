@@ -213,7 +213,7 @@ def test_reports_on_the_website(player_client, db, server):
 
 
 def test_sidebar_setting_on_the_profile(player_client, db, two_players):
-    assert "Seitenleiste im Spiel" in player_client.get("/profil", **on("testdomain")).get_data(as_text=True)
+    assert "Seitenleiste" in player_client.get("/profil/spiel", **on("testdomain")).get_data(as_text=True)
     assert player_client.post("/api/sidebar", json={"mode": "competition"}, **on("testdomain")).status_code == 200
     assert db.get_sidebar(two_players[0]) == "competition"
     assert player_client.post("/api/sidebar", json={"mode": "x"}, **on("testdomain")).status_code == 400

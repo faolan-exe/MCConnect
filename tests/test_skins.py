@@ -66,6 +66,7 @@ def web(monkeypatch):
     def install(answers):
         fake = Web(answers)
         monkeypatch.setattr(skins, "_get", fake)
+        monkeypatch.setattr(skins, "is_known", lambda uuid: True)  # these tests are about the sources, not the players
         return fake
     return install
 
@@ -299,3 +300,17 @@ def test_minerender_does_not_report_page_views(client, online_player):
     the console showed the error)."""
     html = client.get("/spieler?player=_Tobias4444", **on("testdomain")).get_data(as_text=True)
     assert "sendStats: false," in html
+
+
+def test_only_skins_of_known_players_are_downloaded(client, db, server, monkeypatch):
+    """A made-up uuid in the URL gets the placeholder without asking Mojang and without a file in the cache."""
+    asked = []
+    monkeypatch.setattr(skins, "_get", lambda url: asked.append(url))
+    stranger = "0f3c1f2e9a8b4c7d8e6f5a4b3c2d1e0f"
+    response = client.get(f"/mc/avatar/{stranger}/32", **on("testdomain"))
+    assert response.status_code == 200 and response.headers["Cache-Control"] == "public, max-age=300"
+    assert client.get(f"/mc/skin/{stranger}", **on("testdomain")).status_code == 404
+    assert asked == [] and not os.path.exists(skins._path("skins", f"{stranger}.png.failed"))
+    db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")  # a player MCConnect knows
+    client.get(f"/mc/avatar/{PLAYER_UUID}/32", **on("testdomain"))
+    assert asked and UUID in asked[0]

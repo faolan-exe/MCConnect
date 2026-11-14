@@ -181,7 +181,7 @@ QUERIES = ["zeitraum=%00", "zeitraum=9999", "spieler=" + ",".join(["Notch"] * 50
                                    "kennzahl=__class__", "jahr=99999999999999999999", "jahr=-1", "player=%00",
                                    "seit=not-a-date", "seit=9999-12-31T23:59:59%2B14:00", "sortierung=beliebt"]
 PAGES = ["/rangliste", "/vergleich", "/teams", "/rueckblick/Notch", "/spieler", "/galerie", "/api/meine-erfolge", "/login",
-         "/server-statistik", "/ruhmeshalle", "/wettbewerbe", "/duelle", "/events", "/umfragen", "/"]
+         "/server-statistik", "/ruhmeshalle", "/wettbewerbe", "/duelle", "/events", "/"]
 
 
 def test_pages_survive_odd_query_strings(lenient_app, server, two_players):

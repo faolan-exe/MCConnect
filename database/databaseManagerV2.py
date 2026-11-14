@@ -1365,6 +1365,10 @@ class DatabaseManager:
     ################################ GET FUNCTIONS ####################################
 
     ###----------------------------- Players ------------------------------------###
+    def is_known_mojang_uuid(self, mojang_uuid):
+        """True if the player has been on any server of MCConnect."""
+        return self._fetchvalue("SELECT EXISTS (SELECT 1 FROM player_server_info WHERE mojang_uuid = %s)", (mojang_uuid,))
+
     def get_player_id_from_mojang_uuid_and_server_id(self, mojang_uuid, server_id):
         return self._fetchvalue("SELECT player_id FROM player_server_info WHERE mojang_uuid = %s AND server_id = %s",
                                 (mojang_uuid, server_id))

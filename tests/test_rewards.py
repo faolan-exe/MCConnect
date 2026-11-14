@@ -119,7 +119,7 @@ def test_ops_have_every_option_from_the_start(db, server, two_players):
 
 def test_ops_choose_anything_on_the_website(me, db, server):
     db.set_player_op(server["id"], PLAYER_UUID, True)
-    html = me.get("/profil", **on("testdomain")).get_data(as_text=True)
+    html = me.get("/profil/spiel", **on("testdomain")).get_data(as_text=True)
     assert "🔒" not in html and "Dunkelrot" in html
     assert "Als OP hast du alle" in html and "Nächste Stufe" not in html
     for field, value in (("color", "dark_red"), ("sound", "fanfare"), ("join_text", "legend"), ("style", "rainbow")):
@@ -129,7 +129,7 @@ def test_ops_choose_anything_on_the_website(me, db, server):
 # ------------------------------------------------------------------ website
 
 def test_profile_shows_the_join_message(me, db):
-    html = me.get("/profil", **on("testdomain")).get_data(as_text=True)
+    html = me.get("/profil/spiel", **on("testdomain")).get_data(as_text=True)
     assert "Join-Nachricht" in html and "1. Neuling" in html and "_Tobias4444 ist da." in html
     assert "🔒" in html and "ab Stufe 2 »Stammgast«" in html
 
@@ -240,7 +240,7 @@ def test_moderators_add_and_remove_own_texts(me, db, server, two_players, game):
     # everyone can choose the new join text (level 1); the leave text is locked
     assert me.post("/api/joinstyle", json={"field": "join_text", "value": "c1"}, **on("testdomain")).status_code == 200
     assert me.post("/api/joinstyle", json={"field": "leave_text", "value": "c1"}, **on("testdomain")).status_code == 400
-    assert "_Tobias4444 ist aus dem Nether zurück!" in me.get("/profil", **on("testdomain")).get_data(as_text=True)
+    assert "_Tobias4444 ist aus dem Nether zurück!" in me.get("/profil/spiel", **on("testdomain")).get_data(as_text=True)
     cmd(game, PLAYER_UUID, "joinmessage")
     assert any("… ist aus dem Nether zurück!" in line for line in until(game, "!tell~" + PLAYER_UUID + "|&7Vorschau"))
     # removed: the player falls back to a default text, the levels forget it

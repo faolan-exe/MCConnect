@@ -4,11 +4,21 @@
 {% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
 {% block content %}
 <h1>Mein Profil</h1>
-<p class="srv-lead">Das sehen andere auf deiner <a href="/spieler?player={{ name | urlencode }}">Spielerseite</a>.</p>
+<p class="srv-lead">{% if tab == "spiel" %}Was du im Spiel siehst und wie dich die anderen dort sehen.
+  {% elif tab == "prefix" %}Dein Prefix steht im Chat, in der Tabliste, über deinem Kopf und hier auf der Website vor deinem Namen.
+  Jeder Prefix ist auch ein <a href="/teams">Team</a>.
+  {% else %}Das sehen andere auf deiner <a href="/spieler?player={{ name | urlencode }}">Spielerseite</a>.{% endif %}</p>
+<nav class="md-tabs" aria-label="Profil">
+  {% for path, label in tabs %}
+  <a href="/profil{{ '/' ~ path if path }}"{% if path == tab %} aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</nav>
 
+{% if tab == "" %}
 <section class="srv-card">
+  <h2>Über mich</h2>
   <form class="mcc-form" id="profile-form">
-    <label for="bio">Über mich <span class="mcc-hint">(höchstens {{ bio_max }} Zeichen, erscheint unter deinem Namen)</span></label>
+    <label for="bio">Text <span class="mcc-hint">(höchstens {{ bio_max }} Zeichen, erscheint unter deinem Namen)</span></label>
     <input class="mcc-input" id="bio" name="bio" maxlength="{{ bio_max }}" value="{{ profile.bio or '' }}"
            placeholder="z. B. Baue gerade an der großen Brücke im Norden"/>
     <label class="pf-check">
@@ -24,7 +34,20 @@
 </section>
 
 <section class="srv-card">
-  <h2>Seitenleiste im Spiel</h2>
+  <h2>Meine Favoriten</h2>
+  {% if favorites %}
+  <ul class="pf-favs">
+    {% for f in favorites %}
+    <li><a href="/spieler?player={{ f.name | urlencode }}"><img src="/mc/avatar/{{ f.uuid }}/32" alt="" width="24" height="24"/>{{ f.name }}</a></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="mcc-hint">Noch keine Favoriten. Markiere Spieler in der <a href="/spieler">Spielerliste</a> mit ☆.</p>
+  {% endif %}
+</section>
+{% elif tab == "spiel" %}
+<section class="srv-card">
+  <h2>Seitenleiste</h2>
   <p class="mcc-hint">Rechts im Bild während du spielst (ab Plugin-Version 3.4). Im Spiel umschalten mit <code>/seitenleiste</code>.</p>
   <div class="st-periods pf-sidebar" role="group" aria-label="Seitenleiste">
     {% for mode, label in (("off", "Aus"), ("competition", "Wettbewerb"), ("playtime", "Meine Spielzeit")) %}
@@ -115,20 +138,116 @@
   <div class="mcc-message" id="badges-message"></div>
 </section>
 
-<section class="srv-card">
-  <h2>Meine Favoriten</h2>
-  {% if favorites %}
-  <ul class="pf-favs">
-    {% for f in favorites %}
-    <li><a href="/spieler?player={{ f.name | urlencode }}"><img src="/mc/avatar/{{ f.uuid }}/32" alt="" width="24" height="24"/>{{ f.name }}</a></li>
+{% else %}
+<div data-live="current">
+{% if current_prefix and (not own_prefix or current_prefix.prefix_id != own_prefix.prefix_id) %}
+<div class="srv-card">
+  <p style="margin: 0">Gerade trägst du {{ prefix_chip(current_prefix.text, current_prefix.color, prefix_colors) }}
+    von {{ current_prefix.owner_name }}. Speicherst du hier deinen eigenen, wechselst du zu diesem.</p>
+</div>
+{% endif %}
+</div>
+
+<form class="srv-card mcc-form" id="prefix-form">
+  <h2 data-live="heading">{{ "Prefix bearbeiten" if own_prefix else "Prefix erstellen" }}</h2>
+
+  <label for="text">Text <span class="mcc-hint">(1–16 Zeichen{% if icons %}, ein Icon zählt als eins{% endif %})</span></label>
+  <input class="mcc-input" id="text" maxlength="60" required value="{{ own_text }}" />
+  {% if icons %}
+  <div class="pf-icons" aria-label="Icons einfügen">
+    <span class="mcc-hint">Icons des Servers:</span>
+    {% for icon in icons %}
+    <button type="button" class="pf-icon" data-token=":{{ icon.name }}:" title=":{{ icon.name }}:">
+      <img class="mc-glyph" src="{{ icon.url }}" alt="{{ icon.name }}" width="18" height="18"/></button>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <label>Farbe {% if not is_moderator %}<span class="mcc-hint">(Gold ist Moderatoren vorbehalten)</span>{% endif %}</label>
+  <div class="mcc-colors">
+    {% set selected = own_prefix.color if own_prefix and own_prefix.color in selectable_colors else "aqua" %}
+    {% for color, hex in selectable_colors.items() %}
+    <label title="{{ color }}"><input type="radio" name="color" value="{{ color }}" {% if color == selected %}checked{% endif %} />
+      <span style="--swatch: {{ hex }}"></span></label>
+    {% endfor %}
+  </div>
+
+  <label>Vorschau im Chat</label>
+  <div class="mcc-chat"><span id="preview-prefix"></span> {{ name }}: Hallo zusammen!</div>
+
+  <label for="password">Passwort zum Beitreten <span class="mcc-hint" data-live="password-hint">
+    {% if own_prefix and own_prefix.has_password %}(leer lassen, um das bisherige zu behalten){% else %}(optional, ohne Passwort kann jeder beitreten){% endif %}</span></label>
+  <input class="mcc-input" id="password" type="password" autocomplete="new-password" minlength="4" />
+  <div data-live="remove-password">
+  {% if own_prefix and own_prefix.has_password %}
+  <label style="font-weight: 400"><input type="checkbox" id="remove-password" /> Passwort entfernen</label>
+  {% endif %}
+  </div>
+
+  <div class="mcc-actions" data-live="actions">
+    <button class="mcc-btn" type="submit">Speichern</button>
+    {% if own_prefix %}
+    <button class="mcc-btn mcc-btn-secondary" type="button" id="delete-prefix">Prefix löschen</button>
+    <span class="mcc-hint">{{ own_prefix.members }} {{ "Spieler trägt" if own_prefix.members == 1 else "Spieler tragen" }} ihn</span>
+    {% endif %}
+  </div>
+  <div class="mcc-message" id="prefix-message"></div>
+</form>
+
+<section class="srv-card" id="beitreten">
+  <h2>Einem Prefix beitreten</h2>
+  <p class="mcc-hint">Du kannst immer nur einen Prefix tragen.</p>
+<div data-live="prefixes">
+{% if current_prefix %}
+<div class="pf-wearing">
+  <p>Du trägst gerade {{ prefix_chip(current_prefix.text, current_prefix.color, prefix_colors) }}
+    von {{ current_prefix.owner_name }}.</p>
+  <button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" id="leave-prefix">Ablegen</button>
+</div>
+{% endif %}
+
+<div>
+  {% if prefixes %}
+  <ul class="srv-prefix-list">
+    {% for prefix in prefixes %}
+    <li>
+      {{ prefix_chip(prefix.text, prefix.color, prefix_colors) }}
+      <span class="srv-prefix-meta">von {{ prefix.owner_name }} · {{ prefix.members }} {{ "Mitglied" if prefix.members == 1 else "Mitglieder" }}
+        {% if prefix.has_password %}· mit Passwort{% endif %}</span>
+      {% if current_prefix and current_prefix.prefix_id == prefix.prefix_id %}
+      <span class="srv-current">Trägst du</span>
+      {% else %}
+      <form class="srv-prefix-join" data-prefix-id="{{ prefix.prefix_id }}">
+        {% if prefix.has_password %}
+        <input class="mcc-input" type="password" placeholder="Passwort" required autocomplete="off" />
+        {% endif %}
+        <button class="mcc-btn mcc-btn-small" type="submit">Beitreten</button>
+      </form>
+      {% endif %}
+    </li>
     {% endfor %}
   </ul>
   {% else %}
-  <p class="mcc-hint">Noch keine Favoriten. Markiere Spieler in der <a href="/spieler">Spielerliste</a> mit ☆.</p>
+  <p class="mcc-empty" style="margin: 0">Auf diesem Server gibt es noch keine Prefixes.</p>
   {% endif %}
+</div>
+</div>
+<div class="mcc-message" id="prefix-join-message"></div>
 </section>
+{% endif %}
 {% endblock %}
 {% block scripts %}
+{% if tab == "" %}
+<script nonce="{{ csp_nonce() }}">
+  document.getElementById("profile-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    const result = await postJson("/api/profile", { bio: form.elements.bio.value, hide_stats: form.elements.hide_stats.checked });
+    showMessage(document.getElementById("profile-message"),
+                result.ok ? "Gespeichert." : (result.data.error || "Speichern fehlgeschlagen."), result.ok ? "success" : "error");
+  });
+</script>
+{% elif tab == "spiel" %}
 <script nonce="{{ csp_nonce() }}">
   (() => {
     const root = document.getElementById("join");
@@ -217,13 +336,100 @@
     else showMessage(document.getElementById("sidebar-message"), result.data.error || "Speichern fehlgeschlagen.", "error");
   }));
 </script>
+{% else %}
+<script src="{{ url_for('static', filename='poll.js') }}"></script>
 <script nonce="{{ csp_nonce() }}">
-  document.getElementById("profile-form").addEventListener("submit", async (event) => {
+(() => {
+  const COLORS = {{ prefix_colors | tojson }};
+  const ICONS = Object.fromEntries({{ icons | tojson }}.map((icon) => [icon.name, icon.url]));
+  const form = document.getElementById("prefix-form");
+  const message = document.getElementById("prefix-message");
+  const preview = document.getElementById("preview-prefix");
+
+  function updatePreview() {
+    const color = form.querySelector('input[name="color"]:checked').value;
+    // ":name:" of the server's icons as images, everything else as text
+    const parts = ("[" + (document.getElementById("text").value || "Prefix") + "]").split(/(:[a-z0-9_]{2,16}:)/);
+    preview.replaceChildren(...parts.map((part) => {
+      const url = ICONS[part.slice(1, -1)];
+      if (!url || part[0] !== ":") return document.createTextNode(part);
+      return Object.assign(document.createElement("img"), { className: "mc-glyph", src: url, alt: part, width: 18, height: 18 });
+    }));
+    preview.style.color = COLORS[color];
+  }
+  form.addEventListener("input", updatePreview);
+  form.querySelectorAll("[data-token]").forEach((button) => button.addEventListener("click", () => {
+    const input = document.getElementById("text");
+    const at = input.selectionStart ?? input.value.length;
+    input.value = input.value.slice(0, at) + button.dataset.token + input.value.slice(input.selectionEnd ?? at);
+    input.focus();
+    updatePreview();
+  }));
+  updatePreview();
+
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = event.target;
-    const result = await postJson("/api/profile", { bio: form.elements.bio.value, hide_stats: form.elements.hide_stats.checked });
-    showMessage(document.getElementById("profile-message"),
-                result.ok ? "Gespeichert." : (result.data.error || "Speichern fehlgeschlagen."), result.ok ? "success" : "error");
+    const remove = document.getElementById("remove-password");
+    const result = await postJson("/api/prefix/save", {
+      text: document.getElementById("text").value,
+      color: form.querySelector('input[name="color"]:checked').value,
+      password: document.getElementById("password").value,
+      remove_password: remove ? remove.checked : false,
+    });
+    if (result.ok) {
+      showMessage(message, "Gespeichert. Im Spiel siehst du den Prefix sofort.", "success");
+      document.getElementById("password").value = "";
+      refreshLiveParts();
+    } else {
+      showMessage(message, result.data.error || "Speichern fehlgeschlagen.", "error");
+    }
   });
+
+  // delegated: the button is replaced after saving
+  document.addEventListener("click", async (event) => {
+    const deleteButton = event.target.closest("#delete-prefix");
+    if (!deleteButton) return;
+    if (deleteButton.dataset.confirm !== "1") {
+      deleteButton.dataset.confirm = "1";
+      deleteButton.textContent = "Wirklich löschen? Alle Mitglieder verlieren ihn";
+      return;
+    }
+    const result = await postJson("/api/prefix/delete");
+    if (result.ok) {
+      showMessage(message, "Prefix gelöscht.", "success");
+      document.getElementById("text").value = "";
+      updatePreview();
+      refreshLiveParts();
+    } else showMessage(message, "Löschen fehlgeschlagen.", "error");
+  });
+})();
 </script>
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  // delegated: the list is replaced after joining or leaving
+  const message = document.getElementById("prefix-join-message");
+  document.addEventListener("submit", async (event) => {
+    const form = event.target.closest(".srv-prefix-join");
+    if (!form) return;
+    event.preventDefault();
+    const password = form.querySelector("input");
+    const result = await postJson("/api/prefix/join", {
+      prefix_id: Number(form.dataset.prefixId), password: password ? password.value : "",
+    });
+    if (result.ok) {
+      showMessage(message, "Beigetreten. Im Spiel siehst du den Prefix sofort.", "success");
+      refreshLiveParts();
+    } else showMessage(message, result.data.error || "Beitreten fehlgeschlagen.", "error");
+  });
+  document.addEventListener("click", async (event) => {
+    if (!event.target.closest("#leave-prefix")) return;
+    const result = await postJson("/api/prefix/leave");
+    if (result.ok) {
+      showMessage(message, "Prefix abgelegt.", "success");
+      refreshLiveParts();
+    }
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

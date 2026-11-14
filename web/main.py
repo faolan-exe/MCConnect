@@ -1253,17 +1253,16 @@ def events_page():
         view = event_view(event, mine)
         view["people"] = db().get_event_signups(event["id"])
         upcoming.append(view)
+    votes = db().get_player_votes(viewer) if viewer else {}
+    polls = [poll_view(p, votes) for p in db().list_polls(g.server["id"])]
     return render_template("events.html", upcoming=upcoming, logged_in=bool(viewer),
-                           past=[event_view(e) for e in db().list_events(g.server["id"], upcoming=False, limit=10)])
+                           past=[event_view(e) for e in db().list_events(g.server["id"], upcoming=False, limit=10)],
+                           open_polls=[p for p in polls if p["open"]], closed_polls=[p for p in polls if not p["open"]])
 
 
 @server_bp.route("/umfragen")
 def polls_page():
-    viewer = logged_in_player_id()
-    mine = db().get_player_votes(viewer) if viewer else {}
-    polls = [poll_view(p, mine) for p in db().list_polls(g.server["id"])]
-    return render_template("umfragen.html", open_polls=[p for p in polls if p["open"]],
-                           closed_polls=[p for p in polls if not p["open"]], logged_in=bool(viewer))
+    return redirect("/events#umfragen", 301)  # events and polls share one page
 
 
 @server_bp.route("/galerie")
@@ -1422,13 +1421,36 @@ def guestbook_report_api():
 BIO_MAX_LENGTH = 160
 
 
-@server_bp.route("/profil")
+# The profile has three tabs: what others see (/profil), settings in the game (/profil/spiel) and the prefix.
+PROFILE_TABS = (("", "Profil"), ("spiel", "Im Spiel"), ("prefix", "Prefix"))
+
+
+@server_bp.route("/profil", defaults={"tab": ""})
+@server_bp.route("/profil/<tab>")
 @player_required
-def profile_page():
+def profile_page(tab):
+    if tab not in dict(PROFILE_TABS) or (tab == "prefix" and not current_app.config["FEATURE_PREFIXES"]):
+        abort(404)
     player_id = logged_in_player_id()
-    return render_template("profil.html", profile=db().get_profile(player_id), bio_max=BIO_MAX_LENGTH,
-                           favorites=db().get_favorites(player_id), sidebar=db().get_sidebar(player_id),
-                           join=join_view(player_id), badges=badges_view(player_id))
+    tabs = tuple(t for t in PROFILE_TABS if t[0] != "prefix" or current_app.config["FEATURE_PREFIXES"])
+    context = dict(tab=tab, tabs=tabs, profile=db().get_profile(player_id))
+    if tab == "":
+        context.update(bio_max=BIO_MAX_LENGTH, favorites=db().get_favorites(player_id))
+    elif tab == "spiel":
+        context.update(sidebar=db().get_sidebar(player_id), join=join_view(player_id), badges=badges_view(player_id))
+    else:
+        context.update(prefix_context(player_id))
+    return render_template("profil.html", **context)
+
+
+@server_bp.route("/add_pref")
+def prefix_edit_page():
+    return redirect("/profil/prefix", 301)
+
+
+@server_bp.route("/join_pref")
+def prefix_join_page():
+    return redirect("/profil/prefix#beitreten", 301)
 
 
 MC_CODE_COLORS = {code: web for code, web in rewards.COLOR_CODES.values()}
@@ -1661,27 +1683,17 @@ def feed_api():
     return {"events": events}
 
 
-@server_bp.route("/add_pref")
-@player_required
-def prefix_edit_page():
-    player_id = logged_in_player_id()
+def prefix_context(player_id):
+    """The prefix tab of the profile: the own prefix (create or edit) and the list to join one."""
     is_moderator = db().is_moderator(player_id)
     colors = {name: hex_color for name, hex_color in PREFIX_COLORS.items()
               if is_moderator or name not in MODERATOR_PREFIX_COLORS}
     icons = server_icons()
     own = db().get_owned_prefix(player_id)
-    return render_template("prefix_edit.html", own_prefix=own, own_text=icons.to_tokens(own["text"]) if own else "",
-                           current_prefix=db().get_player_prefix(player_id), selectable_colors=colors,
-                           is_moderator=is_moderator,
-                           icons=[{"name": i["name"], "url": glyph_url(i["char"])} for i in icons.custom])
-
-
-@server_bp.route("/join_pref")
-@player_required
-def prefix_join_page():
-    player_id = logged_in_player_id()
-    return render_template("prefix_join.html", prefixes=db().list_prefixes(g.server["id"]),
-                           current_prefix=db().get_player_prefix(player_id))
+    return dict(own_prefix=own, own_text=icons.to_tokens(own["text"]) if own else "",
+                current_prefix=db().get_player_prefix(player_id), selectable_colors=colors, is_moderator=is_moderator,
+                icons=[{"name": i["name"], "url": glyph_url(i["char"])} for i in icons.custom],
+                prefixes=db().list_prefixes(g.server["id"]))
 
 
 # Moderation pages: (path below /users, tab label). Every page shows the tabs with the open tasks.
@@ -1707,12 +1719,23 @@ def mod_tasks(server_id):
 MOD_PAGE_TASKS = {"spieler": ("reports", "xray"), "inhalte": ("builds", "guestbook"), "zugang": ("applications",)}
 
 
+# The tabs of the moderation pages; "Im Spiel" holds the pages about what players see in the game.
+MOD_TABS = (("", "Übersicht", ("",)), ("spieler", "Spieler", ("spieler",)), ("inhalte", "Inhalte", ("inhalte",)),
+            ("zugang", "Zugang & Regeln", ("zugang",)),
+            ("belohnungen", "Im Spiel", ("belohnungen", "icons", "erweiterungen")), ("protokoll", "Protokoll", ("protokoll",)))
+MOD_SUB_LABELS = {"belohnungen": "Join-Nachrichten & Belohnungen", "icons": "Eigene Icons", "erweiterungen": "Erweiterungen"}
+
+
 def render_mod(page, template, **context):
     tasks = mod_tasks(g.server["id"])
-    pages = MOD_PAGES if db().get_addon_rights(g.server["id"])[0] else tuple(p for p in MOD_PAGES if p[0] != "erweiterungen")
-    return render_template(template, mod_page=page, mod_pages=pages, tasks=tasks,
-                           tab_counts={key: sum(tasks[t][0] for t in MOD_PAGE_TASKS.get(key, ())) for key, _ in MOD_PAGES},
-                           **context)
+    allowed = {key for key, _ in MOD_PAGES if key != "erweiterungen" or db().get_addon_rights(g.server["id"])[0]}
+    counts = {key: sum(tasks[t][0] for t in MOD_PAGE_TASKS.get(key, ())) for key, _ in MOD_PAGES}
+    tabs = [{"path": path, "label": label, "current": page in pages, "count": sum(counts[p] for p in pages),
+             "sub": [{"path": p, "label": MOD_SUB_LABELS[p], "current": p == page} for p in pages if p in allowed]
+             if len(pages) > 1 else []}
+            for path, label, pages in MOD_TABS]
+    sub_nav = next((t["sub"] for t in tabs if t["current"] and len(t["sub"]) > 1), [])
+    return render_template(template, mod_page=page, mod_tabs=tabs, mod_sub_nav=sub_nav, tasks=tasks, **context)
 
 
 @server_bp.route("/users")
@@ -1976,7 +1999,11 @@ def xray_hints(server_id):
 
 
 def mod_log_view(server_id, target_name=None, limit=100):
-    return [dict(entry, label=MOD_LOG_ACTIONS.get(entry["action"], entry["action"]),
+    def detail(entry):  # older entries list the raw setting names
+        if entry["action"] == "settings" and entry["details"]:
+            return ", ".join(SETTING_LABELS.get(key, key) for key in entry["details"].split(", "))
+        return entry["details"]
+    return [dict(entry, label=MOD_LOG_ACTIONS.get(entry["action"], entry["action"]), details=detail(entry),
                  when=entry["at"].strftime("%d.%m.%Y, %H:%M"))
             for entry in db().get_mod_log(server_id, limit=limit, target_name=target_name)]
 
@@ -2476,6 +2503,25 @@ def mod_guestbook_keep_api():
 
 ACCESS_MODES = ("off", "application", "code", "both")
 RULES_MAX_LENGTH = 10_000
+SETTING_LABELS = {"access_mode": "Zugang", "warn_threshold": "Bann nach Verwarnungen", "warn_ban_days": "Banndauer (Tage)",
+                  "rules_enabled": "Regelseite", "rules": "Regeln", "faq": "FAQ"}
+ACCESS_MODE_LABELS = {"off": "aus", "application": "Bewerbung", "code": "Einladungscode", "both": "Bewerbung oder Code"}
+
+
+def settings_detail(fields):
+    """The changed settings for the moderation log, readable: "Zugang: Bewerbung, Regeln"."""
+    parts = []
+    for key in sorted(fields, key=list(SETTING_LABELS).index):
+        value = fields[key]
+        if key == "access_mode":
+            parts.append(f"{SETTING_LABELS[key]}: {ACCESS_MODE_LABELS[value]}")
+        elif key == "rules_enabled":
+            parts.append(f"{SETTING_LABELS[key]} {'an' if value else 'aus'}")
+        elif key in ("warn_threshold", "warn_ban_days"):
+            parts.append(f"{SETTING_LABELS[key]}: {value}")
+        else:
+            parts.append(SETTING_LABELS[key])
+    return ", ".join(parts)
 
 
 @server_bp.route("/api/mod/settings", methods=["POST"])
@@ -2504,7 +2550,7 @@ def mod_settings_api():
                 return {"error": f"Höchstens {RULES_MAX_LENGTH} Zeichen."}, 400
             fields[key] = text or None
     db().update_server_settings(g.server["id"], **fields)
-    db().add_mod_log(g.server["id"], mod_name(), "settings", None, ", ".join(sorted(fields)))
+    db().add_mod_log(g.server["id"], mod_name(), "settings", None, settings_detail(fields))
     if "access_mode" in fields:
         db().notify_server_event(g.server["id"], "joininfo")
     return ("", 200)
@@ -2961,7 +3007,12 @@ def current_admin_id():
     if "admin_valid" in g:
         return admin_id if g.admin_valid else None
     changed_at = db().get_admin_password_changed_at(admin_id)
-    g.admin_valid = changed_at is not None and session.get("admin_login_at", 0) >= changed_at
+    # The session keeps the password's change time from the login; any later change makes them differ. A plain
+    # comparison of the login time with the change time would depend on the clocks of web server and database.
+    if "admin_password_at" in session:
+        g.admin_valid = changed_at is not None and session["admin_password_at"] == changed_at
+    else:  # sessions from before this check
+        g.admin_valid = changed_at is not None and session.get("admin_login_at", 0) >= changed_at
     if not g.admin_valid:
         session.clear()
         return None
@@ -3153,6 +3204,7 @@ def server_login_api():
         session.clear()
         session["admin_id"], session["admin_username"] = admin
         session["admin_login_at"] = time.time()
+        session["admin_password_at"] = db().get_admin_password_changed_at(admin[0])
         session.permanent = True
         return ("", 200)
     return ("", 400)
@@ -3781,6 +3833,8 @@ def create_app(db_manager=None, config_overrides=None):
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
     app.extensions["mcconnect_db"] = db_manager or DatabaseManager()
+    manager = app.extensions["mcconnect_db"]
+    skins.is_known = lambda mojang_uuid: bool(manager.is_known_mojang_uuid(mojang_uuid))  # only their skins are fetched
     app.extensions["mcconnect_live"] = LiveCache()
     app.extensions["mcconnect_limits"] = {
         "invite_code": RateLimiter(10, 600),       # per client address, against guessing codes
@@ -3798,6 +3852,14 @@ def create_app(db_manager=None, config_overrides=None):
     @app.errorhandler(413)
     def too_large(error):
         return {"error": f"Die Datei ist zu groß (maximal {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)."}, 413
+
+    @app.before_request
+    def force_https():
+        """Behind the proxy, a visit over plain http goes to https: the cookies are secure-only there, so a login over
+        http would silently fail (and send the password unencrypted). Only when the proxy says so in
+        X-Forwarded-Proto, so direct calls inside the network (health check) are untouched."""
+        if config.PUBLIC_SCHEME == "https" and request.headers.get("X-Forwarded-Proto", "").lower() == "http":
+            return redirect(request.url.replace("http://", "https://", 1), 301 if request.method in ("GET", "HEAD") else 308)
 
     @app.before_request
     def refuse_odd_input():
@@ -3822,6 +3884,8 @@ def create_app(db_manager=None, config_overrides=None):
         response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        if request.is_secure:  # browsers then never try http again (all pages are below the one https domain)
+            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         # Scripts only from here, the static files of the main domain and inline <script nonce>; no inline event
         # handlers (web/static/actions.js replaces them).
         if response.mimetype == "text/html":

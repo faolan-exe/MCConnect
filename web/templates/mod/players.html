@@ -1,6 +1,13 @@
 {% extends "mod/_layout.html" %}
 {% from "_components.html" import bans_panel %}
 {% block mod_content %}
+<nav class="md-nav" aria-label="Bereiche" data-live="players-nav">
+  <a href="#reports">Meldungen{% if tasks.reports[0] %} <b>{{ tasks.reports[0] }}</b>{% endif %}</a>
+  <a href="#bans">Bans</a><a href="#warnings">Verwarnungen</a>
+  <a href="#xray">X-Ray{% if tasks.xray[0] %} <b>{{ tasks.xray[0] }}</b>{% endif %}</a>
+  <a href="#activity">Aktivität</a>
+</nav>
+
 <section class="srv-card" id="reports">
   <h2>Meldungen</h2>
   <p class="mcc-hint">Von Spielern mit <code>/report</code> im Spiel (mit Position) oder über <a href="/melden">/melden</a>.

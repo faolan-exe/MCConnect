@@ -1,14 +1,44 @@
 {% extends "server_base.html" %}
-{% block title %}Events · {{ server_name }}{% endblock %}
+{% block title %}Events & Umfragen · {{ server_name }}{% endblock %}
 {% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
 {% block page_class %}srv-page-wide{% endblock %}
-{% block content %}
-<h1>Events</h1>
-<p class="srv-lead">Was auf {{ server_name }} geplant ist. Melde dich an, damit alle wissen, wer kommt –
-  im Spiel mit <code>/events</code>. Kurz vor dem Start erinnert der Chat daran.</p>
 
-<section class="st-group">
-  <h2>Demnächst</h2>
+{% macro poll_card(p) %}
+<article class="st-board po-card" data-poll="{{ p.id }}">
+  <span class="cp-badge{% if not p.open %} du-badge-off{% endif %}">{{ "bis " ~ p.ends if p.open else "beendet" }}</span>
+  <h3>{{ p.question }}</h3>
+  <ul class="po-options">
+    {% for row in p.rows %}
+    <li>
+      {% if p.open and logged_in %}
+      <button type="button" class="po-option{% if p.my_vote == row.index %} po-mine{% endif %}" data-option="{{ row.index }}"
+              aria-pressed="{{ 'true' if p.my_vote == row.index else 'false' }}">
+      {% else %}
+      <div class="po-option{% if p.my_vote == row.index %} po-mine{% endif %}{% if not p.open and row.top %} po-winner{% endif %}">
+      {% endif %}
+        <span class="po-fill" style="width: {{ '%.1f' | format(row.share * 100) }}%"></span>
+        <span class="po-text">{{ row.text }}</span>
+        <span class="po-percent">{{ row.percent }} %</span>
+      {% if p.open and logged_in %}</button>{% else %}</div>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="gl-meta po-total">{{ p.total }} {{ "Stimme" if p.total == 1 else "Stimmen" }}{% if p.my_vote is not none and p.open %} · du kannst deine Stimme noch ändern{% endif %}</p>
+</article>
+{% endmacro %}
+
+{% block content %}
+<h1>Events &amp; Umfragen</h1>
+<p class="srv-lead">Was auf {{ server_name }} geplant ist und worüber gerade abgestimmt wird. Im Spiel geht das mit
+  <code>/events</code> und <code>/vote</code>. Kurz vor einem Event erinnert der Chat daran.</p>
+<nav class="md-nav" aria-label="Bereiche">
+  <a href="#events">Events{% if upcoming %} <b>{{ upcoming | length }}</b>{% endif %}</a>
+  <a href="#umfragen">Umfragen{% if open_polls %} <b>{{ open_polls | length }}</b>{% endif %}</a>
+  {% if past or closed_polls %}<a href="#vorbei">Vergangen</a>{% endif %}
+</nav>
+
+<section class="st-group" id="events">
+  <h2>Events</h2>
   {% if upcoming %}
   <div class="ev-list">
     {% for e in upcoming %}
@@ -37,20 +67,42 @@
   {% endif %}
 </section>
 
-{% if past %}
-<section class="st-group">
-  <h2>Vergangene Events</h2>
+</section>
+
+<section class="st-group" id="umfragen">
+  <h2>Umfragen</h2>
+  <div data-live="open-polls">
+  {% if open_polls %}
+  <div class="st-boards po-boards">{% for p in open_polls %}{{ poll_card(p) }}{% endfor %}</div>
+  {% if not logged_in %}<p class="st-hint"><a href="/login?next=/events">Log dich ein</a>, um abzustimmen.</p>{% endif %}
+  {% else %}
+  <p class="st-empty">Gerade läuft keine Umfrage.</p>
+  {% endif %}
+  </div>
+</section>
+
+{% if past or closed_polls %}
+<section class="st-group" id="vorbei">
+  <h2>Vergangen</h2>
+  {% if past %}
+  <h3 class="ev-sub">Events</h3>
   <ul class="ev-past">
     {% for e in past %}<li><span>{{ e.date_short }}</span> <b>{{ e.title }}</b>{% if e.signups %} · {{ e.signups }} dabei{% endif %}</li>{% endfor %}
   </ul>
+  {% endif %}
+  {% if closed_polls %}
+  <h3 class="ev-sub">Umfrage-Ergebnisse</h3>
+  <div class="st-boards po-boards">{% for p in closed_polls %}{{ poll_card(p) }}{% endfor %}</div>
+  {% endif %}
 </section>
 {% endif %}
 {% endblock %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='poll.js') }}"></script>
 <script nonce="{{ csp_nonce() }}">
   document.querySelectorAll("[data-signup]").forEach((button) => button.addEventListener("click", async () => {
     const result = await postJson("/api/events/signup", { id: Number(button.dataset.signup) });
-    if (!result.ok) return alert(result.data.error || "Das hat nicht geklappt.");
+    if (!result.ok) return messagebox_error("Anmeldung", result.data.error || "Das hat nicht geklappt.");
     const card = button.closest("[data-event]");
     const people = result.data.people;
     button.setAttribute("aria-pressed", String(result.data.signed_up));
@@ -66,5 +118,15 @@
       return img;
     }));
   }));
+</script>
+<script nonce="{{ csp_nonce() }}">
+  document.addEventListener("click", async (event) => {  // delegated: the polls are replaced after a vote
+    const button = event.target.closest("[data-poll] [data-option]");
+    if (!button) return;
+    const poll = button.closest("[data-poll]");
+    const result = await postJson("/api/polls/vote", { id: Number(poll.dataset.poll), option: Number(button.dataset.option) });
+    if (result.ok) refreshLiveParts();
+    else messagebox_error("Abstimmung", result.data.error || "Das hat nicht geklappt.");
+  });
 </script>
 {% endblock %}

@@ -28,6 +28,8 @@ Preview:
 
 ## Development
 
+Where things are: [docs/CODEMAP.md](docs/CODEMAP.md) (folders, menu → page → files, conventions, tests by area, all routes).
+
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 docker compose -f docker/db/docker-compose.yml -p mcconnect up -d   # local postgres
@@ -67,17 +69,17 @@ State of 2026-11-13: schema version 33, plugin 3.27 (confirmations), addon Disco
 | Teams | `/teams` | prefixes as teams |
 | Motivation | `database/motivation.py`, `/wettbewerbe`, `/ruhmeshalle` | competitions, community goals, streaks + badges 7/30/100, anniversaries (`player_milestones`), record history (`record_history`), trophies (competition places, player of the week), hall of fame; news in feed and chat |
 | In game | `mc_socket/commands.py` | `/stats`, `/top`, `/wettbewerb`, `/duell`, `/report`, `/seitenleiste`, `/vote`, `/events`, `/joinmessage`, moderators `/verwarnen`, `/stumm`, `/entstummen` (`!CMD` → `!tell`, clickable buttons); scoreboard sidebar |
-| Community | `/events`, `/umfragen`, `/galerie`, `/duelle`, player page | events with sign up and chat reminder, polls, build gallery with approval and likes, duels, guestbook |
+| Community | `/events` (events and polls on one page; `/umfragen` redirects), `/galerie`, `/duelle`, player page | events with sign up and chat reminder, polls, build gallery with approval and likes, duels, guestbook |
 | Access | `/mitmachen`, `/regeln` | whitelist by application and/or invite code (the plugin runs `whitelist add`; the kick message links to `/mitmachen`), optional rules & FAQ page |
 | Addons | `database/addons.py`, `/manage/<id>#addons` (owners), `java plugin/addons/` | plug-and-play extensions through MCDataLink (no own key): store with one-click install (download + SHA-256 check + live load), approval by the owner (bound to the jar's checksum, official releases automatically), settings page built from the addon's `mcconnect-addon.json`, in-game changes checked and stored by MCConnect, settings cached by the plugin for offline starts; the owner can let moderators edit the settings (`/users/erweiterungen`) and switch on automatic updates of official addons. Official: BetterJoinMessages, Discoveries (places with own advancements, `/entdeckungen`, [ADR 0007](docs/adr/0007-discoveries.md)), EasyHeadDrop, EasyNewCraftingRecipes, SpawnElytra, SpawnProtect. Decision and security limits: `docs/adr/0001-addon-system.md`, writing an addon: `java plugin/addons/README.md` |
-| Join messages & rewards | `database/rewards.py`, `/profil`, `/users/belohnungen`, `/joinmessage` | **only with the addon BetterJoinMessages** (since 3.22; without it everything here is off and the game's message is shown); reward levels (default 6, editable per server; conditions are alternatives ("oder") of groups that must all be met ("und"), unlocks add up, a reached level is stored and never lowered); players choose text, leave text, color, symbol, style and sound from what they unlocked (templates only, moderators add own texts; moderators/OPs also gold/red/dark red); while on, everyone gets an MCConnect message (without a choice the first level's default, `!joindefault`); players can hide others' messages and all sounds |
+| Join messages & rewards | `database/rewards.py`, `/profil/spiel`, `/users/belohnungen`, `/joinmessage` | **only with the addon BetterJoinMessages** (since 3.22; without it everything here is off and the game's message is shown); reward levels (default 6, editable per server; conditions are alternatives ("oder") of groups that must all be met ("und"), unlocks add up, a reached level is stored and never lowered); players choose text, leave text, color, symbol, style and sound from what they unlocked (templates only, moderators add own texts; moderators/OPs also gold/red/dark red); while on, everyone gets an MCConnect message (without a choice the first level's default, `!joindefault`); players can hide others' messages and all sounds |
 | Moderation | `/users` (moderators) | overview (open tasks, server health, newest log entries) and sub pages `spieler` (reports, bans, warnings, X-ray hints, activity), `inhalte` (gallery, guestbook, events, polls, competitions, goals), `zugang` (whitelist, codes, rules/FAQ), `belohnungen`, `protokoll`; templates in `web/templates/mod/` |
 | Admin | `/manage` (server owners) | server tiles; `/manage/<id>` with tabs: overview (health, e-mail alerts), plugin (config with `tls-fingerprint`), server page (texts, images, directory), moderation (moderators, bans), danger zone |
 | Year in review | `/rueckblick/<name>` | year gains from the first/last snapshot of the year (both kept forever), sessions, achievements, trophies |
 | Reach & design | main page, `web/static/css/dark.css` | public server directory (`servers.listed`), dark mode for all server pages (`_theme.html`, `--srv-*` tokens) |
 | Icons & name line | `database/glyphs.py`, `database/badges.py`, `web/static/glyphs/` | 13 drawn 9×9 pixel icons (SVG → PNG without extra libraries) in a resource pack (`/resourcepack/<sha1>.zip`, private use area U+E000…); 8 of them are join symbols unlocked by the default levels (servers with own levels tick them in the editor); under the name up to 4 values (default trophies, streak, level; `player_server_info.name_badges`), nothing for `hide_stats`. The plugin offers the pack and shows Unicode fallbacks to players without it (per viewer; icon codepoints are stored – only append) |
 | Own icons | `/users/icons`, `server_icons`, `glyphs.IconSet` | moderators draw up to 32 own 9×9 icons (pixel editor, an image is shrunk to 9×9 in the browser) with a fallback character; usable as join symbols (tick them at the levels) and by everyone in prefixes as `:name:`; codepoints from U+E100, never given out twice (`servers.icons_next`); a deleted icon becomes its fallback in prefixes; the pack is per server (`/resourcepack/<server id>/<sha1>.zip`) |
-| Profile & privacy | `/profil` | bio, "hide my stats" (`hide_stats`: left out of every public view except server totals), favourites, sidebar, join message |
+| Profile & privacy | `/profil`, `/profil/spiel`, `/profil/prefix` | tabs: bio, "hide my stats" (`hide_stats`: left out of every public view except server totals) and favourites; in game: sidebar, the line under the name, join message; prefix: own prefix and joining one (`/add_pref`, `/join_pref` redirect) |
 
 Charts are plain SVG without libraries (`web/static/*-chart.js`), styles in `web/static/css/stats.css`.
 
@@ -134,7 +136,7 @@ Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss 
   value (`record_holders`), `record_history` only knows who took a record when. Metrics that add several objects say
   so (`Metric.note`, e.g. ores "inkl. Deepslate"); the single values on the player page and in the comparison
   details are per object and all time. `tests/test_mobile.py` checks this across the pages.
-- **Mobile.** Never change the desktop design for phones: phone rules go into media queries only. The header becomes a bar with a menu panel below 576px (the original breakpoint) (`responsiveHeader.css`); `css/mobile.css`
+- **Mobile.** Never change the desktop design for phones: phone rules go into media queries only. The header (`header.html`, `nav.css`: groups Spieler, Statistiken, Wettkämpfe, Community, account menu on the right) becomes a bar with a menu panel below 576px; `css/mobile.css`
   (loaded by `header.html` after the page styles) holds the shared phone rules: tap targets of 40–44px, 16px
   inputs, wrapping segmented controls, tables with class `mcc-stack` become one card per row (every `<td>` needs a
   `data-label`). `tests/test_mobile.py` renders the pages in Chrome at 375px (Playwright from

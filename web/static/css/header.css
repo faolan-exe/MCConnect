@@ -11,13 +11,6 @@ nav li {
   margin-right: 0.5rem;
 }
 
-header nav {
-  background-color: black;
-  color: white;
-  padding: 0.5rem;
-  margin: 1rem 0;
-}
-
 nav {
   background-color: black;
   color: white;
@@ -50,19 +43,6 @@ html {
   font-family: Source Sance Pro, Verdana, Geneva, Tahoma, sans-serif;
 }
 
-button.current {
-  font-weight: bold;
-  text-decoration: underline;
-  color: var(--primary) !important;
-}
-a.current {
-  text-decoration: underline !important;
-  background-color: #bbb;
-}
-a.current2 {
-  text-decoration: underline !important;
-}
-
 .footer-nav ul {
   margin: 0;
 }
@@ -70,59 +50,6 @@ a.current2 {
 .footer-nav li {
   display: inline;
   margin-right: 0.5rem;
-}
-
-.dropbtn {
-  background-color: transparent;
-  color: white;
-  font-size: 20px !important;
-  border: none;
-  cursor: pointer;
-  line-height: 30px !important;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
-  
-}
-
-header {
-  position: relative;
-  margin-top: -16px;
-  z-index: 999; /* Erhöhen Sie den z-index-Wert, um den Header über allem anderen Inhalt anzuzeigen */
-}
-header ul {
-  padding-left: 0 !important;
-  margin-left: 20px !important;
-}
-.dropdown {
-  position: relative;
-  display: inline-block;
-}
-
-.dropdown-content {
-  z-index:20;
-  display: none;
-  position: absolute;
-  background-color: #f1f1f1;
-  min-width: 160px;
-  box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
-}
-.dropdown-content a {
-  color: black;
-  padding: 12px 16px;
-  text-decoration: none;
-  display: block;
-  cursor: pointer;
-}
-
-.dropdown-content a:hover {
-  background-color: #ddd;
-}
-
-.dropdown:hover .dropdown-content {
-  display: block;
-}
-
-.dropdown:hover .dropbtn {
-  /* background-color: #3e8e41; */
 }
 
 .text_img_box {
@@ -158,117 +85,11 @@ img.scale {
   margin-right: auto;
 }
 
-
-#loginLink {
-  animation: mymove 10s infinite;
-  font-family: "Arial Black", sans-serif;
-  font-size: x-large;
-}
-
-@keyframes mymove {
-  0% {
-    color: rgb(8, 168, 242);
-  }
-  50% {
-    color: rgb(0, 255, 119);
-  }
-  100% {
-    color: rgb(8, 168, 242);
-  }
-}
-
 .sticky {
   position: fixed;
   top: 0;
   width: 100%;
 }
-header {
-  margin-top: -16px;
-  width: 100vw !important;
-}
 .content {
-  margin-top: 130px;
+  margin-top: 118px; /* below the 64px header (nav.css), the same gap as before */
 }
-
-
-.mobile-view-only {
-  display: none;
-}
-
-.menueToggle {
-  display: block !important;
-}
-
-
-.loginVarMain {
-  font-size: 26px;
-  div {    
-  margin-top: 10px;
-  }
-}
-
-.login-group {
-  padding-right: 20px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: fit-content;
-}
-
-/* Style for the container */
-.login-group {
-  position: relative;
-}
-
-/* Style for the image */
-.profile-image {
-  
-  width: 60px;
-  height: 60px;
-  height: auto;
-  border-radius: 25%; /* Initial border radius */
-  transition: border-radius 0.4s ease-in-out;
-}
-
-/* Hover effect */
-.login-group:hover .profile-image {
-  border-radius: 0; /* Change border radius on hover */
-}
-
-
-.login-group .dropdown-content {
-  margin-top: 145px;
-}
-
-
-.mainHeader {
-  justify-content: space-between;
-  display: flex;
-  padding-left: 25px;
-  padding-right: 25px;
-}
-
-.mainHeader button {
-  /* border-radius: 10%; */
-}
-
-#nav-bar {
-  width: fit-content;
-  align-items: center;
-  display: flex;
-}
-
-
-.login-group .dropbtn {
-  background-color: transparent !important;
-  padding: 0 !important;
-  cursor: default;
-}
-
-.login-group .dropbtn:hover {
-  background-color: transparent !important;
-}
-/* separator inside a dropdown (Community: rules, joining, reporting) */
-.dropdown-sep { display: block; height: 1px; margin: 4px 12px; background: rgba(0, 0, 0, 0.15); }
-/* mobile menu entries of the logged in player (the first mobile entry is the red logout) */
-li.mobile-view-only.mobile-link > a:nth-child(1) { color: inherit; }

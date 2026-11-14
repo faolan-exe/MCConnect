@@ -30,6 +30,9 @@ Each visitor's browser also sent its IP address to these sites.
   there is a neutral placeholder head (cached by the browser for 5 minutes only).
 - Only PNGs of skin size (64x64, 64x32) are stored, re-encoded; texture URLs are followed only to
   `textures.minecraft.net`; anything that is not a uuid never leads to a request.
+- Skins are only downloaded for uuids of players MCConnect knows (`player_server_info`, any server). A made-up uuid
+  in a URL gets the placeholder without a request and without a file, so nobody can fill the cache or make this
+  server ask other sites at will (added 2026-11-14).
 - jQuery 3.3.1, three.js r94 and MineRender 1.4.6 are in `web/static/vendor/` (same files as the CDN versions,
   checked against their SRI hashes). The second, older jQuery and the unused Font Awesome on the login page are
   gone. The CSP allows scripts, styles, fonts and connections only from this server.
@@ -38,6 +41,6 @@ Each visitor's browser also sent its IP address to these sites.
 ## Consequences
 
 - A skin change shows up within 6 hours (plus the browser's 6 hours).
-- The cache grows by a few KB per player and is never cleaned up; deleting the folder is always safe.
+- The cache grows by a few KB per known player and is never cleaned up; deleting the folder is always safe.
 - Offline mode servers: Mojang does not know their uuids, so their skins come from mc-heads.net only.
 - The privacy page no longer lists third parties that get the visitor's IP address.

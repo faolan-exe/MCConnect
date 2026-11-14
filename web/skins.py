@@ -184,10 +184,20 @@ def _download_skin(uuid):
     return None
 
 
+# Set by the web app: True for the uuids of players MCConnect knows. Only their skins are downloaded; otherwise every
+# made-up uuid in a URL would make this server ask two other sites and leave a file behind (ADR 0010).
+is_known = lambda uuid: True  # noqa: E731
+
+
 def skin(uuid):
     """The skin (PNG bytes, 64x64 or old 64x32) of the player, or None if it was never loaded."""
     uuid = clean_uuid(uuid)
-    return cached("skins", f"{uuid}.png", lambda: _download_skin(uuid)) if uuid else None
+    if not uuid:
+        return None
+    if _age(_path("skins", f"{uuid}.png")) is None and _age(_path("skins", f"{uuid}.png.failed")) is None \
+            and not is_known(uuid):
+        return None
+    return cached("skins", f"{uuid}.png", lambda: _download_skin(uuid))
 
 
 # ------------------------------------------------------------------ pictures made of the skin

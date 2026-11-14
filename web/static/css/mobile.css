@@ -3,7 +3,7 @@
    rules stay next to their page in stats.css. */
 
 @media (max-width: 575px) {
-  /* below the mobile header bar (56px, responsiveHeader.css) */
+  /* below the mobile header bar (56px, nav.css) */
   .srv-page { padding-top: 84px; }
   .srv-hero { margin-top: 56px; }
 }
