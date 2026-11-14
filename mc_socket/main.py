@@ -18,13 +18,17 @@ Plugin -> server:
     !WEBBANS~<json list>         names of the MCConnect bans still in the server's ban list (plugin 3.7);
                                  a delivered website ban that is missing was lifted with /pardon
     !HEALTH~<json>               once a minute: {"tps", "mem_used_mb", "mem_max_mb", "players", "chunks",
-                                 "entities", "uptime_s", "mc_version", "plugin_version", "ping_avg" (3.28, -1 = nobody)}
+                                 "entities", "uptime_s", "mc_version", "plugin_version", "ping_avg" (3.28, -1 = nobody),
+                                 "ping_median" (3.30, -1 = nobody)}
     !CLIENTS~<json list>         once a minute (3.28, "clients"): the online players' connection and client,
                                  [{"uuid", "ping" (ms), "brand", "version" (with ViaVersion), "locale", "view",
                                  "bedrock", "device", "input", "ui", "bedrock_version" (with Floodgate); since 3.29
                                  "channels" (plugin channels of the client), "pack" (resource pack status), "hand",
                                  "chat", "chat_colors", "text_filter", "listing", "particles", "cape", "skin_layers"
-                                 (Paper's client options), "host" (address the player joined with)}]; every field but
+                                 (Paper's client options), "host" (address the player joined with); since 3.30 the
+                                 minute's click pattern "clicks", "cps_max", "click_n", "click_sum", "click_sq" (ms,
+                                 ms² of the intervals below 500 ms), "click_min", "doubles", "click_hist" (8 buckets)
+                                 and the rhythm "rhythm" (tick|move), "gap_max" (ms), "stalls", "ticks"}]; every field but
                                  uuid is optional; only moderators see it (/analyse)
     !CMD~<uuid>|<world>|<x>|<y>|<z>|<command>|<args>   in-game command (stats, top, wettbewerb, duell, report,
                                  seitenleiste, vote, events; see mc_socket/commands.py), answered with !tell
@@ -241,7 +245,8 @@ def parse_health(value):
             "mem_max_mb": number("mem_max_mb", int, 0, 10 ** 7), "players": number("players", int, 0, 10 ** 6),
             "chunks": number("chunks", int, 0, 10 ** 8), "entities": number("entities", int, 0, 10 ** 8),
             "uptime_s": number("uptime_s", int, 0, 10 ** 10), "mc_version": text("mc_version"),
-            "plugin_version": text("plugin_version"), "ping_avg": number("ping_avg", int, 0, MAX_PING)}
+            "plugin_version": text("plugin_version"), "ping_avg": number("ping_avg", int, 0, MAX_PING),
+            "ping_median": number("ping_median", int, 0, MAX_PING)}
 
 
 MAX_PING = 60_000  # ms; anything above is a broken value
@@ -251,6 +256,8 @@ WORD_RE = re.compile(r"^[a-z_]{1,32}$")
 CHANNEL_RE = re.compile(r"^[a-z0-9_.-]{1,40}:[a-z0-9_./-]{1,60}$")
 HOST_RE = re.compile(r"^[a-z0-9.-]{1,100}$")  # a domain or an IPv4 address of the server, not of the player
 MAX_CHANNELS = 60
+CLICK_HIST_BUCKETS = 8  # InputRhythm.HIST of the plugin
+MAX_CLICKS = 60 * 100  # clicks in one minute; anything above is a broken value
 
 
 def parse_clients(value):
@@ -301,8 +308,35 @@ def parse_clients(value):
                        "particles": word("particles"), "cape": flag("cape"),
                        "skin_layers": layers if isinstance(layers, int) and not isinstance(layers, bool) and 0 <= layers <= 7 else None,
                        "host": host if HOST_RE.match(host) else None, "input": word("input"), "ui": word("ui"),
-                       "bedrock_version": text("bedrock_version", 24)})
+                       "bedrock_version": text("bedrock_version", 24), **parse_rhythm(entry)})
     return result
+
+
+def parse_rhythm(entry):
+    """The click and rhythm fields of one minute (plugin 3.30); broken values become None, and a click pattern whose
+    numbers do not fit together is dropped as a whole."""
+    def count(key, high):
+        value = entry.get(key)
+        return value if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= high else None
+
+    rhythm = entry.get("rhythm") if entry.get("rhythm") in ("tick", "move") else None
+    result = {"rhythm": rhythm, "gap_max": count("gap_max", 3_600_000), "stalls": count("stalls", 60_000),
+              "ticks": count("ticks", 60 * 40), "clicks": count("clicks", MAX_CLICKS)}
+    click = {"cps_max": count("cps_max", 64), "click_n": count("click_n", MAX_CLICKS),
+             "click_sum": count("click_sum", MAX_CLICKS * 500), "click_sq": count("click_sq", MAX_CLICKS * 500 * 500),
+             "click_min": count("click_min", 500), "doubles": count("doubles", MAX_CLICKS)}
+    hist = entry.get("click_hist")
+    hist = hist if isinstance(hist, list) and len(hist) == CLICK_HIST_BUCKETS and all(
+        isinstance(h, int) and not isinstance(h, bool) and 0 <= h <= MAX_CLICKS for h in hist) else None
+    n = click["click_n"]
+    valid = (result["clicks"] and None not in (click["cps_max"], n, click["click_sum"], click["click_sq"],
+                                               click["doubles"], hist)
+             and n <= result["clicks"] and sum(hist) == n and click["doubles"] <= n and click["click_sum"] <= n * 500
+             and (n == 0 or click["click_min"] is not None))
+    if not valid:
+        click = dict.fromkeys(click)
+        hist = None
+    return {**result, **click, "click_hist": hist}
 
 
 def parse_uuid(value):

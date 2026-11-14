@@ -651,6 +651,20 @@ MIGRATIONS = {
         """ALTER TABLE player_ping_daily ADD COLUMN spikes integer NOT NULL DEFAULT 0, ADD COLUMN brand text,
              ADD COLUMN version text, ADD COLUMN modded boolean""",
     ],
+    39: [
+        # plugin 3.30: click pattern and rhythm of the client per day (sums, so days and weeks add up exactly)
+        """ALTER TABLE player_ping_daily ADD COLUMN clicks integer NOT NULL DEFAULT 0, ADD COLUMN cps_max smallint,
+             ADD COLUMN click_n integer NOT NULL DEFAULT 0, ADD COLUMN click_sum bigint NOT NULL DEFAULT 0,
+             ADD COLUMN click_sq bigint NOT NULL DEFAULT 0, ADD COLUMN click_min smallint,
+             ADD COLUMN doubles integer NOT NULL DEFAULT 0, ADD COLUMN click_hist integer[],
+             ADD COLUMN rhythm_minutes integer NOT NULL DEFAULT 0, ADD COLUMN tick_minutes integer NOT NULL DEFAULT 0,
+             ADD COLUMN ticks integer NOT NULL DEFAULT 0, ADD COLUMN stalls integer NOT NULL DEFAULT 0,
+             ADD COLUMN gap_max integer""",
+        # outliers: the median instead of the mean (one player at 900 ms pulls the mean of everyone up);
+        # per day a histogram of the minute pings of each player, per health sample the median of the online players
+        "ALTER TABLE player_ping_daily ADD COLUMN ping_hist integer[]",
+        "ALTER TABLE server_health ADD COLUMN ping_median integer",
+    ],
 }
 # X-ray hints: the blocks a player breaks around the ore. Since the cave update (1.18) diamonds lie in deepslate, tuff
 # and the stone variants of the caves, and debris next to basalt and blackstone, not only in netherrack.
@@ -2376,7 +2390,7 @@ class DatabaseManager:
     ###----------------------------- Server health ------------------------------------###
 
     _HEALTH_FIELDS = ("tps", "mem_used_mb", "mem_max_mb", "players", "chunks", "entities", "uptime_s",
-                      "mc_version", "plugin_version", "ping_avg")
+                      "mc_version", "plugin_version", "ping_avg", "ping_median")
 
     def add_health_sample(self, server_id, sample):
         """Store one sample of the plugin (dict with _HEALTH_FIELDS) and drop old ones."""
@@ -2422,8 +2436,8 @@ class DatabaseManager:
                 brand = clients_mod.client_label(sample.get("brand"), sample.get("bedrock")) if sample.get("brand") or sample.get("bedrock") else None
                 spike = 1 if ping is not None and ping >= clients_mod.PING_SPIKE else 0
                 cur.execute("""INSERT INTO player_ping_daily (player_id, day, samples, total, min_ms, max_ms, spikes, brand,
-                                                              version, modded)
-                               VALUES (%s, current_date, %s, %s, %s, %s, %s, %s, %s, %s)
+                                                              version, modded, ping_hist)
+                               VALUES (%s, current_date, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                ON CONFLICT (player_id, day) DO UPDATE SET samples = player_ping_daily.samples + EXCLUDED.samples,
                                  total = player_ping_daily.total + EXCLUDED.total,
                                  min_ms = least(player_ping_daily.min_ms, EXCLUDED.min_ms),
@@ -2431,15 +2445,44 @@ class DatabaseManager:
                                  spikes = player_ping_daily.spikes + EXCLUDED.spikes,
                                  brand = COALESCE(EXCLUDED.brand, player_ping_daily.brand),
                                  version = COALESCE(EXCLUDED.version, player_ping_daily.version),
-                                 modded = COALESCE(EXCLUDED.modded, player_ping_daily.modded)""",
+                                 modded = COALESCE(EXCLUDED.modded, player_ping_daily.modded),
+                                 ping_hist = CASE WHEN EXCLUDED.ping_hist IS NULL THEN player_ping_daily.ping_hist
+                                                  WHEN player_ping_daily.ping_hist IS NULL THEN EXCLUDED.ping_hist
+                                                  ELSE ARRAY(SELECT a + b FROM unnest(player_ping_daily.ping_hist,
+                                                             EXCLUDED.ping_hist) AS t(a, b)) END""",
                             (row[0], 1 if ping is not None else 0, ping or 0, ping if ping is not None else 2 ** 31 - 1,
-                             ping if ping is not None else 0, spike, brand, sample.get("version"), modded))
+                             ping if ping is not None else 0, spike, brand, sample.get("version"), modded,
+                             None if ping is None else clients_mod.ping_hist_row(ping)))
+                if sample.get("rhythm"):
+                    self._add_rhythm(cur, row[0], sample)
             cur.execute("DELETE FROM player_ping_daily WHERE day < current_date - %s", (PING_RETENTION_DAYS,))
+
+    @staticmethod
+    def _add_rhythm(cur, player_id, sample):
+        """Adds one minute of click pattern and rhythm (plugin 3.30) to the player's day (the row exists)."""
+        hist = sample.get("click_hist")
+        cur.execute("""UPDATE player_ping_daily SET rhythm_minutes = rhythm_minutes + 1,
+                         tick_minutes = tick_minutes + %(tick)s, ticks = ticks + %(ticks)s,
+                         stalls = stalls + %(stalls)s, gap_max = greatest(gap_max, %(gap_max)s),
+                         clicks = clicks + %(clicks)s, cps_max = greatest(cps_max, %(cps_max)s),
+                         click_n = click_n + %(n)s, click_sum = click_sum + %(sum)s, click_sq = click_sq + %(sq)s,
+                         click_min = least(click_min, %(min)s), doubles = doubles + %(doubles)s,
+                         click_hist = CASE WHEN %(hist)s::integer[] IS NULL THEN click_hist
+                                           WHEN click_hist IS NULL THEN %(hist)s::integer[]
+                                           ELSE ARRAY(SELECT a + b FROM unnest(click_hist, %(hist)s::integer[]) AS t(a, b)) END
+                       WHERE player_id = %(player)s AND day = current_date""",
+                    {"player": player_id, "tick": 1 if sample["rhythm"] == "tick" else 0,
+                     "ticks": sample.get("ticks") or 0 if sample["rhythm"] == "tick" else 0,
+                     "stalls": sample.get("stalls") or 0, "gap_max": sample.get("gap_max"),
+                     "clicks": sample.get("clicks") or 0 if hist is not None else 0, "cps_max": sample.get("cps_max"),
+                     "n": sample.get("click_n") or 0, "sum": sample.get("click_sum") or 0,
+                     "sq": sample.get("click_sq") or 0, "min": sample.get("click_min"),
+                     "doubles": sample.get("doubles") or 0, "hist": hist})
 
     _CLIENT_COLUMNS = ("name", "uuid", "ping", "ping_avg", "ping_min", "ping_max", "spikes", "brand", "version", "locale",
                        "view_distance", "bedrock", "device", "updated_at", "online", "channels", "pack", "chat",
                        "main_hand", "chat_colors", "text_filter", "listing", "particles", "cape", "skin_layers", "host",
-                       "input", "ui", "bedrock_version", "first_seen")
+                       "input", "ui", "bedrock_version", "first_seen", "ping_hist")
 
     def get_player_clients(self, server_id, days=7, name=None):
         """Everyone with a client report, slowest connection first: dicts with _CLIENT_COLUMNS (ping_avg/min/max and
@@ -2449,7 +2492,10 @@ class DatabaseManager:
                    CASE WHEN d.samples > 0 THEN d.min_ms END, CASE WHEN d.samples > 0 THEN d.max_ms END, d.spikes,
                    c.brand, c.version, c.locale, c.view_distance, c.bedrock, c.device, c.updated_at, psi.online,
                    c.channels, c.pack, c.chat, c.main_hand, c.chat_colors, c.text_filter, c.listing, c.particles, c.cape,
-                   c.skin_layers, c.host, c.input, c.ui, c.bedrock_version, c.first_seen
+                   c.skin_layers, c.host, c.input, c.ui, c.bedrock_version, c.first_seen,
+                   (SELECT array_agg(b ORDER BY i) FROM (
+                        SELECT i, sum(h) AS b FROM player_ping_daily d2, unnest(d2.ping_hist) WITH ORDINALITY u(h, i)
+                        WHERE d2.player_id = c.player_id AND d2.day > current_date - %s GROUP BY i) x)
             FROM player_clients c
             JOIN player_server_info psi ON psi.player_id = c.player_id
             JOIN player p ON p.uuid = psi.mojang_uuid
@@ -2458,14 +2504,45 @@ class DatabaseManager:
                        FROM player_ping_daily WHERE day > current_date - %s GROUP BY player_id) d
                    ON d.player_id = c.player_id
             WHERE psi.server_id = %s {"AND lower(p.name) = lower(%s)" if name else ""}
-            ORDER BY 4 DESC NULLS LAST, p.name""", (days, server_id, name) if name else (days, server_id))
+            ORDER BY 4 DESC NULLS LAST, p.name""", (days, days, server_id, name) if name else (days, days, server_id))
         return [dict(zip(self._CLIENT_COLUMNS, row), uuid=str(row[1]), spikes=int(row[6] or 0)) for row in rows]
 
+    _RHYTHM_COLUMNS = ("rhythm_minutes", "tick_minutes", "ticks", "stalls", "gap_max", "clicks", "cps_max", "click_n",
+                       "click_sum", "click_sq", "click_min", "doubles", "click_hist")
+    _RHYTHM_SUMS = """sum(d.rhythm_minutes), sum(d.tick_minutes), sum(d.ticks), sum(d.stalls), max(d.gap_max),
+                      sum(d.clicks), max(d.cps_max), sum(d.click_n), sum(d.click_sum), sum(d.click_sq), min(d.click_min),
+                      sum(d.doubles)"""
+
+    def get_rhythm(self, server_id, days=7):
+        """{player name: dict of _RHYTHM_COLUMNS summed over the last `days` days} for everyone with rhythm data
+        (plugin 3.30); click_hist adds the buckets up."""
+        rows = self._fetchall(f"""
+            SELECT p.name, {self._RHYTHM_SUMS},
+                   (SELECT array_agg(b ORDER BY i) FROM (
+                        SELECT i, sum(h) AS b FROM player_ping_daily d2, unnest(d2.click_hist) WITH ORDINALITY u(h, i)
+                        WHERE d2.player_id = d.player_id AND d2.day > current_date - %s GROUP BY i) x)
+            FROM player_ping_daily d JOIN player_server_info psi ON psi.player_id = d.player_id
+            JOIN player p ON p.uuid = psi.mojang_uuid
+            WHERE psi.server_id = %s AND d.day > current_date - %s AND d.rhythm_minutes > 0
+            GROUP BY p.name, d.player_id""", (days, server_id, days))
+        return {row[0]: dict(zip(self._RHYTHM_COLUMNS, (int(v) if v is not None and not isinstance(v, list) else v
+                                                        for v in row[1:]))) for row in rows}
+
+    def get_rhythm_days(self, server_id, name, days=90):
+        """[(day, dict of _RHYTHM_COLUMNS)] of one player with rhythm data, oldest first."""
+        rows = self._fetchall(f"""
+            SELECT d.day, {", ".join("d." + c for c in self._RHYTHM_COLUMNS)}
+            FROM player_ping_daily d JOIN player_server_info psi ON psi.player_id = d.player_id
+            JOIN player p ON p.uuid = psi.mojang_uuid
+            WHERE psi.server_id = %s AND lower(p.name) = lower(%s) AND d.day > current_date - %s AND d.rhythm_minutes > 0
+            ORDER BY d.day""", (server_id, name, days))
+        return [(row[0], dict(zip(self._RHYTHM_COLUMNS, row[1:]))) for row in rows]
+
     def get_ping_days(self, server_id, name, days=90):
-        """[(day, avg, min, max, spikes, brand, version)] of one player, oldest first."""
+        """[(day, avg, min, max, spikes, brand, version, ping histogram)] of one player, oldest first."""
         return self._fetchall("""
             SELECT d.day, d.total::float / NULLIF(d.samples, 0), CASE WHEN d.samples > 0 THEN d.min_ms END,
-                   CASE WHEN d.samples > 0 THEN d.max_ms END, d.spikes, d.brand, d.version
+                   CASE WHEN d.samples > 0 THEN d.max_ms END, d.spikes, d.brand, d.version, d.ping_hist
             FROM player_ping_daily d JOIN player_server_info psi ON psi.player_id = d.player_id
             JOIN player p ON p.uuid = psi.mojang_uuid
             WHERE psi.server_id = %s AND lower(p.name) = lower(%s) AND d.day > current_date - %s
@@ -2482,9 +2559,10 @@ class DatabaseManager:
             GROUP BY g.day ORDER BY g.day""", (days, server_id))
 
     def get_ping_by_hour(self, server_id, days=7):
-        """[(hour 0-23, average ping)] of the health samples of the last `days` days (local time)."""
+        """[(hour 0-23, median ping)] of the health samples of the last `days` days (local time)."""
         return self._fetchall("""
-            SELECT h.hour, avg(s.ping_avg) FROM generate_series(0, 23) h(hour)
+            SELECT h.hour, percentile_cont(0.5) WITHIN GROUP (ORDER BY COALESCE(s.ping_median, s.ping_avg))
+            FROM generate_series(0, 23) h(hour)
             LEFT JOIN server_health s ON s.server_id = %s AND s.ping_avg IS NOT NULL
                  AND s.at > now() - %s * interval '1 day' AND extract(hour FROM s.at) = h.hour
             GROUP BY h.hour ORDER BY h.hour""", (server_id, days))
@@ -2494,11 +2572,12 @@ class DatabaseManager:
         return self.get_ping_history(server_id, days * 24, 60)
 
     def get_ping_history(self, server_id, hours=24, bucket_minutes=10):
-        """[(bucket start, average ping of the online players)] of the last `hours` hours, from the health samples."""
+        """[(bucket start, typical ping of the online players)] of the last `hours` hours: the median of the minutes'
+        medians (the mean before plugin 3.30), from the health samples."""
         return self._fetchall("""
             WITH buckets AS (SELECT generate_series(date_trunc('hour', now()) - %s * interval '1 hour', now(),
                                                     %s * interval '1 minute') AS start)
-            SELECT b.start, avg(h.ping_avg)
+            SELECT b.start, percentile_cont(0.5) WITHIN GROUP (ORDER BY COALESCE(h.ping_median, h.ping_avg))
             FROM buckets b LEFT JOIN server_health h ON h.server_id = %s AND h.ping_avg IS NOT NULL
                  AND h.at >= b.start AND h.at < b.start + %s * interval '1 minute'
             GROUP BY b.start ORDER BY b.start""", (hours, bucket_minutes, server_id, bucket_minutes))

@@ -70,6 +70,7 @@ public final class MCDataLink extends JavaPlugin {
     private BanSync banSync;
     private HealthReporter healthReporter;
     private ClientReporter clientReporter;
+    private InputRhythm inputRhythm;
     private InGameCommands commands;
     private Sidebar sidebar;
     private Moderation moderation;
@@ -106,6 +107,10 @@ public final class MCDataLink extends JavaPlugin {
                 getConfig().getBoolean("prefix.tablist", true), getConfig().getBoolean("prefix.nametag", true));
         banSync = new BanSync(this);
         getServer().getScheduler().runTaskTimer(this, this::sendBanList, BAN_SYNC_INTERVAL_TICKS, BAN_SYNC_INTERVAL_TICKS);
+        if (getConfig().getBoolean("input-analysis", true)) {
+            inputRhythm = new InputRhythm(this);
+            inputRhythm.start();
+        }
         clientReporter = new ClientReporter(this);
         clientReporter.start();
         healthReporter = new HealthReporter(this);
@@ -155,6 +160,7 @@ public final class MCDataLink extends JavaPlugin {
         running = false;
         MCConnect.setRegistry(null);
         if (nameBadges != null) nameBadges.disable();
+        if (inputRhythm != null) inputRhythm.stop();
         if (authenticated) trySend("!DISCONNECT");
         closeSocket();
         if (worker != null) worker.shutdownNow();
@@ -476,6 +482,11 @@ public final class MCDataLink extends JavaPlugin {
     /** Main thread: connection and client of the online players as JSON (see ClientReporter). */
     void sendClients(String json) {
         if (authenticated) sendAsync("!CLIENTS~" + json);
+    }
+
+    /** Null if switched off in the config. */
+    InputRhythm inputRhythm() {
+        return inputRhythm;
     }
 
     ClientReporter clientReporter() {

@@ -23,7 +23,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * ping, client brand (vanilla, fabric, ...), client version (with ViaVersion), language, view distance and whether
  * the player plays Bedrock (with Floodgate: device, input, UI and version). Since 3.29 also the plugin channels the
  * client registered (they show its mods), the status of the resource pack, the client options (chat, main hand,
- * particles, ... on Paper) and the address the player joined with. Only moderators see it. No IP addresses.
+ * particles, ... on Paper) and the address the player joined with. Since 3.30 the click patterns and the rhythm of
+ * the client (see InputRhythm). Only moderators see it. No IP addresses.
  *
  * Everything newer than the 1.13 API is read by reflection, so older servers simply send fewer fields.
  */
@@ -104,6 +105,19 @@ final class ClientReporter implements Listener, PluginMessageListener {
         return count == 0 ? -1 : Math.round(total / (float) count);
     }
 
+    /** Main thread: median ping of the online players, or -1 without any (3.30; one bad connection does not move it). */
+    int medianPing() {
+        java.util.List<Integer> pings = new java.util.ArrayList<>();
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            int ping = ping(player);
+            if (ping >= 0) pings.add(ping);
+        }
+        if (pings.isEmpty()) return -1;
+        java.util.Collections.sort(pings);
+        int middle = pings.size() / 2;
+        return pings.size() % 2 == 1 ? pings.get(middle) : Math.round((pings.get(middle - 1) + pings.get(middle)) / 2f);
+    }
+
     /** Main thread: one entry per online player. */
     void report() {
         if (plugin.getServer().getOnlinePlayers().isEmpty()) return;
@@ -133,6 +147,11 @@ final class ClientReporter implements Listener, PluginMessageListener {
             appendText(json, "hand", text(hand));
             appendClientOptions(json, player);
             appendChannels(json, player);
+            InputRhythm rhythm = plugin.inputRhythm();
+            if (rhythm != null) {
+                String timing = rhythm.report(uuid);  // drained even for Bedrock, so the counters stay per minute
+                if (floodgate == null) json.append(timing);  // Geyser makes up the packets of Bedrock players
+            }
             json.append('}');
         }
         plugin.sendClients(json.append(']').toString());

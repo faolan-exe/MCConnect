@@ -342,7 +342,7 @@ def test_migration_from_version_1(db):
     with db._cursor() as cur:
         # back to schema version 1
         cur.execute("DROP TABLE player_ping_daily, player_clients")  # schema 37 and 38
-        cur.execute("ALTER TABLE server_health DROP COLUMN ping_avg")
+        cur.execute("ALTER TABLE server_health DROP COLUMN ping_avg, DROP COLUMN ping_median")  # schema 37 and 39
         cur.execute("DROP TABLE xray_dismissed")
         cur.execute("ALTER TABLE servers DROP COLUMN addon_mods_protected")
         cur.execute("DROP TABLE plugin_tasks")
