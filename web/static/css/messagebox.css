@@ -1,0 +1,119 @@
+/* Message boxes of web/static/messagebox.js (login, logout question). Needs fonts.css. Dark mode: <html data-dark>
+   (set by _theme.html). */
+
+.mbx {
+  --mbx-bg: #ffffff;
+  --mbx-text: #1b1f1d;
+  --mbx-muted: #5c6862;
+  --mbx-border: #dfe3df;
+  --mbx-accent: #2fbf62;
+  --mbx-accent-text: #1f8f47;
+  --mbx-btn: #2fbf62;
+  --mbx-btn-hover: #1f8f47;
+  --mbx-btn-text: #ffffff;
+  --mbx-secondary: #f1f2f0;
+  --mbx-secondary-hover: #e4e7e3;
+  box-sizing: border-box;
+  width: min(440px, calc(100vw - 32px));
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--mbx-border);
+  border-top: 4px solid var(--mbx-accent);
+  border-radius: 14px;
+  background: var(--mbx-bg);
+  color: var(--mbx-text);
+  font-family: var(--font-body, sans-serif);
+  font-size: 16px;
+  line-height: 1.5;
+  box-shadow: 0 24px 60px -12px rgba(10, 14, 12, 0.45);
+}
+.mbx::backdrop { background: rgba(10, 14, 12, 0.55); }
+.mbx-warning { --mbx-accent: #e0a100; --mbx-accent-text: #8a5d00; }
+.mbx-error { --mbx-accent: #d93b3b; --mbx-accent-text: #b52f2f; }
+
+.mbx-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 2px 12px;
+  padding: 18px 20px 0;
+}
+.mbx-kind {
+  grid-column: 1;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mbx-accent-text);
+}
+.mbx h2 {
+  grid-column: 1;
+  margin: 0;
+  font-family: var(--font-display, sans-serif);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.mbx-close {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  width: 36px;
+  height: 36px;
+  margin: -6px -8px 0 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--mbx-muted);
+  font: inherit;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.mbx-close:hover { background: var(--mbx-secondary); color: var(--mbx-text); }
+
+.mbx-text { margin: 10px 20px 0; color: var(--mbx-muted); white-space: pre-line; overflow-wrap: anywhere; }
+
+.mbx-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding: 20px; }
+.mbx-btn {
+  min-width: 88px;
+  padding: 9px 18px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: var(--mbx-btn);
+  color: var(--mbx-btn-text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.mbx-btn:hover { background: var(--mbx-btn-hover); }
+.mbx-btn-secondary { background: var(--mbx-secondary); color: var(--mbx-text); border-color: var(--mbx-border); }
+.mbx-btn-secondary:hover { background: var(--mbx-secondary-hover); }
+.mbx-btn:focus-visible, .mbx-close:focus-visible { outline: 2px solid var(--mbx-accent); outline-offset: 2px; }
+.mbx-error .mbx-btn:not(.mbx-btn-secondary) { --mbx-btn: #d93b3b; --mbx-btn-hover: #b52f2f; }
+
+:root[data-dark] .mbx {
+  --mbx-bg: #161d1a;
+  --mbx-text: #e8ede9;
+  --mbx-muted: #a3aea8;
+  --mbx-border: #28322d;
+  --mbx-accent: #38c96f;
+  --mbx-accent-text: #6ee09a;
+  --mbx-btn: #38c96f;
+  --mbx-btn-hover: #5fd68a;
+  --mbx-btn-text: #0b1a10;
+  --mbx-secondary: #1e2723;
+  --mbx-secondary-hover: #27322d;
+  color-scheme: dark;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 24px 60px -12px rgba(0, 0, 0, 0.9);
+}
+:root[data-dark] .mbx::backdrop { background: rgba(0, 0, 0, 0.65); }
+:root[data-dark] .mbx-warning { --mbx-accent: #e8b23a; --mbx-accent-text: #ffd27a; }
+:root[data-dark] .mbx-error { --mbx-accent: #e05656; --mbx-accent-text: #ffaaaa; }
+:root[data-dark] .mbx-error .mbx-btn:not(.mbx-btn-secondary) { --mbx-btn: #e05656; --mbx-btn-hover: #ea7373; --mbx-btn-text: #1a0b0b; }
+
+@media (max-width: 600px) {
+  .mbx-actions { padding: 18px 16px 16px; }
+  .mbx-btn { flex: 1 1 0; min-height: 44px; }
+  .mbx-head { padding: 16px 16px 0; }
+  .mbx-text { margin: 10px 16px 0; }
+}

@@ -188,7 +188,8 @@ Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss 
   MineRender on the player page) and inline `<script nonce="{{ csp_nonce() }}">` only. **New inline scripts need
   the nonce; `onclick=` does not work** – use `data-on-click="function"` (`web/static/actions.js`) or
   `addEventListener`. MineRender's page view counter (minerender.org) is blocked on purpose.
-- The dialog library (`messageBoxes.js`) is vendored in `web/static/vendor/messageBoxLib/` (fixed commit).
+- Message boxes (login, logout question): `web/static/messagebox.js` + `css/messagebox.css`, on the browser's
+  `<dialog>`, with the calls of the earlier messageBoxLib (`messagebox_info/warning/error`).
 
 ### Open
 

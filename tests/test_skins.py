@@ -292,3 +292,10 @@ def test_a_host_that_does_not_answer_is_skipped_for_a_while(monkeypatch):
     monkeypatch.setattr(skins, "_down_until", {"mc-heads.net": 0})
     skins._get("https://mc-heads.net/skin/c")
     assert len(calls) == 3
+
+
+def test_minerender_does_not_report_page_views(client, online_player):
+    """MineRender posts every page view to minerender.org/stats.php unless sendStats is off (the CSP blocked it and
+    the console showed the error)."""
+    html = client.get("/spieler?player=_Tobias4444", **on("testdomain")).get_data(as_text=True)
+    assert "sendStats: false," in html

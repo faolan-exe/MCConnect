@@ -738,6 +738,8 @@
       if (window.SkinRender) {
       var skinRender = new SkinRender(
         {
+          // MineRender reports every page view to minerender.org/stats.php by default (blocked by the CSP anyway)
+          sendStats: false,
           autoResize: true,
           canvas: {
             width: 350,
