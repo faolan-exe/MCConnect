@@ -37,3 +37,17 @@ jobs:
         run: python tools/codemap.py --check
       - name: Tests
         run: pytest -q
+
+  plugins:
+    # the same Maven build as the Dockerfile: MCDataLink and every addon in one go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: Build MCDataLink and the addons
+        working-directory: java plugin
+        run: mvn -q -B package
