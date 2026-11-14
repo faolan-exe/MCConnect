@@ -139,7 +139,7 @@ def test_moderators_see_names_without_account(mod_client, db, server):
     db.redeem_invite_code(server["id"], "MrSchief4120", "HERBST-26")
     db.mark_whitelist_unknown(server["id"], "MrSchief4120")
     html = mod_client.get("/users/zugang", **on("testdomain")).get_data(as_text=True)
-    assert "diesen Minecraft-Namen gibt es nicht" in html and "wartet aufs Plugin" not in html
+    assert "Minecraft-Namen gibt es nicht" not in html and "wartet aufs Plugin" not in html
 
 
 def test_invite_codes(client, mod_client, db, server):
@@ -248,11 +248,32 @@ def test_warn_and_mute_on_the_website(mod_client, db, server, two_players):
 
 def test_xray_hints(mod_client, db, server, two_players):
     a, b = two_players
-    db.update_player_stats(b, {"stats": {"minecraft:mined": {"minecraft:stone": 2500, "minecraft:deepslate_diamond_ore": 40}}})
-    db.update_player_stats(a, {"stats": {"minecraft:mined": {"minecraft:stone": 9000, "minecraft:diamond_ore": 12}}})
+    db.update_player_stats(b, {"stats": {"minecraft:mined": {"minecraft:stone": 2500, "minecraft:deepslate": 2500,
+                                                              "minecraft:deepslate_diamond_ore": 90}}})
+    # a cave miner: many diamonds, little stone, but within what open caves give since 1.18
+    db.update_player_stats(a, {"stats": {"minecraft:mined": {"minecraft:deepslate": 6000, "minecraft:tuff": 2000,
+                                                              "minecraft:andesite": 1000, "minecraft:diamond_ore": 80}}})
     html = mod_client.get("/users/spieler", **on("testdomain")).get_data(as_text=True)
     section = html.split('id="xray"')[1].split("</section>")[0]
-    assert "Notch" in section and "16,0" in section and "_Tobias4444" not in section
+    assert "Notch" in section and "18,0" in section and "_Tobias4444" not in section
+
+
+def test_checked_xray_hint_stays_hidden_until_more_ore(mod_client, db, server, two_players):
+    _, b = two_players
+    db.update_player_stats(b, {"stats": {"minecraft:mined": {"minecraft:stone": 5000, "minecraft:diamond_ore": 90}}})
+    assert mod_client.post("/api/mod/xray/dismiss", json={"id": str(b)}, **on("testdomain")).status_code == 200
+    assert db.get_mod_log(server["id"])[0]["action"] == "xray_dismiss"
+    section = lambda: mod_client.get("/users/spieler", **on("testdomain")).get_data(as_text=True).split('id="xray"')[1]  # noqa: E731
+    assert "Notch" not in section().split("</section>")[0]
+    assert mod_client.post("/api/mod/xray/dismiss", json={"id": str(b)}, **on("testdomain")).status_code == 404
+    db.update_player_stats(b, {"stats": {"minecraft:mined": {"minecraft:stone": 6000, "minecraft:diamond_ore": 119}}})
+    assert "Notch" not in section().split("</section>")[0]  # 29 more: still hidden
+    db.update_player_stats(b, {"stats": {"minecraft:mined": {"minecraft:stone": 6000, "minecraft:diamond_ore": 120}}})
+    assert "Notch" in section().split("</section>")[0]  # 30 more and still a high rate
+
+
+def test_xray_dismiss_only_on_the_own_server(mod_client, db, server, two_players):
+    assert mod_client.post("/api/mod/xray/dismiss", json={"id": "not-a-player"}, **on("testdomain")).status_code == 404
 
 
 def test_rules_page_and_first_join(mod_client, client, db, server, plugin):
