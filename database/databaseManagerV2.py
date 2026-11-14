@@ -603,6 +603,10 @@ MIGRATIONS = {
         # the owner lets moderators also change the protected fields of addon settings ("owner_only", e.g. item data)
         "ALTER TABLE servers ADD COLUMN addon_mods_protected boolean NOT NULL DEFAULT false",
     ],
+    35: [
+        # an accepted name the server cannot whitelist because Mojang has no such account: not sent again (ADR 0011)
+        "ALTER TABLE access_requests ADD COLUMN unknown_name boolean NOT NULL DEFAULT false",
+    ],
 }
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
@@ -3299,7 +3303,7 @@ class DatabaseManager:
 
     ###----------------------------- Whitelist access ------------------------------------###
 
-    _REQUEST_COLUMNS = "id, server_id, name, message, kind, status, created_at, handled_by, handled_at, synced"
+    _REQUEST_COLUMNS = "id, server_id, name, message, kind, status, created_at, handled_by, handled_at, synced, unknown_name"
 
     def _request(self, row):
         return dict(zip([c.strip() for c in self._REQUEST_COLUMNS.split(",")], row))
@@ -3381,8 +3385,8 @@ class DatabaseManager:
             cur.execute("""SELECT 1 FROM access_requests WHERE server_id = %s AND lower(name) = lower(%s)
                              AND status = 'accepted'""", (server_id, name))
             if cur.fetchone():
-                cur.execute("""UPDATE access_requests SET synced = false WHERE server_id = %s AND lower(name) = lower(%s)
-                                 AND status = 'accepted'""", (server_id, name))
+                cur.execute("""UPDATE access_requests SET synced = false, unknown_name = false
+                               WHERE server_id = %s AND lower(name) = lower(%s) AND status = 'accepted'""", (server_id, name))
                 return "resent"
             cur.execute("UPDATE invite_codes SET uses = uses + 1 WHERE id = %s", (row[0],))
             cur.execute("""UPDATE access_requests SET status = 'rejected', handled_by = 'Einladungscode', handled_at = now()
@@ -3393,19 +3397,29 @@ class DatabaseManager:
         return "ok"
 
     def get_unsynced_whitelist(self, server_id):
-        """Names accepted but not yet sent to the plugin."""
+        """Names accepted but not yet sent to the plugin (without names Mojang does not know, see mark_whitelist_unknown)."""
         return [row[0] for row in self._fetchall("""SELECT name FROM access_requests
                                                    WHERE server_id = %s AND status = 'accepted' AND NOT synced
+                                                     AND NOT unknown_name
                                                    ORDER BY handled_at""", (server_id,))]
 
     def mark_whitelist_synced(self, server_id, names):
-        self._execute("""UPDATE access_requests SET synced = true WHERE server_id = %s AND status = 'accepted'
-                           AND lower(name) = ANY(%s)""", (server_id, [n.lower() for n in names]))
+        self._execute("""UPDATE access_requests SET synced = true, unknown_name = false
+                           WHERE server_id = %s AND status = 'accepted' AND lower(name) = ANY(%s)""",
+                      (server_id, [n.lower() for n in names]))
 
     def mark_whitelist_unsynced(self, server_id, name):
         """The plugin could not put the name on the whitelist: send it again later."""
         self._execute("""UPDATE access_requests SET synced = false WHERE server_id = %s AND status = 'accepted'
                            AND lower(name) = lower(%s)""", (server_id, name))
+
+    def mark_whitelist_unknown(self, server_id, name):
+        """
+        The server could not whitelist the name and Mojang has no account of that name (a typo): it is not sent
+        again, every try only filled the server console. Redeeming a code with the name again sends it once more.
+        """
+        self._execute("""UPDATE access_requests SET synced = false, unknown_name = true WHERE server_id = %s
+                           AND status = 'accepted' AND lower(name) = lower(%s)""", (server_id, name))
 
     ###----------------------------- Warnings and mutes ------------------------------------###
 

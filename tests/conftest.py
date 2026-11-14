@@ -31,8 +31,15 @@ class FakeMinecraft:
     """Offline replacement for the playerdb.co lookup."""
     names = {PLAYER_UUID: "_Tobias4444", OTHER_UUID: "Notch"}
 
+    missing = set()  # names Mojang has no account of (lower case); other unknown names: Mojang cannot be asked
+
     def get_player_name_from_mojang_uuid_online(self, uuid):
         return self.names.get(str(uuid))
+
+    def name_exists(self, name):
+        if name.lower() in self.missing:
+            return False
+        return True if name in self.names.values() else None
 
 
 def _ensure_test_database():

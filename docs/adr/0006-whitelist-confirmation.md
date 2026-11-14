@@ -24,4 +24,5 @@ marked the names as synced when it sent them. The players were "freigeschaltet" 
 
 - A temporary Mojang outage only delays the entry; it no longer loses it.
 - A name that does not exist (typo) is retried every 5 minutes and stays "wartet aufs Plugin" until a moderator sees it.
+  Replaced by [ADR 0011](0011-unknown-whitelist-names.md): such names are not sent again.
 - A player who is already accepted can redeem a valid code again to be sent once more (without using it up).

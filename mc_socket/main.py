@@ -49,9 +49,10 @@ Plugin -> server:
                                  never taken for a /pardon)
     !UNBANNED~<uuid>|<1|0>|<name>   after !unban (3.27); the unban stays in plugin_tasks until 1
     !UNWHITELISTED~<name>|<1|0>  after !whitelist~remove (3.27); the removal stays in plugin_tasks until 1
-    !WHITELISTED~<name>|<1|0>    after !whitelist~add: whether the name is on the server's whitelist now (3.26).
+    !WHITELISTED~<name>|<1|0>    after !whitelist~add: whether the name is on the server's whitelist now (3.26);
                                  0 (e.g. the server could not reach Mojang to look up the name): the name is sent
-                                 again every WHITELIST_RETRY_INTERVAL seconds and after every reconnect
+                                 again every WHITELIST_RETRY_INTERVAL seconds and after every reconnect; unless
+                                 Mojang has no account of that name (a typo): then it is not sent again (ADR 0011)
     !DISCONNECT                  close the connection
 
 Server -> plugin:
@@ -678,8 +679,22 @@ class SocketServer:
         if ok == "1":
             self.db.mark_whitelist_synced(server_id, [name])
         else:
-            logger.warning(f"Server {server_id} could not put {name} on the whitelist, trying again later")
             self.db.mark_whitelist_unsynced(server_id, name)
+            # asking Mojang takes up to seconds: not in the thread that reads the plugin's messages
+            self._spawn(self._check_unknown_name, server_id, name, name="whitelist-name")
+
+    def _check_unknown_name(self, server_id, name):
+        """
+        The server could not whitelist the name. Mojang down: tried again later (ADR 0006). No account of that name
+        (a typo in the application): not sent again, every try only put "That player does not exist" into the
+        server console; the moderation page says so (ADR 0011). Offline mode servers never get here, they whitelist
+        any name.
+        """
+        if self.db.minecraft.name_exists(name) is False:
+            logger.warning(f"Server {server_id}: Mojang has no account {name}, not sent to the whitelist again")
+            self.db.mark_whitelist_unknown(server_id, name)
+        else:
+            logger.warning(f"Server {server_id} could not put {name} on the whitelist, trying again later")
 
     @staticmethod
     def until_text(until_ms, with_year=False):
