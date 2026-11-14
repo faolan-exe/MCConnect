@@ -3007,7 +3007,12 @@ def current_admin_id():
     if "admin_valid" in g:
         return admin_id if g.admin_valid else None
     changed_at = db().get_admin_password_changed_at(admin_id)
-    g.admin_valid = changed_at is not None and session.get("admin_login_at", 0) >= changed_at
+    # The session keeps the password's change time from the login; any later change makes them differ. A plain
+    # comparison of the login time with the change time would depend on the clocks of web server and database.
+    if "admin_password_at" in session:
+        g.admin_valid = changed_at is not None and session["admin_password_at"] == changed_at
+    else:  # sessions from before this check
+        g.admin_valid = changed_at is not None and session.get("admin_login_at", 0) >= changed_at
     if not g.admin_valid:
         session.clear()
         return None
@@ -3199,6 +3204,7 @@ def server_login_api():
         session.clear()
         session["admin_id"], session["admin_username"] = admin
         session["admin_login_at"] = time.time()
+        session["admin_password_at"] = db().get_admin_password_changed_at(admin[0])
         session.permanent = True
         return ("", 200)
     return ("", 400)
@@ -3827,6 +3833,8 @@ def create_app(db_manager=None, config_overrides=None):
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
     app.extensions["mcconnect_db"] = db_manager or DatabaseManager()
+    manager = app.extensions["mcconnect_db"]
+    skins.is_known = lambda mojang_uuid: bool(manager.is_known_mojang_uuid(mojang_uuid))  # only their skins are fetched
     app.extensions["mcconnect_live"] = LiveCache()
     app.extensions["mcconnect_limits"] = {
         "invite_code": RateLimiter(10, 600),       # per client address, against guessing codes
@@ -3844,6 +3852,14 @@ def create_app(db_manager=None, config_overrides=None):
     @app.errorhandler(413)
     def too_large(error):
         return {"error": f"Die Datei ist zu groß (maximal {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)."}, 413
+
+    @app.before_request
+    def force_https():
+        """Behind the proxy, a visit over plain http goes to https: the cookies are secure-only there, so a login over
+        http would silently fail (and send the password unencrypted). Only when the proxy says so in
+        X-Forwarded-Proto, so direct calls inside the network (health check) are untouched."""
+        if config.PUBLIC_SCHEME == "https" and request.headers.get("X-Forwarded-Proto", "").lower() == "http":
+            return redirect(request.url.replace("http://", "https://", 1), 301 if request.method in ("GET", "HEAD") else 308)
 
     @app.before_request
     def refuse_odd_input():
@@ -3868,6 +3884,8 @@ def create_app(db_manager=None, config_overrides=None):
         response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        if request.is_secure:  # browsers then never try http again (all pages are below the one https domain)
+            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         # Scripts only from here, the static files of the main domain and inline <script nonce>; no inline event
         # handlers (web/static/actions.js replaces them).
         if response.mimetype == "text/html":

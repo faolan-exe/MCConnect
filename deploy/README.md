@@ -114,7 +114,9 @@ Cloudflare → *My Profile → API Tokens → Create Token* → Vorlage **„Edi
 
 *Tab „SSL“*
 - SSL Certificate: *Request a new SSL Certificate*
-- Force SSL: an, HTTP/2 Support: an
+- Force SSL: an, HTTP/2 Support: an, HSTS: an
+  (MCConnect leitet `http://` inzwischen auch selbst auf `https://` um und sendet HSTS, sobald der NPM
+  `X-Forwarded-Proto` mitschickt. Force SSL im NPM spart den Umweg über den Container.)
 - **Use a DNS Challenge**: an → DNS Provider **Cloudflare** → in *Credentials File Content* den
   Platzhalter-Token ersetzen:
   ```
@@ -210,6 +212,7 @@ docker compose start web socket
 | Zertifikat wird nicht ausgestellt | NPM-Log. Token-Berechtigung „DNS Edit“ für `tobisit.de`? Beide Domains im Proxy-Host eingetragen? |
 | Seite lädt ohne Design | `https://mc.tobisit.de/static/css/admin.css` erreichbar? Ist `*.mc` **und** `mc` im Proxy-Host eingetragen? |
 | Unbekannte Subdomain → 404 | So gewollt. Nur angelegte Server haben eine Seite |
+| Login klappt über `http://` nicht | Die Cookies gelten nur über HTTPS. `curl -I http://mc.tobisit.de/` muss auf `https://` umleiten (301). Sonst im NPM *Force SSL* einschalten |
 | Plugin verbindet nicht | Vom Minecraft-Server aus `nc -vz mc.tobisit.de 9991`. Portweiterleitung auf den LXC? `docker compose logs socket` |
 | „MCConnect rejected the server key“ | Der Key in `config.yml` passt nicht. Auf der Verwaltungsseite neu kopieren |
 | PIN kommt nicht an | Plugin verbunden (Verwaltungsseite)? Spieler online? `docker compose logs socket` |
