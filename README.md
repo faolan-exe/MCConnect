@@ -205,7 +205,8 @@ Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss 
 
 - UI texts in German with "du", code/comments/commits in English, **no co-author or "generated" lines in commits**.
   Minecraft names the way players say them (Ancient Debris, not "Antiker Schutt"). A calm, serious look:
-  fonts Chakra Petch / Atkinson Hyperlegible / JetBrains Mono (self-hosted), no playful animations, no external
+  fonts Big Shoulders Display / Schibsted Grotesk / Martian Mono (self-hosted, `fonts.css`; the stat card uses the
+  same as TTF in `web/card_fonts/`), no playful animations, no external
   CDNs for new things.
 - Take screenshots before finishing (headless Chrome with `--host-resolver-rules`; pages that need a login are
   rendered with `app.test_client()` and `session_transaction`).

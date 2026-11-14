@@ -341,6 +341,7 @@ def test_email_verification_expires(db):
 def test_migration_from_version_1(db):
     with db._cursor() as cur:
         # back to schema version 1
+        cur.execute("DROP TABLE xray_dismissed")
         cur.execute("ALTER TABLE servers DROP COLUMN addon_mods_protected")
         cur.execute("DROP TABLE plugin_tasks")
         cur.execute("DROP TABLE discoveries")

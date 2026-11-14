@@ -270,14 +270,26 @@ def test_faq_blocks():
     assert web.faq_entries(None) == []
 
 
-@pytest.mark.parametrize("diamonds,stone,flagged", [(15, 2500, True), (14, 2000, False), (15, 2501, False),
-                                                    (15, 1999, False), (30, 5000, True)])
+@pytest.mark.parametrize("diamonds,stone,flagged", [(75, 5000, True), (40, 2667, False), (75, 5001, False),
+                                                    (39, 2600, False), (40, 2666, False), (60, 4000, False),
+                                                    (100, 6667, False), (100, 6666, True)])
 def test_xray_hint_edges(app, db, server, two_players, diamonds, stone, flagged):
-    """Diamonds: at least 15 ore, 2000 stone and 6 ore per 1000 stone."""
+    """Diamonds: at least 40 ore, 5000 stone blocks and 15 ore per 1000 of them (cave mining since 1.18 reaches 5-10)."""
     db.update_player_stats(two_players[1], {"stats": {"minecraft:mined": {
         "minecraft:diamond_ore": diamonds, "minecraft:stone": stone}}})
     with app.app_context():
         names = [h["name"] for h in web.xray_hints(server["id"]) if "diamonds" in h["flags"]]
+    assert ("Notch" in names) == flagged
+
+
+@pytest.mark.parametrize("debris,netherrack,flagged", [(36, 3000, True), (35, 3000, False), (20, 1667, False),
+                                                       (19, 1500, False), (60, 5000, True), (60, 5001, False)])
+def test_xray_debris_edges(app, db, server, two_players, debris, netherrack, flagged):
+    """Debris: at least 20, 3000 netherrack/basalt/blackstone and 12 per 1000 of them."""
+    db.update_player_stats(two_players[1], {"stats": {"minecraft:mined": {
+        "minecraft:ancient_debris": debris, "minecraft:netherrack": netherrack - 500, "minecraft:basalt": 500}}})
+    with app.app_context():
+        names = [h["name"] for h in web.xray_hints(server["id"]) if "debris" in h["flags"]]
     assert ("Notch" in names) == flagged
 
 

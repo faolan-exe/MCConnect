@@ -607,7 +607,21 @@ MIGRATIONS = {
         # an accepted name the server cannot whitelist because Mojang has no such account: not sent again (ADR 0011)
         "ALTER TABLE access_requests ADD COLUMN unknown_name boolean NOT NULL DEFAULT false",
     ],
+    36: [
+        # an x-ray hint a moderator checked: hidden until the player mined clearly more ore than at that time
+        """CREATE TABLE xray_dismissed(
+             player_id uuid PRIMARY KEY REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             diamonds integer NOT NULL,
+             debris integer NOT NULL,
+             dismissed_by text,
+             at timestamptz NOT NULL DEFAULT now())""",
+    ],
 }
+# X-ray hints: the blocks a player breaks around the ore. Since the cave update (1.18) diamonds lie in deepslate, tuff
+# and the stone variants of the caves, and debris next to basalt and blackstone, not only in netherrack.
+XRAY_STONE_BLOCKS = ("minecraft:stone", "minecraft:deepslate", "minecraft:tuff", "minecraft:andesite", "minecraft:diorite",
+                     "minecraft:granite")
+XRAY_NETHER_BLOCKS = ("minecraft:netherrack", "minecraft:basalt", "minecraft:blackstone")
 MAX_GALLERY_IMAGES = 12
 # A session that ended less than this ago is continued on the next join (plugin reconnects).
 SESSION_MERGE_SECONDS = 120
@@ -3468,24 +3482,43 @@ class DatabaseManager:
 
     ###----------------------------- X-ray hints ------------------------------------###
 
+    def dismiss_xray_hint(self, server_id, player_id, diamonds, debris, dismissed_by):
+        """Hide the player's x-ray hint at these ore counts. Returns the player's name, or None (not on this server)."""
+        with self._cursor() as cur:
+            cur.execute("""SELECT p.name FROM player_server_info psi JOIN player p ON p.uuid = psi.mojang_uuid
+                           WHERE psi.player_id = %s AND psi.server_id = %s""", (player_id, server_id))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            cur.execute("""INSERT INTO xray_dismissed (player_id, diamonds, debris, dismissed_by) VALUES (%s, %s, %s, %s)
+                           ON CONFLICT (player_id) DO UPDATE SET diamonds = EXCLUDED.diamonds, debris = EXCLUDED.debris,
+                             dismissed_by = EXCLUDED.dismissed_by, at = now()""",
+                        (player_id, diamonds, debris, dismissed_by))
+            return row[0]
+
     def get_mining_ratios(self, server_id):
-        """[{"player_id", "name", "uuid", "stone", "diamonds", "netherrack", "debris", "hours"}] of all players (raw counts)."""
+        """[{"player_id", "name", "uuid", "stone", "diamonds", "netherrack", "debris", "hours", "dismissed"}] of all
+        players (raw counts; "dismissed": (diamonds, debris) when a moderator checked the hint, else None). "stone" are
+        the stone blocks of the diamond layers, "netherrack" the common blocks of the debris layers."""
         rows = self._fetchall("""
             SELECT psi.player_id, p.name, psi.mojang_uuid,
                    COALESCE(sum(a.value) FILTER (WHERE a.category = %s AND a.object = ANY(%s)), 0),
                    COALESCE(sum(a.value) FILTER (WHERE a.category = %s AND a.object = ANY(%s)), 0),
-                   COALESCE(sum(a.value) FILTER (WHERE a.category = %s AND a.object = 'minecraft:netherrack'), 0),
+                   COALESCE(sum(a.value) FILTER (WHERE a.category = %s AND a.object = ANY(%s)), 0),
                    COALESCE(sum(a.value) FILTER (WHERE a.category = %s AND a.object = 'minecraft:ancient_debris'), 0),
-                   COALESCE(sum(a.value) FILTER (WHERE a.category = %s AND a.object = ANY(%s)), 0)
+                   COALESCE(sum(a.value) FILTER (WHERE a.category = %s AND a.object = ANY(%s)), 0),
+                   x.diamonds, x.debris
             FROM player_server_info psi JOIN player p ON p.uuid = psi.mojang_uuid
             LEFT JOIN actions a ON a.player_id = psi.player_id
+            LEFT JOIN xray_dismissed x ON x.player_id = psi.player_id
             WHERE psi.server_id = %s
-            GROUP BY psi.player_id, p.name, psi.mojang_uuid""",
-                              (stats_mod.BLOCK_MINED, ["minecraft:stone", "minecraft:deepslate", "minecraft:tuff"],
+            GROUP BY psi.player_id, p.name, psi.mojang_uuid, x.diamonds, x.debris""",
+                              (stats_mod.BLOCK_MINED, list(XRAY_STONE_BLOCKS),
                                stats_mod.BLOCK_MINED, ["minecraft:diamond_ore", "minecraft:deepslate_diamond_ore"],
-                               stats_mod.BLOCK_MINED, stats_mod.BLOCK_MINED,
+                               stats_mod.BLOCK_MINED, list(XRAY_NETHER_BLOCKS), stats_mod.BLOCK_MINED,
                                stats_mod.CUSTOM, ["minecraft:play_time"], server_id))
-        keys = ("player_id", "name", "uuid", "stone", "diamonds", "netherrack", "debris", "ticks")
+        keys = ("player_id", "name", "uuid", "stone", "diamonds", "netherrack", "debris", "ticks", "dismissed_diamonds",
+                "dismissed_debris")
         result = []
         for row in rows:
             entry = dict(zip(keys, row))
@@ -3493,6 +3526,8 @@ class DatabaseManager:
             for key in ("stone", "diamonds", "netherrack", "debris", "ticks"):
                 entry[key] = int(entry[key])
             entry["hours"] = entry.pop("ticks") / 72000
+            seen = (entry.pop("dismissed_diamonds"), entry.pop("dismissed_debris"))
+            entry["dismissed"] = None if seen[0] is None else (int(seen[0]), int(seen[1]))
             result.append(entry)
         return result
 

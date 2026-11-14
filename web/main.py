@@ -1964,7 +1964,7 @@ MOD_LOG_ACTIONS = {
     "warn": "verwarnt", "warning_delete": "Verwarnung gelöscht", "mute": "stummgeschaltet", "unmute": "Stummschaltung aufgehoben",
     "application_accept": "Bewerbung angenommen", "application_reject": "Bewerbung abgelehnt",
     "code_create": "Einladungscode angelegt", "code_delete": "Einladungscode gelöscht", "settings": "Einstellungen geändert",
-    "rewards": "Belohnungen geändert", "icons": "Icons geändert",
+    "rewards": "Belohnungen geändert", "icons": "Icons geändert", "xray_dismiss": "X-Ray-Hinweis erledigt",
     "whitelist_remove": "von der Whitelist genommen", "addon_install": "Erweiterung installiert", "addon_remove": "Erweiterung entfernt",
     "addon_approve": "Erweiterung freigegeben", "addon_block": "Erweiterung gesperrt",
     "addon_pause": "Erweiterung pausiert", "addon_resume": "Erweiterung fortgesetzt", "addon_config": "Erweiterung eingestellt",
@@ -1972,11 +1972,13 @@ MOD_LOG_ACTIONS = {
 }
 
 
-# X-ray hints: ore blocks per 1000 stone/deepslate/tuff (diamonds) and per 1000 netherrack (debris).
-# Normal mining gives roughly 1-3 diamond ore per 1000 blocks; players who mine mostly in caves can be
-# higher, so this is only a hint for moderators.
-XRAY_MIN_STONE, XRAY_MIN_DIAMONDS, XRAY_DIAMOND_RATE = 2000, 15, 6.0
-XRAY_MIN_NETHERRACK, XRAY_MIN_DEBRIS, XRAY_DEBRIS_RATE = 1000, 8, 8.0
+# X-ray hints: diamond ore per 1000 stone blocks of the diamond layers and ancient debris per 1000 netherrack, basalt
+# and blackstone (database XRAY_*_BLOCKS). Since the cave update (1.18) players find most diamonds in open caves and
+# break little stone for them, so legit players reach 5-10 per 1000; x-ray users mine straight to the ore and lie far
+# above. Only a hint for moderators; a checked hint stays hidden until the player mined XRAY_RECHECK_* more ore.
+XRAY_MIN_STONE, XRAY_MIN_DIAMONDS, XRAY_DIAMOND_RATE = 5000, 40, 15.0
+XRAY_MIN_NETHERRACK, XRAY_MIN_DEBRIS, XRAY_DEBRIS_RATE = 3000, 20, 12.0
+XRAY_RECHECK_DIAMONDS, XRAY_RECHECK_DEBRIS = 30, 15
 
 
 def xray_hints(server_id):
@@ -1990,6 +1992,10 @@ def xray_hints(server_id):
             flags.append("diamonds")
         if p["netherrack"] >= XRAY_MIN_NETHERRACK and p["debris"] >= XRAY_MIN_DEBRIS and debris_rate >= XRAY_DEBRIS_RATE:
             flags.append("debris")
+        if p["dismissed"]:  # checked by a moderator: only again with clearly more ore since then
+            diamonds, debris = p["dismissed"]
+            flags = [f for f in flags if (f == "diamonds" and p["diamonds"] >= diamonds + XRAY_RECHECK_DIAMONDS)
+                     or (f == "debris" and p["debris"] >= debris + XRAY_RECHECK_DEBRIS)]
         if flags:
             hints.append(dict(p, flags=flags, diamond_rate=f"{diamond_rate:.1f}".replace(".", ","),
                               debris_rate=f"{debris_rate:.1f}".replace(".", ","),
@@ -2765,6 +2771,20 @@ def mod_note_add_api():
     author = db().get_player_name_from_player_id(logged_in_player_id())
     db().add_player_note(player_id, author, text)
     db().add_mod_log(g.server["id"], author, "note_add", db().get_player_name_from_player_id(player_id), text[:200])
+    return ("", 200)
+
+
+@server_bp.route("/api/mod/xray/dismiss", methods=["POST"])
+@moderator_required
+def mod_xray_dismiss_api():
+    """A moderator checked an x-ray hint: hidden at the player's current ore counts."""
+    player_id = str((request.get_json(silent=True) or {}).get("id") or "")
+    hint = next((h for h in xray_hints(g.server["id"]) if h["player_id"] == player_id), None)
+    if hint is None:
+        return {"error": "Diesen Hinweis gibt es nicht (mehr)."}, 404
+    name = db().dismiss_xray_hint(g.server["id"], player_id, hint["diamonds"], hint["debris"], mod_name())
+    db().add_mod_log(g.server["id"], mod_name(), "xray_dismiss", name,
+                     f"{hint['diamonds']} Diamanterz, {hint['debris']} Debris")
     return ("", 200)
 
 

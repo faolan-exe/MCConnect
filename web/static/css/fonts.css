@@ -1,39 +1,41 @@
 /* Self-hosted fonts (SIL Open Font License, see ../fonts/OFL-*.txt).
-   Not loaded from Google, so no visitor IPs are sent to third parties. */
+   Not loaded from Google, so no visitor IPs are sent to third parties.
+   Display: Big Shoulders Display, narrow and bold like a scoreboard, for headings, menus and big numbers.
+   Body: Schibsted Grotesk. Mono: Martian Mono (commands, addresses). */
 @font-face {
-  font-family: "Atkinson Hyperlegible";
-  src: url("../fonts/atkinson-hyperlegible-400.woff2") format("woff2");
-  font-weight: 400; font-style: normal; font-display: swap;
+  font-family: "Schibsted Grotesk";
+  src: url("../fonts/schibsted-grotesk-400.woff2") format("woff2");
+  font-weight: 400 500; font-style: normal; font-display: swap;
 }
 @font-face {
-  font-family: "Atkinson Hyperlegible";
-  src: url("../fonts/atkinson-hyperlegible-400-italic.woff2") format("woff2");
-  font-weight: 400; font-style: italic; font-display: swap;
+  font-family: "Schibsted Grotesk";
+  src: url("../fonts/schibsted-grotesk-400-italic.woff2") format("woff2");
+  font-weight: 400 500; font-style: italic; font-display: swap;
 }
 @font-face {
-  font-family: "Atkinson Hyperlegible";
-  src: url("../fonts/atkinson-hyperlegible-700.woff2") format("woff2");
-  font-weight: 700; font-style: normal; font-display: swap;
+  font-family: "Schibsted Grotesk";
+  src: url("../fonts/schibsted-grotesk-700.woff2") format("woff2");
+  font-weight: 600 900; font-style: normal; font-display: swap;
 }
 @font-face {
-  font-family: "Chakra Petch";
-  src: url("../fonts/chakra-petch-500.woff2") format("woff2");
-  font-weight: 500; font-style: normal; font-display: swap;
+  font-family: "Big Shoulders Display";
+  src: url("../fonts/big-shoulders-display-600.woff2") format("woff2");
+  font-weight: 400 600; font-style: normal; font-display: swap;
 }
 @font-face {
-  font-family: "Chakra Petch";
-  src: url("../fonts/chakra-petch-700.woff2") format("woff2");
-  font-weight: 700; font-style: normal; font-display: swap;
+  font-family: "Big Shoulders Display";
+  src: url("../fonts/big-shoulders-display-800.woff2") format("woff2");
+  font-weight: 700 900; font-style: normal; font-display: swap;
 }
 @font-face {
-  font-family: "JetBrains Mono";
-  src: url("../fonts/jetbrains-mono-400.woff2") format("woff2");
+  font-family: "Martian Mono";
+  src: url("../fonts/martian-mono-400.woff2") format("woff2");
   font-weight: 400; font-style: normal; font-display: swap;
 }
 :root {
-  --font-body: "Atkinson Hyperlegible", "Verdana", sans-serif;
-  --font-display: "Chakra Petch", "Atkinson Hyperlegible", sans-serif;
-  --font-mono: "JetBrains Mono", "Menlo", monospace;
+  --font-body: "Schibsted Grotesk", "Verdana", sans-serif;
+  --font-display: "Big Shoulders Display", "Schibsted Grotesk", sans-serif;
+  --font-mono: "Martian Mono", "Menlo", monospace;
 }
 @font-face {
   font-family: "Concert One";

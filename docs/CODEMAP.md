@@ -165,6 +165,7 @@ overview, plugin, addons, server page, moderation, danger zone in `serverAdminSe
 | `/api/mod/warn` | POST | `mod_warn_api` |  |
 | `/api/mod/warnings/delete` | POST | `mod_warning_delete_api` |  |
 | `/api/mod/whitelist/remove` | POST | `mod_whitelist_remove_api` |  |
+| `/api/mod/xray/dismiss` | POST | `mod_xray_dismiss_api` |  |
 | `/api/player_count` | GET | `live_player_count` |  |
 | `/api/player_info/<path:player_name>` | GET | `live_player_info` |  |
 | `/api/polls/vote` | POST | `poll_vote_api` |  |

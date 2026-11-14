@@ -64,12 +64,17 @@
 
 <section class="srv-card" id="xray">
   <h2>X-Ray-Hinweise</h2>
-  <p class="mcc-hint">Nur ein Hinweis, kein Beweis: Wer viel in Höhlen abbaut, findet mehr Erz pro Stein. Gezählt werden Diamanterz pro
-    1.000 abgebauten Stein/Deepslate/Tuff (normal etwa 1–3) und Ancient Debris pro 1.000 Netherrack.</p>
+  <p class="mcc-hint">Nur ein Hinweis, kein Beweis. Gezählt werden Diamanterz pro 1.000 abgebauten Steinblöcken der Diamant-Ebenen
+    (Stein, Deepslate, Tuff, Andesit, Diorit, Granit) und Ancient Debris pro 1.000 Netherrack, Basalt und Blackstone.
+    Seit dem Höhlen-Update finden ehrliche Spieler viel Erz in offenen Höhlen und kommen auf etwa 5–10; auffällig wird es ab
+    15 Diamanterz (mindestens 40 Erz und 5.000 Steinblöcke) bzw. 12 Debris (mindestens 20 Debris und 3.000 Blöcke).
+    Mit <b>Erledigt</b> verschwindet ein Hinweis; er kommt erst wieder, wenn der Spieler danach noch 30 Diamanterz
+    bzw. 15 Debris abbaut und die Quote weiter auffällt.</p>
+  <div data-live="xray">
   {% if xray %}
   <div class="mcc-table-wrap">
     <table class="mcc-table mcc-stack">
-      <thead><tr><th>Spieler</th><th>Diamanterz / 1.000 Stein</th><th>Debris / 1.000 Netherrack</th><th>Diamanterz pro Stunde</th></tr></thead>
+      <thead><tr><th>Spieler</th><th>Diamanterz / 1.000 Stein</th><th>Debris / 1.000 Netherrack</th><th>Diamanterz pro Stunde</th><th></th></tr></thead>
       <tbody>
         {% for h in xray %}
         <tr>
@@ -77,6 +82,8 @@
           <td data-label="Diamanterz / 1.000 Stein" class="num{% if 'diamonds' in h.flags %} xr-flag{% endif %}">{{ h.diamond_rate }} <span class="mcc-hint">({{ h.diamonds }} / {{ h.stone }})</span></td>
           <td data-label="Debris / 1.000 Netherrack" class="num{% if 'debris' in h.flags %} xr-flag{% endif %}">{{ h.debris_rate }} <span class="mcc-hint">({{ h.debris }} / {{ h.netherrack }})</span></td>
           <td data-label="Diamanterz pro Stunde" class="num">{{ h.diamonds_per_hour }}</td>
+          <td data-label="" class="md-actions"><button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button"
+              data-mod-post="/api/mod/xray/dismiss" data-body='{"id": "{{ h.player_id }}"}'>Erledigt</button></td>
         </tr>
         {% endfor %}
       </tbody>
@@ -85,6 +92,7 @@
   {% else %}
   <p class="st-empty">Niemand fällt auf.</p>
   {% endif %}
+  </div>
 </section>
 
 <section class="srv-card" id="activity">
