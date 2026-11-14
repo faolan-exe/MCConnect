@@ -93,18 +93,19 @@ def _lock(key):
         return _locks.setdefault(key, threading.Lock())
 
 
-def cached(kind, name, fetch):
+def cached(kind, name, fetch, fresh=FRESH):
     """
-    The cached file kind/name: fresh as it is, otherwise fetched again with fetch() (bytes or None). If fetching fails,
-    the old file (however old) or None. A failure is noted in a ".failed" file, the next try comes after RETRY_AFTER.
+    The cached file kind/name: fresh (younger than fresh seconds) as it is, otherwise fetched again with fetch() (bytes
+    or None). If fetching fails, the old file (however old) or None. A failure is noted in a ".failed" file, the next
+    try comes after RETRY_AFTER.
     """
     path = _path(kind, name)
     age = _age(path)
-    if age is not None and age < FRESH:
+    if age is not None and age < fresh:
         return _read(path)
     with _lock(path):  # one download per file at a time in this worker
         age = _age(path)
-        if age is not None and age < FRESH:  # fetched by another thread meanwhile
+        if age is not None and age < fresh:  # fetched by another thread meanwhile
             return _read(path)
         failed = _age(path + ".failed")
         if failed is None or failed >= RETRY_AFTER:

@@ -15,7 +15,7 @@
   {% if p.known %}
   <div class="pi-tile ac-tile dc-tile"{% if p.mine %} style="--tier: var(--srv-green-dark)"{% endif %}>
     <span class="dc-head">
-      {% if p.sprite %}<i class="icon-minecraft icon-minecraft-{{ p.icon | replace('_', '-') }}" aria-hidden="true"></i>{% else %}<span class="dc-letter" aria-hidden="true">{{ p.title[:1] }}</span>{% endif %}
+      {% if p.sprite %}<i class="icon-minecraft icon-minecraft-{{ p.icon | replace('_', '-') }}" aria-hidden="true"></i>{% elif p.atlas %}<img class="icon-minecraft" src="/mc/item/{{ p.icon }}.png" alt="" aria-hidden="true"/>{% else %}<span class="dc-letter" aria-hidden="true">{{ p.title[:1] }}</span>{% endif %}
       <span class="ac-name">{{ p.title }}</span>
       {% if p.mine %}<span class="ac-tier">Gefunden</span>{% endif %}
     </span>
