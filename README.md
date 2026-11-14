@@ -153,6 +153,11 @@ Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss 
   the second source) and is kept as a file in `MCC_CACHE_DIR` (docker volume `cache`) for 6 hours, an old file stays
   in use while the sources are down; heads are cut out of the skin. Scripts are in `web/static/vendor/`, the CSP
   allows nothing else ([ADR 0010](docs/adr/0010-skin-cache.md)). Never link `mc-heads.net` or a CDN in a template.
+- **Block and item icons.** The sprite `web/static/css/minecraft.css` ends around 1.20. Ids without a sprite icon
+  (copper tools, new spawn eggs, ...) are `/mc/item/<id>.png` (`web/item_icons.py`): cut out of the texture atlases
+  of misode/mcmeta (branch `atlas`, newest version), kept in `MCC_CACHE_DIR` and fetched again once a day in the
+  background. Items get their inventory icon, blocks a flat texture (stairs, slabs, walls: the one of their
+  material). Things with an entity model (chests, statues) have none.
 - **Live values.** The plugin sends custom stats and changed block/item/mob stats every 5 s, all blocks once
   a minute. The socket server checks achievements, records and streaks at most every 15 s per player and
   updates sidebars 5 s after new stats. Pages poll (`web/static/poll.js`, `LiveCache`, 2 s per

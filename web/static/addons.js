@@ -58,12 +58,16 @@
   // ids with an icon in css/minecraft.css (from /api/minecraft/items: the server pages cannot read the stylesheet of
   // the main domain); others get a plain square with the first letter
   let spriteIds = new Set();
+  let atlasIds = new Set();  // newer ids without sprite: icon from the texture atlas (/mc/item/<id>.png)
   const hasSprite = (id) => spriteIds.has(id);
 
   function itemIcon(id, small) {
     if (!id) return el("span", { class: "ext-item-empty", "aria-hidden": "true" });
     if (hasSprite(id)) {
       return el("i", { class: `icon-minecraft${small ? "-sm" : ""} icon-minecraft-${id.replace(/_/g, "-")}`, title: prettyItem(id) });
+    }
+    if (atlasIds.has(id)) {
+      return el("img", { class: `icon-minecraft${small ? "-sm" : ""}`, src: `/mc/item/${id}.png`, alt: "", title: prettyItem(id) });
     }
     return el("span", { class: "ext-item-letter", title: prettyItem(id), text: id.charAt(0).toUpperCase() });
   }
@@ -124,6 +128,7 @@
     if (catalog === null) {
       catalog = getJson("/api/minecraft/items").catch(() => ({ items: [], sprites: [] })).then((result) => {
         spriteIds = new Set(result.sprites || []);
+        atlasIds = new Set(result.atlas || []);
         return result.items || [];
       });
     }

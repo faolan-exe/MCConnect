@@ -46,7 +46,7 @@ from mc_socket import commands as game_commands
 from database.databaseManagerV2 import MAX_GALLERY_IMAGES, MODERATOR_LEVEL, DatabaseManager
 from database import stats as stats_mod
 from database.stats import format_time
-from web import skins
+from web import item_icons, skins
 from web.uploads import FILENAME_RE, MAX_UPLOAD_BYTES, InvalidImage, delete_images, save_image
 
 logger = get_logger("webServer")
@@ -342,15 +342,28 @@ def player_overview_route():
         muted_until=info["muted_until"].strftime("%d.%m. %H:%M") if info.get("muted_until") and
         info["muted_until"] > datetime.now(timezone.utc) else None,
         banned=bool(banned), startdate=startdate, enddate=enddate,
-        armor_stats=json.dumps(db().get_all_armor_stats(player_id)),
-        tool_stats=json.dumps(db().get_all_tools_stats(player_id)),
-        item_stats=json.dumps(db().get_all_items_stats(player_id)),
-        block_stats=json.dumps(db().get_all_blocks_stats(player_id)),
-        mob_stats=json.dumps(db().get_all_mobs_stats(player_id)),
-        custom_stats=json.dumps(db().get_all_custom_stats(player_id)),
+        **player_stats_json(player_id),
         # the general values with their unit (play time as time, distances in km, ...), as in rankings and comparison
         custom_texts={stats_mod.strip_namespace(obj): metrics_mod.format_stat(obj, value)
                       for obj, value in db().get_stat_values(player_id, stats_mod.CUSTOM).items()})
+
+
+def player_stats_json(player_id):
+    """The stat tables of the player page as JSON, and atlas_icons: the ids in them without an icon in the sprite
+    (css/minecraft.css) that have one at /mc/item/<id>.png (newer blocks and items, web/item_icons.py)."""
+    tables = {"armor_stats": db().get_all_armor_stats(player_id), "tool_stats": db().get_all_tools_stats(player_id),
+              "item_stats": db().get_all_items_stats(player_id), "block_stats": db().get_all_blocks_stats(player_id),
+              "mob_stats": db().get_all_mobs_stats(player_id), "custom_stats": db().get_all_custom_stats(player_id)}
+    result = {key: json.dumps(value) for key, value in tables.items()}
+    ids = set(re.findall(r'"minecraft:([a-z0-9_]+)"', "".join(result[k] for k in tables if k not in ("mob_stats", "custom_stats"))))
+    result["atlas_icons"] = atlas_icons(ids)
+    return result
+
+
+def atlas_icons(ids):
+    """The ids without a sprite icon that have an icon from the texture atlas."""
+    sprites = minecraft_sprites()
+    return sorted(i for i in ids if i not in sprites and item_icons.has_icon(i))
 
 
 def feature_rankings_required(view):
@@ -654,7 +667,8 @@ def player_discoveries(server_id, player_id):
     found = db().get_player_discoveries(player_id)
     sprites = minecraft_sprites()
     items = [dict(p, found=p["id"] in found, first=p["id"] in found and found[p["id"]]["first"],
-                  at=found[p["id"]]["at"] if p["id"] in found else None, sprite=p["icon"] in sprites) for p in places]
+                  at=found[p["id"]]["at"] if p["id"] in found else None, sprite=p["icon"] in sprites,
+                  atlas=p["icon"] not in sprites and item_icons.has_icon(p["icon"])) for p in places]
     items.sort(key=lambda p: (not p["found"], p["at"] or datetime.max.replace(tzinfo=timezone.utc)))
     for item in items:
         item["date"] = item["at"].strftime("%d.%m.%Y") if item["at"] else None
@@ -678,7 +692,8 @@ def discoveries_page():
         o = overview.get(p["id"])
         rows.append(dict(p, count=o["count"] if o else 0, first_name=o and o["first_name"], first_uuid=o and o["first_uuid"],
                          first_date=o["first_at"].strftime("%d.%m.%Y") if o else None, mine=p["id"] in mine,
-                         known=bool(o) or p["id"] in mine, sprite=p["icon"] in sprites))
+                         known=bool(o) or p["id"] in mine, sprite=p["icon"] in sprites,
+                         atlas=p["icon"] not in sprites and item_icons.has_icon(p["icon"])))
     return render_template("entdeckungen.html", places=rows, logged_in=bool(player_id),
                            my_count=sum(p["mine"] for p in rows), total=len(rows))
 
@@ -3591,14 +3606,14 @@ def minecraft_sprites():
 @server_bp.route("/api/minecraft/items")  # the moderators' page on the server's subdomain
 def minecraft_items_api():
     """{"items": item ids for the item picker of the addon settings (the vanilla block and item registry),
-    "sprites": the ids that have an icon in css/minecraft.css}. The sprites come from here because the server pages
-    cannot read the stylesheet of the main domain (cross-origin)."""
+    "sprites": the ids that have an icon in css/minecraft.css, "atlas": the others with an icon at /mc/item/<id>.png}.
+    The sprites come from here because the server pages cannot read the stylesheet of the main domain (cross-origin)."""
     if time.monotonic() - _items_cache.get("loaded", -ITEMS_CACHE_SECONDS) >= ITEMS_CACHE_SECONDS:
         names = db().get_lookup_names()
         sprites = minecraft_sprites()
-        _items_cache["body"] = json.dumps({
-            "items": sorted(n for n in names if addons.MATERIAL_RE.match(n) and not n.endswith("air")),
-            "sprites": sorted(sprites)})
+        items = sorted(n for n in names if addons.MATERIAL_RE.match(n) and not n.endswith("air"))
+        _items_cache["body"] = json.dumps({"items": items, "sprites": sorted(sprites),
+                                           "atlas": atlas_icons({i.lower() for i in items})})
         _items_cache["loaded"] = time.monotonic()
     response = current_app.response_class(_items_cache["body"], mimetype="application/json")
     response.headers["Cache-Control"] = "public, max-age=86400"
@@ -3690,6 +3705,22 @@ def player_head(player, size):
 @server_bp.route("/mc/body/<player>/<int:size>")
 def player_body(player, size):
     return _skin_response(skins.body_png(player, size), fallback=not skins.has_skin(player))
+
+
+ITEM_ID_RE = re.compile(r"^[a-z0-9_]{1,64}$")
+
+
+@main_bp.route("/mc/item/<item_id>.png")
+@server_bp.route("/mc/item/<item_id>.png")
+def item_icon(item_id):
+    """Icon of a block or item that the sprite does not have, from the texture atlas (web/item_icons.py)."""
+    png = item_icons.icon_png(item_id) if ITEM_ID_RE.match(item_id) else None
+    if png is None:
+        abort(404)
+    response = Response(png, mimetype="image/png")
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    response.add_etag()
+    return response.make_conditional(request)
 
 
 @main_bp.route("/mc/skin/<player>")

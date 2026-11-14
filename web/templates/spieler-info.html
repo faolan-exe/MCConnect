@@ -822,6 +822,7 @@
       var stats_blocks = processStats("{{block_stats}}");
       var stats_items = processStats("{{item_stats}}");
       var custom_texts = {{ custom_texts | tojson }};
+      var atlas_icons = new Set({{ atlas_icons | tojson }});
 
       var stats_array = {
         other: stats_custom ? JSON.parse(stats_custom) : {},
@@ -1003,13 +1004,12 @@
         // Generate HTML from master_data (the names come from the plugin: escaped)
         for (let i = 0; i < master_data.length; i++) {
           htmlString += "<tr>";
-          htmlString += `<td class="firstColumn"><i class="icon-minecraft icon-minecraft-${escapeHtml(master_data[
-            i
-          ][0]
-            .replaceAll("_", "-")
-            .replace("minecraft:", ""))}"></i>  ${escapeHtml(transformToTitleCase(
-            master_data[i][0]
-          ))}</td>`;
+          // the sprite ends around 1.20; newer blocks and items get their icon from the texture atlas (/mc/item/)
+          const itemId = String(master_data[i][0]).replace("minecraft:", "");
+          const icon = atlas_icons.has(itemId)
+            ? `<img class="icon-minecraft" src="/mc/item/${escapeHtml(itemId)}.png" alt="" loading="lazy"/>`
+            : `<i class="icon-minecraft icon-minecraft-${escapeHtml(itemId.replaceAll("_", "-"))}"></i>`;
+          htmlString += `<td class="firstColumn">${icon}  ${escapeHtml(transformToTitleCase(master_data[i][0]))}</td>`;
           for (let j = 1; j < master_data[i].length; j++) {
             // "Mehr": with unit (time, km, hearts) like everywhere else; sorted by the raw value
             const key = String(master_data[i][0]).replace("minecraft:", "");

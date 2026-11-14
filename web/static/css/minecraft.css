@@ -21,6 +21,11 @@
 	height: 16px;
 	background-size: 512px auto;
 }
+/* newer blocks and items: a 16x16 icon from the texture atlas (/mc/item/<id>.png, web/item_icons.py) */
+img.icon-minecraft, img.icon-minecraft-sm {
+	background: none;
+	object-fit: contain;
+}
 .icon-minecraft-acacia-boat{background-position:0 0;}
 .icon-minecraft-sm.icon-minecraft-acacia-boat{background-position:0 0;}
 .icon-minecraft-acacia-chest-boat{background-position:-32px 0;}
