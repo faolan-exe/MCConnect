@@ -49,6 +49,7 @@ a { color: var(--accent-dark); }
   gap: 12px;
   color: #fff;
   text-decoration: none;
+  font-family: var(--font-heading);
   font-weight: 700;
   font-size: 22px;
   letter-spacing: 0.01em;
@@ -83,7 +84,7 @@ main {
 .site-footer .inner { max-width: 1040px; margin: 0 auto; display: flex; gap: 20px; justify-content: flex-end; }
 .site-footer a { color: #ddd; text-decoration: none; }
 
-h1, h2 { font-family: var(--font-display); letter-spacing: 0.01em; }
+h1, h2 { font-family: var(--font-heading); letter-spacing: 0.01em; }
 h1 { font-size: 34px; font-weight: 700; margin: 0 0 8px; }
 h2 { font-size: 23px; font-weight: 500; margin: 0 0 12px; }
 .lead { color: var(--muted); font-size: 18px; margin: 0 0 28px; }
@@ -273,7 +274,7 @@ a.server-tile:hover { border-color: var(--accent); }
 @media (max-width: 600px) { .admin-tabs button { flex: 1 1 auto; } }
 
 /* header links like the server pages' menu */
-.site-nav a, .site-nav button { font-family: var(--font-display); font-weight: 600; font-size: 16px; color: rgba(255, 255, 255, 0.86);
+.site-nav a, .site-nav button { font-family: var(--font-heading); font-weight: 600; font-size: 16px; color: rgba(255, 255, 255, 0.86);
   padding: 8px 12px; border-radius: 8px; }
 .site-nav { gap: 4px; }
 .site-nav a:hover, .site-nav button:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }

@@ -26,3 +26,30 @@ function go(url) {
 function submitForm(element) {
   element.form.submit();
 }
+
+// Chips that jump to sections of the page (<nav class="md-nav"> with "#..." links) mark the section in view: the last one
+// whose top passed below the header, or the last one at the end of the page.
+document.addEventListener("DOMContentLoaded", () => {
+  for (const nav of document.querySelectorAll("nav.md-nav")) {
+    const links = [...nav.querySelectorAll('a[href^="#"]')];
+    const sections = links.map((a) => document.getElementById(a.getAttribute("href").slice(1))).filter(Boolean);
+    if (sections.length < 2) continue;
+    const mark = () => {
+      const atEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+      let current = sections[0];
+      for (const section of sections) if (section.getBoundingClientRect().top <= 140) current = section;
+      if (atEnd) current = sections[sections.length - 1];
+      for (const a of links) {
+        if (a.getAttribute("href") === "#" + current.id) a.setAttribute("aria-current", "location");
+        else a.removeAttribute("aria-current");
+      }
+    };
+    let queued = false;
+    window.addEventListener("scroll", () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => { queued = false; mark(); });
+    }, { passive: true });
+    mark();
+  }
+});

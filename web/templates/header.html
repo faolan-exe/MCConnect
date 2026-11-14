@@ -9,8 +9,9 @@
   Groups: who plays (Spieler), numbers (Statistiken), playing against each other (Wettkämpfe), doing things
   together and the server's info pages (Community). Account and color scheme on the right.
 #}
-{% macro nav_link(href, label, hint=None) -%}
-<a href="{{ href }}"{% if request.path == href %} aria-current="page"{% endif %}><b>{{ label }}</b>{% if hint %}<span>{{ hint }}</span>{% endif %}</a>
+{% from "_icons.html" import icon %}
+{% macro nav_link(href, label, hint=None, ico=None) -%}
+<a href="{{ href }}"{% if request.path == href %} aria-current="page"{% endif %}>{% if ico %}{{ icon(ico) }}{% endif %}<b>{{ label }}</b>{% if hint %}<span>{{ hint }}</span>{% endif %}</a>
 {%- endmacro %}
 {% macro nav_group(label, paths) -%}
 <button class="nav-top{% if request.path in paths %} current{% endif %}" type="button" aria-expanded="false"
@@ -31,36 +32,36 @@
       <li class="nav-group">
         {{ nav_group("Spieler", ("/spieler", "/teams", "/vergleich")) }}
         <div class="nav-menu">
-          {{ nav_link("/spieler", "Alle Spieler", "Suchen, sortieren, Favoriten") }}
-          {{ nav_link("/teams", "Teams", "Prefixes mit ihren Werten") }}
-          {{ nav_link("/vergleich", "Spieler vergleichen", "2 bis 4 Spieler nebeneinander") }}
+          {{ nav_link("/spieler", "Alle Spieler", "Suchen, sortieren, Favoriten", "users") }}
+          {{ nav_link("/teams", "Teams", "Prefixes mit ihren Werten", "shield") }}
+          {{ nav_link("/vergleich", "Spieler vergleichen", "2 bis 4 Spieler nebeneinander", "compare") }}
         </div>
       </li>
       <li class="nav-group">
         {{ nav_group("Statistiken", ("/rangliste", "/server-statistik", "/ruhmeshalle", "/entdeckungen")) }}
         <div class="nav-menu">
-          {{ nav_link("/rangliste", "Rangliste", "Wer bei was vorne liegt") }}
-          {{ nav_link("/server-statistik", "Server-Statistik", "Online-Verlauf, Summen, Fun Facts") }}
-          {{ nav_link("/ruhmeshalle", "Ruhmeshalle", "Rekorde, Sieger, Serien") }}
-          {% if discoveries_open %}{{ nav_link("/entdeckungen", "Entdeckungen", "Besondere Orte der Welt") }}{% endif %}
+          {{ nav_link("/rangliste", "Rangliste", "Wer bei was vorne liegt", "podium") }}
+          {{ nav_link("/server-statistik", "Server-Statistik", "Online-Verlauf, Summen, Fun Facts", "chart") }}
+          {{ nav_link("/ruhmeshalle", "Ruhmeshalle", "Rekorde, Sieger, Serien", "trophy") }}
+          {% if discoveries_open %}{{ nav_link("/entdeckungen", "Entdeckungen", "Besondere Orte der Welt", "compass") }}{% endif %}
         </div>
       </li>
       <li class="nav-group">
         {{ nav_group("Wettkämpfe", ("/wettbewerbe", "/duelle")) }}
         <div class="nav-menu">
-          {{ nav_link("/wettbewerbe", "Wettbewerbe & Ziele", "Zeiträume und Gemeinschaftsziele") }}
-          {{ nav_link("/duelle", "Duelle", "Fordere jemanden heraus") }}
+          {{ nav_link("/wettbewerbe", "Wettbewerbe & Ziele", "Zeiträume und Gemeinschaftsziele", "flag") }}
+          {{ nav_link("/duelle", "Duelle", "Fordere jemanden heraus", "swords") }}
         </div>
       </li>
       <li class="nav-group">
         {{ nav_group("Community", ("/events", "/galerie", "/regeln", "/mitmachen", "/melden")) }}
         <div class="nav-menu">
-          {{ nav_link("/events", "Events & Umfragen", "Termine, Anmeldung, Abstimmungen") }}
-          {{ nav_link("/galerie", "Baugalerie", "Screenshots der schönsten Bauten") }}
+          {{ nav_link("/events", "Events & Umfragen", "Termine, Anmeldung, Abstimmungen", "calendar") }}
+          {{ nav_link("/galerie", "Baugalerie", "Screenshots der schönsten Bauten", "image") }}
           <span class="nav-sep" role="separator"></span>
-          {% if rules_enabled %}{{ nav_link("/regeln", "Regeln & FAQ") }}{% endif %}
-          {% if access_open %}{{ nav_link("/mitmachen", "Mitmachen", "Zugang zum Server bekommen") }}{% endif %}
-          {{ nav_link("/melden", "Etwas melden") }}
+          {% if rules_enabled %}{{ nav_link("/regeln", "Regeln & FAQ", None, "book") }}{% endif %}
+          {% if access_open %}{{ nav_link("/mitmachen", "Mitmachen", "Zugang zum Server bekommen", "userplus") }}{% endif %}
+          {{ nav_link("/melden", "Etwas melden", None, "alert") }}
         </div>
       </li>
       {% else %}
@@ -78,19 +79,19 @@
           <img alt="" width="32" height="32" src="/mc/avatar/{{ uuid_profile }}/64"/><span class="nav-me-name">{{ name }}</span><i class="nav-chev" aria-hidden="true"></i>
         </button>
         <div class="nav-menu nav-menu-right">
-          {{ nav_link("/spieler?player=" ~ (name | urlencode), "Meine Spielerseite") }}
-          {{ nav_link("/profil", "Mein Profil", "Über mich, Privatsphäre, Favoriten") }}
-          {{ nav_link("/profil/spiel", "Im Spiel", "Seitenleiste, Name, Join-Nachricht") }}
-          {% if config.FEATURE_PREFIXES %}{{ nav_link("/profil/prefix", "Prefix", "Eigenen erstellen oder beitreten") }}{% endif %}
+          {{ nav_link("/spieler?player=" ~ (name | urlencode), "Meine Spielerseite", None, "user") }}
+          {{ nav_link("/profil", "Mein Profil", "Über mich, Privatsphäre, Favoriten", "card") }}
+          {{ nav_link("/profil/spiel", "Im Spiel", "Seitenleiste, Name, Join-Nachricht", "gamepad") }}
+          {% if config.FEATURE_PREFIXES %}{{ nav_link("/profil/prefix", "Prefix", "Eigenen erstellen oder beitreten", "tag") }}{% endif %}
           <span class="nav-sep" role="separator"></span>
-          <a class="mh-logout" data-on-click="askLogout" href="#"><b>Logout</b></a>
+          <a class="mh-logout" data-on-click="askLogout" href="#">{{ icon("logout") }}<b>Logout</b></a>
         </div>
         {% endif %}
       </li>
       <li class="theme-item">
         <span class="mh-theme-label">Farbschema</span>
-        <button type="button" class="theme-switch" id="theme-switch" data-on-click="mccCycleTheme"
-                title="Farbschema: Auto (wie das System), Dunkel oder Hell">Auto</button>
+        <button type="button" class="theme-switch dn-switch" id="theme-switch" data-on-click="mccCycleTheme"
+                aria-pressed="false" title="Hell oder dunkel">{% include "_daynight.html" %}<span class="st-sr">Dunkles Farbschema</span></button>
         <script nonce="{{ csp_nonce() }}">window.mccApplyTheme();</script>
       </li>
     </ul>

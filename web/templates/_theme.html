@@ -9,11 +9,16 @@
       const dark = theme === "dark" || (theme !== "light" && media.matches);
       document.documentElement.toggleAttribute("data-dark", dark);
       const button = document.getElementById("theme-switch");
-      if (button) button.textContent = theme === "dark" ? "Dunkel" : theme === "light" ? "Hell" : "Auto";
+      if (button) {
+        button.setAttribute("aria-pressed", String(dark));
+        button.title = dark ? "Zu hell wechseln" : "Zu dunkel wechseln";
+      }
     };
-    window.mccCycleTheme = () => {
-      const next = { null: "dark", dark: "light", light: null }[stored()];
-      try { next ? localStorage.setItem("mcc-theme", next) : localStorage.removeItem("mcc-theme"); } catch (e) {}
+    // like the switch on t-auer.com: day or night; until the first click it follows the system
+    window.mccCycleTheme = (button) => {
+      const dark = document.documentElement.hasAttribute("data-dark");
+      try { localStorage.setItem("mcc-theme", dark ? "light" : "dark"); } catch (e) {}
+      if (button && button.classList) button.classList.add("dn-animate");  // no animation on page load
       window.mccApplyTheme();
     };
     media.addEventListener("change", window.mccApplyTheme);

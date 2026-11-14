@@ -1,6 +1,7 @@
 /* Self-hosted fonts (SIL Open Font License, see ../fonts/OFL-*.txt).
    Not loaded from Google, so no visitor IPs are sent to third parties.
-   Display: Big Shoulders Display, narrow and bold like a scoreboard, for headings, menus and big numbers.
+   Heading: Chakra Petch for the header menu, page headings and the filter chips of the player list.
+   Display: Big Shoulders Display, narrow and bold like a scoreboard, for big numbers.
    Body: Schibsted Grotesk. Mono: Martian Mono (commands, addresses). */
 @font-face {
   font-family: "Schibsted Grotesk";
@@ -28,6 +29,16 @@
   font-weight: 700 900; font-style: normal; font-display: swap;
 }
 @font-face {
+  font-family: "Chakra Petch";
+  src: url("../fonts/chakra-petch-500.woff2") format("woff2");
+  font-weight: 400 600; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Chakra Petch";
+  src: url("../fonts/chakra-petch-700.woff2") format("woff2");
+  font-weight: 700 900; font-style: normal; font-display: swap;
+}
+@font-face {
   font-family: "Martian Mono";
   src: url("../fonts/martian-mono-400.woff2") format("woff2");
   font-weight: 400; font-style: normal; font-display: swap;
@@ -35,6 +46,7 @@
 :root {
   --font-body: "Schibsted Grotesk", "Verdana", sans-serif;
   --font-display: "Big Shoulders Display", "Schibsted Grotesk", sans-serif;
+  --font-heading: "Chakra Petch", "Schibsted Grotesk", sans-serif;
   --font-mono: "Martian Mono", "Menlo", monospace;
 }
 @font-face {
