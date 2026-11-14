@@ -274,3 +274,13 @@ def test_new_event_is_announced_at_once(mod_client, db, server, plugin, socket_s
                            **on("testdomain")).status_code == 200
     assert until(connection, "!broadcast~")[-1].startswith("!broadcast~gold|★ Neues Event: »Geplant« am ")
     assert db.take_due_event_announcements([server["id"]]) == []  # the reminder of "Spontan" was already sent
+
+
+def test_settings_in_the_log_are_readable(mod_client, db, server):
+    """The log names the changed settings in German with their new value, also for entries written before."""
+    assert mod_client.post("/api/mod/settings", json={"access_mode": "both", "warn_threshold": 3, "rules": "Kein Griefing"},
+                           **on("testdomain")).status_code == 200
+    assert db.get_mod_log(server["id"])[0]["details"] == "Zugang: Bewerbung oder Code, Bann nach Verwarnungen: 3, Regeln"
+    db.add_mod_log(server["id"], "_Tobias4444", "settings", None, "access_mode, rules_enabled")  # an old entry
+    html = mod_client.get("/users/protokoll", **on("testdomain")).get_data(as_text=True)
+    assert "Zugang, Regelseite" in html and "access_mode" not in html

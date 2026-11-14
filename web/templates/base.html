@@ -21,8 +21,8 @@
         <nav class="site-nav">
           {% block nav %}
           {% if admin_username %}
-          <a href="/manage">Meine Server</a>
-          <a href="/create">Server hinzufügen</a>
+          <a href="/manage"{% if request.path.startswith('/manage') %} aria-current="page"{% endif %}>Meine Server</a>
+          <a href="/create"{% if request.path == '/create' %} aria-current="page"{% endif %}>Server hinzufügen</a>
           <button type="button" data-on-click="adminLogout">Logout ({{ admin_username }})</button>
           {% else %}
           <a href="/login">Login / Registrieren</a>

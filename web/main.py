@@ -1999,7 +1999,11 @@ def xray_hints(server_id):
 
 
 def mod_log_view(server_id, target_name=None, limit=100):
-    return [dict(entry, label=MOD_LOG_ACTIONS.get(entry["action"], entry["action"]),
+    def detail(entry):  # older entries list the raw setting names
+        if entry["action"] == "settings" and entry["details"]:
+            return ", ".join(SETTING_LABELS.get(key, key) for key in entry["details"].split(", "))
+        return entry["details"]
+    return [dict(entry, label=MOD_LOG_ACTIONS.get(entry["action"], entry["action"]), details=detail(entry),
                  when=entry["at"].strftime("%d.%m.%Y, %H:%M"))
             for entry in db().get_mod_log(server_id, limit=limit, target_name=target_name)]
 
@@ -2499,6 +2503,25 @@ def mod_guestbook_keep_api():
 
 ACCESS_MODES = ("off", "application", "code", "both")
 RULES_MAX_LENGTH = 10_000
+SETTING_LABELS = {"access_mode": "Zugang", "warn_threshold": "Bann nach Verwarnungen", "warn_ban_days": "Banndauer (Tage)",
+                  "rules_enabled": "Regelseite", "rules": "Regeln", "faq": "FAQ"}
+ACCESS_MODE_LABELS = {"off": "aus", "application": "Bewerbung", "code": "Einladungscode", "both": "Bewerbung oder Code"}
+
+
+def settings_detail(fields):
+    """The changed settings for the moderation log, readable: "Zugang: Bewerbung, Regeln"."""
+    parts = []
+    for key in sorted(fields, key=list(SETTING_LABELS).index):
+        value = fields[key]
+        if key == "access_mode":
+            parts.append(f"{SETTING_LABELS[key]}: {ACCESS_MODE_LABELS[value]}")
+        elif key == "rules_enabled":
+            parts.append(f"{SETTING_LABELS[key]} {'an' if value else 'aus'}")
+        elif key in ("warn_threshold", "warn_ban_days"):
+            parts.append(f"{SETTING_LABELS[key]}: {value}")
+        else:
+            parts.append(SETTING_LABELS[key])
+    return ", ".join(parts)
 
 
 @server_bp.route("/api/mod/settings", methods=["POST"])
@@ -2527,7 +2550,7 @@ def mod_settings_api():
                 return {"error": f"Höchstens {RULES_MAX_LENGTH} Zeichen."}, 400
             fields[key] = text or None
     db().update_server_settings(g.server["id"], **fields)
-    db().add_mod_log(g.server["id"], mod_name(), "settings", None, ", ".join(sorted(fields)))
+    db().add_mod_log(g.server["id"], mod_name(), "settings", None, settings_detail(fields))
     if "access_mode" in fields:
         db().notify_server_event(g.server["id"], "joininfo")
     return ("", 200)

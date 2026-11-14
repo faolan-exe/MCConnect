@@ -9,7 +9,7 @@
   --accent: #1fbf5b;
   --accent-dark: #179a49;
   --danger: #d93b3b;
-  --header: #000000;
+  --header: #0b0f0d;  /* the same bar as the server pages (nav.css) */
   --radius: 12px;
 }
 
@@ -34,10 +34,11 @@ a { color: var(--accent-dark); }
   color: #fff;
   padding: 0 24px;
 }
+.site-header { border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
 .site-header .inner {
   max-width: 1040px;
   margin: 0 auto;
-  height: 68px;
+  height: 64px;
   display: flex;
   align-items: center;
   gap: 24px;
@@ -167,7 +168,7 @@ fieldset.choice input { width: auto; }
 
 .server-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between; }
 .server-head h2 { margin: 0; }
-.badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+.badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; white-space: nowrap; }
 .badge-online { background: #e7f8ee; color: #135f31; }
 .badge-offline { background: #fdecec; color: #8f1f1f; }
 .meta { color: var(--muted); font-size: 14px; margin: 6px 0 0; }
@@ -270,3 +271,10 @@ a.server-tile:hover { border-color: var(--accent); }
 .admin-tabs button[aria-selected="true"] { background: var(--header); color: #fff; }
 [data-panel] h2 { margin-top: 0; }
 @media (max-width: 600px) { .admin-tabs button { flex: 1 1 auto; } }
+
+/* header links like the server pages' menu */
+.site-nav a, .site-nav button { font-family: var(--font-display); font-weight: 600; font-size: 16px; color: rgba(255, 255, 255, 0.86);
+  padding: 8px 12px; border-radius: 8px; }
+.site-nav { gap: 4px; }
+.site-nav a:hover, .site-nav button:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+.site-nav a[aria-current="page"] { color: #53ffb1; }
