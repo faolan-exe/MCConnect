@@ -1,0 +1,193 @@
+{% extends "server_base.html" %}
+{% block title %}Analyse – {{ server_name }}{% endblock %}
+{% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block page_class %}srv-page-wide{% endblock %}
+
+{% macro share_box(title, items, limit=6, empty="Noch keine Daten") %}
+<div class="cl-box"><span class="hl-label">{{ title }}</span>
+  {% if items %}
+  <ul class="cl-shares">
+    {% for item in items[:limit] %}
+    <li><span class="cl-share-label" title="{{ item.label }}">{{ item.label }}</span><span class="cl-share-bar"><i style="width: {{ item.percent }}%"></i></span>
+      <span class="cl-share-n">{{ item.count }}</span></li>
+    {% endfor %}
+  </ul>
+  {% if items | length > limit %}<span class="hl-sub">und {{ items | length - limit }} weitere</span>{% endif %}
+  {% else %}<span class="hl-sub">{{ empty }}</span>{% endif %}
+</div>
+{% endmacro %}
+
+{% macro tile(label, value, sub=None, quality=None) %}
+<div class="cl-box"><span class="hl-label">{{ label }}</span>
+  <strong{% if quality %} class="cl-ping-{{ quality }}"{% endif %}>{{ value }}</strong>
+  {% if sub %}<span class="hl-sub">{{ sub }}</span>{% endif %}</div>
+{% endmacro %}
+
+{% block content %}
+<h1>Analyse</h1>
+<p class="srv-lead">Verbindungen, Clients, Mods und Einstellungen der Spieler. Nur für Moderatoren; das Plugin meldet die Werte
+  einmal pro Minute für alle, die online sind (ab Version 3.28, Mods, Ressourcenpaket und Einstellungen ab 3.29). Anteile und
+  Kennzahlen beziehen sich auf die {{ data.players }} Spieler der letzten 30 Tage, Ping auf 7 Tage. Keine IP-Adressen.</p>
+<nav class="md-nav" aria-label="Bereiche">
+  <a href="#ueberblick">Überblick</a><a href="#ping">Ping</a><a href="#clients">Clients &amp; Mods</a>
+  <a href="#einstellungen">Einstellungen</a><a href="#verbindung">Paket &amp; Verbindung</a>
+  {% if data.bedrock %}<a href="#bedrock">Bedrock</a>{% endif %}<a href="#spieler">Spieler</a>
+</nav>
+
+{% if not data.rows %}
+<p class="st-empty">Noch keine Daten. Sie kommen ab Plugin-Version 3.28, sobald jemand online ist. Lade das aktuelle MCDataLink.jar auf
+  der Admin-Seite herunter (oder warte auf das automatische Update) und starte den Server neu.</p>
+{% else %}
+<section class="st-group" id="ueberblick">
+  <h2>Überblick</h2>
+  <div class="cl-summary an-kpis">
+    {{ tile("Ping Ø (7 Tage)", (data.ping_avg ~ " ms") if data.ping_avg is not none else "–",
+            "gut unter " ~ data.thresholds.good ~ " ms", data.ping_avg is not none and (["good", "ok", "bad"][(data.ping_avg >= data.thresholds.good) + (data.ping_avg >= data.thresholds.bad)])) }}
+    {{ tile("Ping-Spitzen (7 Tage)", data.spikes, "Minuten ab " ~ data.thresholds.spike ~ " ms") }}
+    {{ tile("Spieler mit Mods", data.modded ~ " / " ~ data.channels_known, "erkannt an den Plugin-Kanälen") }}
+    {{ tile("Ressourcenpaket", (data.pack_ok ~ " / " ~ data.pack_known) if data.pack_known else "–", "angenommen") }}
+    {{ tile("Chat aus", data.chat_off, "sehen keine Ankündigungen") }}
+    {{ tile("Bedrock", data.bedrock ~ " / " ~ data.players, "über Geyser/Floodgate") }}
+  </div>
+</section>
+
+<section class="st-group" id="ping">
+  <h2>Ping</h2>
+  <div class="an-charts">
+    <div class="srv-card an-chart-card">
+      <h3>Ø Ping der Spieler, 7 Tage</h3>
+      <script id="ping-week" type="application/json">{{ data.charts.ping_week | tojson }}</script>
+      <div class="cmp-chart" data-line-chart="ping-week" aria-label="Durchschnittlicher Ping pro Stunde der letzten 7 Tage"></div>
+    </div>
+    <div class="srv-card an-chart-card">
+      <h3>Ø Ping nach Uhrzeit</h3>
+      <script id="ping-hours" type="application/json">{{ data.charts.ping_hours | tojson }}</script>
+      <div class="pi-chart" data-bar-chart="ping-hours" data-unit="ms" data-every="3" aria-label="Durchschnittlicher Ping nach Uhrzeit"></div>
+    </div>
+    <div class="srv-card an-chart-card">
+      <h3>Spieler nach Ø Ping</h3>
+      <script id="ping-buckets" type="application/json">{{ data.charts.ping_buckets | tojson }}</script>
+      <div class="pi-chart" data-bar-chart="ping-buckets" data-every="1" aria-label="Spieler nach durchschnittlichem Ping"></div>
+    </div>
+    <div class="srv-card an-chart-card">
+      <h3>Minuten mit Ping-Spitzen, 30 Tage</h3>
+      <script id="spike-days" type="application/json">{{ data.charts.spike_days | tojson }}</script>
+      <div class="pi-chart" data-bar-chart="spike-days" aria-label="Minuten mit Ping ab {{ data.thresholds.spike }} ms pro Tag"></div>
+    </div>
+  </div>
+  {% if data.worst %}
+  <div class="srv-card an-worst">
+    <h3>Langsamste Verbindungen</h3>
+    <ol class="an-list">
+      {% for r in data.worst %}
+      <li><a href="/analyse/spieler/{{ r.name | urlencode }}">{{ r.name }}</a>
+        <b class="cl-ping cl-ping-{{ r.quality }}">{{ r.ping_avg }} ms</b>
+        <span class="mcc-hint">{{ r.ping_min }}–{{ r.ping_max }} ms · {{ r.spikes }} Spitzen · {{ r.client }}</span></li>
+      {% endfor %}
+    </ol>
+  </div>
+  {% endif %}
+</section>
+
+<section class="st-group" id="clients">
+  <h2>Clients &amp; Mods</h2>
+  <div class="an-grid">
+    {{ share_box("Clients", data.shares.clients) }}
+    {{ share_box("Mod-Loader", data.shares.loaders) }}
+    {{ share_box("Mods", data.shares.mods, 12, "Keine Mods erkannt (oder Plugin älter als 3.29)") }}
+    {{ share_box("Mod-Arten", data.shares.kinds, 7, "Keine Mods erkannt") }}
+    {{ share_box("Versionen", data.shares.versions) }}
+    {{ share_box("Sprachen", data.shares.languages, 8) }}
+  </div>
+  {% if not data.via %}<p class="mcc-hint">Die Client-Version kennt der Server nur mit ViaVersion; ohne spielen alle mit seiner Version.</p>{% endif %}
+  <div class="srv-card an-chart-card an-wide">
+    <h3>Spieler mit Daten pro Tag, 30 Tage</h3>
+    <script id="players-days" type="application/json">{{ data.charts.players_days | tojson }}</script>
+    <div class="pi-chart" data-bar-chart="players-days" aria-label="Spieler mit Client-Daten pro Tag"></div>
+  </div>
+</section>
+
+<section class="st-group" id="einstellungen">
+  <h2>Einstellungen der Clients</h2>
+  <p class="mcc-hint">Chat, Partikel, Chat-Farben, Textfilter, Server-Listing und Umhang meldet nur Paper (ab 1.20.1, Partikel ab 1.21).</p>
+  <div class="an-grid">
+    {{ share_box("Chat", data.shares.chat) }}
+    {{ share_box("Haupthand", data.shares.hands) }}
+    {{ share_box("Partikel", data.shares.particles) }}
+    {{ share_box("Chat-Farben", data.shares.colors) }}
+    {{ share_box("Textfilter", data.shares.filter) }}
+    {{ share_box("In Server-Listen sichtbar", data.shares.listing) }}
+    {{ share_box("Umhang sichtbar", data.shares.cape) }}
+  </div>
+  <div class="srv-card an-chart-card an-wide">
+    <h3>Sichtweite</h3>
+    <script id="views" type="application/json">{{ data.charts.views | tojson }}</script>
+    <div class="pi-chart" data-bar-chart="views" data-every="1" aria-label="Spieler nach Sichtweite in Chunks"></div>
+  </div>
+</section>
+
+<section class="st-group" id="verbindung">
+  <h2>Ressourcenpaket &amp; Verbindung</h2>
+  <div class="an-grid">
+    {{ share_box("Ressourcenpaket", data.shares.packs, 6, "Noch keine Daten (ab Plugin 3.29)") }}
+    {{ share_box("Verbunden über", data.shares.hosts, 8, "Noch keine Daten (ab Plugin 3.29)") }}
+  </div>
+  <p class="mcc-hint">Das Paket bringt die Icons im Chat und über den Köpfen; wer es ablehnt, sieht einfache Symbole.
+    „Verbunden über“ ist die Adresse, die der Spieler in Minecraft eingetragen hat – hilfreich nach einem Domain-Umzug.</p>
+</section>
+
+{% if data.bedrock %}
+<section class="st-group" id="bedrock">
+  <h2>Bedrock</h2>
+  <div class="an-grid">
+    {{ share_box("Gerät", data.shares.devices) }}
+    {{ share_box("Eingabe", data.shares.inputs) }}
+    {{ share_box("Oberfläche", data.shares.uis) }}
+    {{ share_box("Bedrock-Version", data.shares.bedrock_versions) }}
+  </div>
+</section>
+{% endif %}
+
+<section class="st-group" id="spieler">
+  <h2>Spieler</h2>
+  <div class="an-search"><label class="st-sr" for="an-filter">Spieler suchen</label>
+    <input class="mcc-input" id="an-filter" type="search" placeholder="Spieler, Client oder Mod suchen …" autocomplete="off"/></div>
+  <div class="mcc-table-wrap srv-card an-table">
+    <table class="mcc-table mcc-stack">
+      <thead><tr><th>Spieler</th><th>Ping Ø 7 T.</th><th>Spitzen</th><th>Client</th><th>Version</th><th>Mods</th><th>Paket</th>
+        <th>Chat</th><th>Sprache</th><th>Zuletzt</th></tr></thead>
+      <tbody>
+        {% for c in data.rows %}
+        <tr data-search="{{ (c.name ~ ' ' ~ c.client ~ ' ' ~ (c.mods | join(' '))) | lower }}">
+          <td data-label="Spieler"><a href="/analyse/spieler/{{ c.name | urlencode }}">{{ c.name }}</a></td>
+          <td data-label="Ping Ø 7 T." class="num">{% if c.ping_avg is not none %}<b class="cl-ping cl-ping-{{ c.quality }}">{{ c.ping_avg }} ms</b>{% else %}–{% endif %}</td>
+          <td data-label="Spitzen" class="num">{{ c.spikes or "–" }}</td>
+          <td data-label="Client">{{ c.client }}{% if c.bedrock and c.device %} <span class="mcc-hint">({{ c.device }})</span>{% endif %}</td>
+          <td data-label="Version">{{ c.version or "–" }}</td>
+          <td data-label="Mods">{% if c.mods %}<span title="{{ c.mods | join(', ') }}">{{ c.mods | length }}</span>{% elif c.channels is none %}–{% else %}0{% endif %}</td>
+          <td data-label="Paket">{{ c.pack_label }}</td>
+          <td data-label="Chat">{{ c.chat_label }}</td>
+          <td data-label="Sprache">{{ c.language }}</td>
+          <td data-label="Zuletzt">{{ c.seen }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='line-chart.js') }}"></script>
+<script src="{{ url_for('static', filename='bar-chart.js') }}"></script>
+<script nonce="{{ csp_nonce() }}">
+  (() => {
+    const input = document.getElementById("an-filter");
+    if (!input) return;
+    input.addEventListener("input", () => {
+      const q = input.value.trim().toLowerCase();
+      document.querySelectorAll("tr[data-search]").forEach((row) => { row.hidden = q && !row.dataset.search.includes(q); });
+    });
+  })();
+</script>
+{% endblock %}

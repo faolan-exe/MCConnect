@@ -1,0 +1,110 @@
+{% extends "server_base.html" %}
+{% block title %}{{ c.name }} – Analyse – {{ server_name }}{% endblock %}
+{% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block page_class %}srv-page-wide{% endblock %}
+
+{% macro row(label, value) %}<div><dt>{{ label }}</dt><dd>{{ value if value not in (none, "") else "–" }}</dd></div>{% endmacro %}
+
+{% block content %}
+<p class="an-back"><a href="/analyse#spieler">← Analyse</a></p>
+<h1 class="an-name"><img src="/mc/avatar/{{ c.uuid }}/64" alt="" width="44" height="44"/>{{ c.name }}</h1>
+<p class="srv-lead">Daten seit {{ c.first_seen.strftime("%d.%m.%Y") }} · zuletzt {{ c.seen }} ·
+  <a href="/spieler?player={{ c.name | urlencode }}">Spielerseite</a></p>
+
+<div class="cl-summary an-kpis">
+  <div class="cl-box"><span class="hl-label">Ping jetzt</span><strong>{% if c.online and c.ping is not none %}{{ c.ping }} ms{% else %}–{% endif %}</strong>
+    <span class="hl-sub">{{ "online" if c.online else "offline" }}</span></div>
+  <div class="cl-box"><span class="hl-label">Ping Ø 30 Tage</span>
+    <strong{% if c.quality %} class="cl-ping-{{ c.quality }}"{% endif %}>{% if c.ping_avg is not none %}{{ c.ping_avg }} ms{% else %}–{% endif %}</strong>
+    <span class="hl-sub">{% if c.ping_min is not none %}{{ c.ping_min }}–{{ c.ping_max }} ms{% endif %}</span></div>
+  <div class="cl-box"><span class="hl-label">Ping-Spitzen 30 Tage</span><strong>{{ c.spikes }}</strong>
+    <span class="hl-sub">Minuten ab {{ thresholds.spike }} ms</span></div>
+  <div class="cl-box"><span class="hl-label">Tage mit Daten</span><strong>{{ c.days }}</strong><span class="hl-sub">von 90</span></div>
+</div>
+
+{% if c.days %}
+<div class="an-charts">
+  <div class="srv-card an-chart-card">
+    <h3>Ø Ping pro Tag</h3>
+    <script id="ping-avg" type="application/json">{{ c.chart_avg | tojson }}</script>
+    <div class="cmp-chart" data-line-chart="ping-avg" aria-label="Durchschnittlicher Ping pro Tag"></div>
+  </div>
+  <div class="srv-card an-chart-card">
+    <h3>Höchster Ping pro Tag</h3>
+    <script id="ping-max" type="application/json">{{ c.chart_max | tojson }}</script>
+    <div class="cmp-chart" data-line-chart="ping-max" aria-label="Höchster Ping pro Tag"></div>
+  </div>
+  <div class="srv-card an-chart-card an-wide">
+    <h3>Minuten mit Ping-Spitzen pro Tag</h3>
+    <script id="ping-spikes" type="application/json">{{ c.chart_spikes | tojson }}</script>
+    <div class="pi-chart" data-bar-chart="ping-spikes" aria-label="Minuten mit Ping-Spitzen pro Tag"></div>
+  </div>
+</div>
+{% endif %}
+
+<div class="an-details">
+  <section class="srv-card">
+    <h2>Client</h2>
+    <dl class="an-dl">
+      {{ row("Client", c.client) }}
+      {{ row("Kennung des Clients", c.brand) }}
+      {{ row("Version", c.version or "wie der Server") }}
+      {{ row("Sprache", c.language) }}
+      {{ row("Sichtweite", (c.view_distance ~ " Chunks") if c.view_distance else none) }}
+      {{ row("Verbunden über", c.host) }}
+      {{ row("Ressourcenpaket", c.pack_label) }}
+    </dl>
+  </section>
+  <section class="srv-card">
+    <h2>Einstellungen</h2>
+    <dl class="an-dl">
+      {{ row("Chat", c.chat_label) }}
+      {{ row("Chat-Farben", c.colors_label) }}
+      {{ row("Textfilter", c.filter_label) }}
+      {{ row("Haupthand", c.hand_label) }}
+      {{ row("Partikel", c.particles_label) }}
+      {{ row("In Server-Listen sichtbar", c.listing_label) }}
+      {{ row("Umhang sichtbar", c.cape_label) }}
+      {{ row("Skin-Ebenen", (c.skin_layers ~ " von 7") if c.skin_layers is not none else none) }}
+    </dl>
+  </section>
+  {% if c.bedrock %}
+  <section class="srv-card">
+    <h2>Bedrock</h2>
+    <dl class="an-dl">
+      {{ row("Gerät", c.device) }}
+      {{ row("Eingabe", c.input_label) }}
+      {{ row("Oberfläche", c.ui) }}
+      {{ row("Bedrock-Version", c.bedrock_version) }}
+    </dl>
+  </section>
+  {% endif %}
+  <section class="srv-card">
+    <h2>Mods</h2>
+    {% if c.channels is none %}
+    <p class="mcc-hint">Noch keine Daten (ab Plugin 3.29).</p>
+    {% elif c.mod_kinds %}
+    <ul class="an-mods">
+      {% for name, kind in c.mod_kinds %}<li><b>{{ name }}</b> <span class="mcc-hint">{{ {"loader": "Mod-Loader", "client": "Client/Launcher", "map": "Karte", "voice": "Sprachchat", "build": "Bauen", "recipes": "Rezepte", "other": "Sonstige"}[kind] }}</span></li>{% endfor %}
+    </ul>
+    {% else %}
+    <p class="mcc-hint">Keine Mods erkannt. Mods ohne eigene Plugin-Kanäle (z. B. Sodium, Iris) sieht der Server nicht.</p>
+    {% endif %}
+    {% if c.unknown_channels %}
+    <p class="mcc-hint">Weitere Kanäle: <code>{{ c.unknown_channels | join(", ") }}</code></p>
+    {% endif %}
+  </section>
+  {% if c.changes %}
+  <section class="srv-card">
+    <h2>Client-Wechsel</h2>
+    <ul class="an-list">
+      {% for ch in c.changes | reverse %}<li><span class="mcc-hint">{{ ch.day }}</span> {{ ch.client }} · {{ ch.version }}</li>{% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='line-chart.js') }}"></script>
+<script src="{{ url_for('static', filename='bar-chart.js') }}"></script>
+{% endblock %}

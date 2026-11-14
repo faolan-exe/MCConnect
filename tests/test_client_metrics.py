@@ -4,12 +4,12 @@ import json
 
 import pytest
 
+from database import clients
 from mc_socket.main import parse_clients, parse_health
 from tests.conftest import OTHER_UUID, PLAYER_UUID
 from tests.test_moderation_log import HEALTH, mod  # noqa: F401 (fixture)
 from tests.test_socket import plugin, socket_server  # noqa: F401 (fixtures)
 from tests.test_web import app, client, login_player, on  # noqa: F401 (fixtures)
-from web import main as web
 
 S = on("testdomain")
 
@@ -91,7 +91,7 @@ def test_old_daily_pings_are_deleted_and_not_counted(db, server):
 
 @pytest.mark.parametrize("ms,quality", [(None, None), (0, "good"), (79, "good"), (80, "ok"), (149, "ok"), (150, "bad")])
 def test_ping_quality_edges(ms, quality):
-    assert web.ping_quality(ms) == quality
+    assert clients.ping_quality(ms) == quality
 
 
 @pytest.mark.parametrize("brand,bedrock,label", [("vanilla", False, "Vanilla"), ("fabric", False, "Fabric"),
@@ -99,14 +99,14 @@ def test_ping_quality_edges(ms, quality):
                                                  ("lunarclient:v2.1", False, "Lunar Client"), ("MeinClient", False, "MeinClient"),
                                                  (None, False, "unbekannt"), ("vanilla", True, "Bedrock")])
 def test_client_labels(brand, bedrock, label):
-    assert web.client_label(brand, bedrock) == label
+    assert clients.client_label(brand, bedrock) == label
 
 
 @pytest.mark.parametrize("code,label", [("de_de", "Deutsch (Deutschland)"), ("de_at", "Deutsch (Österreich)"),
                                         ("en_us", "Englisch (USA)"), ("en_pt", "Englisch (Portugal)"), ("fi_fi", "fi_fi"),
                                         ("nl_xx", "Niederländisch"), (None, "–")])
 def test_locale_labels(code, label):
-    assert web.locale_label(code) == label
+    assert clients.locale_label(code) == label
 
 
 # ------------------------------------------------------------------ pages (moderators only)
@@ -114,12 +114,12 @@ def test_locale_labels(code, label):
 def test_moderators_see_connections_and_clients(mod, db, server):
     db.add_client_samples(server["id"], parse_clients(json.dumps([
         sample(ping=160, brand="vanilla"), sample(OTHER_UUID, ping=30, brand="fabric", locale="en_us", version="1.21.4")])))
-    html = mod.get("/users/spieler", **S).get_data(as_text=True)
-    section = html.split('id="clients"')[1].split("</section>")[0]
+    html = mod.get("/analyse", **S).get_data(as_text=True)
+    section = html.split('id="spieler"')[1].split("</section>")[0]
     assert "_Tobias4444" in section and "Notch" in section and "cl-ping-bad" in section and "160 ms" in section
-    assert "Fabric" in section and "Vanilla" in section and "Englisch (USA)" in section and "1.21.4" in section
+    assert "Fabric" in html and "Vanilla" in html and "Englisch (USA)" in html and "1.21.4" in html
     assert section.index("_Tobias4444") < section.index("Notch")  # slowest connection first
-    assert 'href="#clients"' in html
+    assert 'href="/analyse"' in mod.get("/users/spieler", **S).get_data(as_text=True)  # pointer from the moderation page
 
 
 def test_average_ping_on_the_overview(mod, db, server):
@@ -132,5 +132,82 @@ def test_clients_are_not_public(client, db, server):
     db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
     db.add_client_samples(server["id"], parse_clients(json.dumps([sample(brand="geheimclient")])))
     for path in ("/", "/spieler", "/spieler?player=_Tobias4444", "/server-statistik", "/api/player_info/_Tobias4444"):
-        assert "geheimclient" not in client.get(path, **S).get_data(as_text=True), path
-    assert client.get("/users/spieler", **S).status_code in (302, 403)
+        html = client.get(path, **S).get_data(as_text=True)
+        assert "geheimclient" not in html and 'href="/analyse"' not in html, path
+    assert client.get("/analyse", **S).status_code in (302, 403)
+    assert client.get("/analyse/spieler/_Tobias4444", **S).status_code in (302, 403)
+
+
+# ------------------------------------------------------------------ plugin 3.29: mods, pack, options, address
+
+FULL = dict(channels=["fabric:registry/sync", "voicechat:secret", "minecraft:brand", "XAEROMINIMAP:bad", "x" * 70 + ":y",
+                      "journeymap:version", "unbekannt:kanal"],
+            pack="SUCCESSFULLY_LOADED", chat="HIDDEN", hand="LEFT", chat_colors=True, text_filter=False, listing="ja",
+            particles="DECREASED", cape=False, skin_layers=6, host="Play.Survival-Deluxe.de", input="TOUCH", ui="POCKET",
+            bedrock_version="1.21.50")
+
+
+def test_parse_clients_reads_the_new_fields():
+    row = parse_clients(json.dumps([sample(**FULL)]))[0]
+    assert row["channels"] == ["fabric:registry/sync", "journeymap:version", "minecraft:brand", "unbekannt:kanal",
+                               "voicechat:secret"]  # sorted, invalid ones dropped
+    assert (row["pack"], row["chat"], row["main_hand"], row["particles"]) == ("successfully_loaded", "hidden", "left", "decreased")
+    assert row["chat_colors"] is True and row["text_filter"] is False and row["listing"] is None and row["cape"] is False
+    assert row["skin_layers"] == 6 and row["host"] == "play.survival-deluxe.de" and row["input"] == "touch"
+
+
+@pytest.mark.parametrize("field,value,stored", [("skin_layers", 7, 7), ("skin_layers", 8, None), ("skin_layers", -1, None),
+                                                ("host", "a b.de", None), ("host", "10.0.0.5", "10.0.0.5"),
+                                                ("pack", "ok!", None), ("channels", "fabric:x", None)])
+def test_new_field_limits(field, value, stored):
+    key = {"hand": "main_hand"}.get(field, field)
+    assert parse_clients(json.dumps([sample(**{field: value})]))[0][key] == stored
+
+
+def test_mods_are_recognized_by_their_channels():
+    found, unknown = clients.mods(["fabric:registry/sync", "fabric-networking-api-v1:early", "voicechat:secret",
+                                   "minecraft:register", "worldedit:cui", "unbekannt:kanal", "BungeeCord"])
+    assert found == [("Fabric API", "loader"), ("Simple Voice Chat", "voice"), ("WorldEdit CUI", "build")]
+    assert unknown == ["unbekannt"]
+    assert clients.mods(None) == ([], [])
+
+
+def test_old_reports_keep_the_new_values(db, server):
+    db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
+    db.add_client_samples(server["id"], parse_clients(json.dumps([sample(**FULL)])))
+    db.add_client_samples(server["id"], parse_clients(json.dumps([sample(ping=12)])))  # a 3.28 report
+    row = db.get_player_clients(server["id"])[0]
+    assert row["chat"] == "hidden" and row["host"] == "play.survival-deluxe.de" and "voicechat:secret" in row["channels"]
+
+
+@pytest.mark.parametrize("ping,spike", [(249, 0), (250, 1), (900, 1)])
+def test_ping_spikes_per_day(db, server, ping, spike):
+    db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
+    db.add_client_samples(server["id"], parse_clients(json.dumps([sample(ping=ping)])))
+    assert db.get_player_clients(server["id"])[0]["spikes"] == spike
+
+
+def test_the_day_remembers_client_and_mods(db, server):
+    db.register_player_join(server["id"], PLAYER_UUID, "_Tobias4444")
+    db.add_client_samples(server["id"], parse_clients(json.dumps([sample(**FULL)])))
+    day = db.get_ping_days(server["id"], "_Tobias4444")[0]
+    assert day[5] == "Fabric" and day[4] == 0
+    assert db.get_client_days(server["id"], 3)[-1][1:3] == (1, 1)  # one player today, with mods
+
+
+def test_analysis_page_and_player_detail(mod, db, server):
+    db.add_client_samples(server["id"], parse_clients(json.dumps([sample(**FULL), sample(OTHER_UUID, ping=300, bedrock=True,
+                                                                                              device="Android", input="TOUCH")])))
+    html = mod.get("/analyse", **S).get_data(as_text=True)
+    for text in ("Simple Voice Chat", "JourneyMap", "Fabric API", "aus", "links", "geladen", "play.survival-deluxe.de",
+                 'id="bedrock"', "Android", "Touch", 'data-line-chart="ping-week"', 'data-bar-chart="ping-buckets"'):
+        assert text in html, text
+    detail = mod.get("/analyse/spieler/_Tobias4444", **S).get_data(as_text=True)
+    assert "Simple Voice Chat" in detail and "unbekannt" in detail and "6 von 7" in detail and "Haupthand" in detail
+    assert mod.get("/analyse/spieler/Niemand", **S).status_code == 404
+    assert '<a class="nav-top" href="/analyse">Analyse</a>' in html or 'href="/analyse">Analyse</a>' in html
+
+
+def test_analysis_without_data(mod):
+    html = mod.get("/analyse", **S).get_data(as_text=True)
+    assert "Noch keine Daten" in html and "3.28" in html

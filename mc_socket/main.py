@@ -21,8 +21,11 @@ Plugin -> server:
                                  "entities", "uptime_s", "mc_version", "plugin_version", "ping_avg" (3.28, -1 = nobody)}
     !CLIENTS~<json list>         once a minute (3.28, "clients"): the online players' connection and client,
                                  [{"uuid", "ping" (ms), "brand", "version" (with ViaVersion), "locale", "view",
-                                 "bedrock", "device" (with Floodgate)}]; every field but uuid is optional; only
-                                 moderators see it (/users/spieler#clients)
+                                 "bedrock", "device", "input", "ui", "bedrock_version" (with Floodgate); since 3.29
+                                 "channels" (plugin channels of the client), "pack" (resource pack status), "hand",
+                                 "chat", "chat_colors", "text_filter", "listing", "particles", "cape", "skin_layers"
+                                 (Paper's client options), "host" (address the player joined with)}]; every field but
+                                 uuid is optional; only moderators see it (/analyse)
     !CMD~<uuid>|<world>|<x>|<y>|<z>|<command>|<args>   in-game command (stats, top, wettbewerb, duell, report,
                                  seitenleiste, vote, events; see mc_socket/commands.py), answered with !tell
     !FEATURES~<name>,<name>      what the plugin can do (after auth): "click" = buttons in chat messages (3.10),
@@ -244,6 +247,10 @@ def parse_health(value):
 MAX_PING = 60_000  # ms; anything above is a broken value
 MAX_CLIENT_ENTRIES = 1000
 LOCALE_RE = re.compile(r"^[a-z]{2,3}(?:_[a-z0-9]{2,4})?$")
+WORD_RE = re.compile(r"^[a-z_]{1,32}$")
+CHANNEL_RE = re.compile(r"^[a-z0-9_.-]{1,40}:[a-z0-9_./-]{1,60}$")
+HOST_RE = re.compile(r"^[a-z0-9.-]{1,100}$")  # a domain or an IPv4 address of the server, not of the player
+MAX_CHANNELS = 60
 
 
 def parse_clients(value):
@@ -273,9 +280,28 @@ def parse_clients(value):
         view = entry.get("view")
         view = view if isinstance(view, int) and not isinstance(view, bool) and 1 <= view <= 64 else None
         locale = (text("locale", 10) or "").lower()
+
+        def word(key):  # enum names of the plugin (chat, main hand, pack status, ...) in lower case
+            value = (text(key, 32) or "").lower()
+            return value if WORD_RE.match(value) else None
+
+        def flag(key):
+            return entry.get(key) if isinstance(entry.get(key), bool) else None
+
+        channels = entry.get("channels")
+        channels = sorted({c for c in channels if isinstance(c, str) and CHANNEL_RE.match(c)})[:MAX_CHANNELS] \
+            if isinstance(channels, list) else None
+        layers = entry.get("skin_layers")
+        host = (text("host", 100) or "").lower()
         result.append({"uuid": uuid, "ping": ping, "brand": text("brand"), "version": text("version", 24),
                        "locale": locale if LOCALE_RE.match(locale) else None, "view": view,
-                       "bedrock": entry.get("bedrock") is True, "device": text("device", 24)})
+                       "bedrock": entry.get("bedrock") is True, "device": text("device", 24),
+                       "channels": channels, "pack": word("pack"), "chat": word("chat"), "main_hand": word("hand"),
+                       "chat_colors": flag("chat_colors"), "text_filter": flag("text_filter"), "listing": flag("listing"),
+                       "particles": word("particles"), "cape": flag("cape"),
+                       "skin_layers": layers if isinstance(layers, int) and not isinstance(layers, bool) and 0 <= layers <= 7 else None,
+                       "host": host if HOST_RE.match(host) else None, "input": word("input"), "ui": word("ui"),
+                       "bedrock_version": text("bedrock_version", 24)})
     return result
 
 

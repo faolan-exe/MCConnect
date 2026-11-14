@@ -33,6 +33,7 @@ The menu is `web/templates/header.html` (one markup for desktop and phone, style
 | Wettkämpfe | `/wettbewerbe`, `/duelle` | same names, `_goals.html` | `poll.js` (standings refresh) |
 | Community | `/events` (events and polls; `/umfragen` redirects), `/galerie`, `/regeln`, `/mitmachen`, `/melden` | same names | inline |
 | Konto | `/profil`, `/profil/spiel`, `/profil/prefix` (`/add_pref`, `/join_pref` redirect) | `profil.html` (one template, `tab` decides the part) | inline, `poll.js` on the prefix tab |
+| Analyse | `/analyse`, `/analyse/spieler/<name>` (moderators) | `analyse.html`, `analyse_spieler.html` | `line-chart.js`, `bar-chart.js`; values and mod names in `database/clients.py` |
 | Verwaltung | `/users`, `/users/spieler`, `/users/inhalte`, `/users/zugang`, tab "Im Spiel": `/users/belohnungen`, `/users/icons`, `/users/erweiterungen`; `/users/protokoll` | `mod/*.html` | `mod.js`, `addons.js`; tabs in `MOD_TABS` (`web/main.py`) |
 | – | `/rueckblick/<name>`, `/login`, `/impressum`, `/datenschutz` | `rueckblick.html`, `login.html` (keep its design), `legal_*.html` | |
 
@@ -65,6 +66,7 @@ overview, plugin, addons, server page, moderation, danger zone in `serverAdminSe
 | Browser: menu, tabs, saving without reload, dark mode | `test_browser_flows.py`, `test_mobile.py` (phone width), `test_messagebox.py`, `test_addon_ui.py` |
 | Rankings, comparison, numbers | `test_metrics.py`, `test_stats.py`, `test_server_stats.py`, `test_registry.py` |
 | Motivation, achievements, rewards, badges, icons | `test_motivation.py`, `test_achievements.py`, `test_rewards.py`, `test_badges.py`, `test_icons.py` |
+| Client analysis (ping, mods, options) | `test_client_metrics.py` |
 | Community, in game, moderation | `test_community.py`, `test_ingame.py`, `test_moderation_log.py`, `test_confirmations.py` |
 | Plugin connection, addons, updates | `test_socket.py`, `test_socket_tls.py`, `test_addons.py`, `test_addon_protected.py`, `test_plugin_update.py`, `test_discoveries.py` |
 | Skins, item icons, mail, names | `test_skins.py`, `test_item_icons.py`, `test_mailer.py`, `test_mojang_names.py` |
@@ -80,6 +82,8 @@ overview, plugin, addons, server page, moderation, danger zone in `serverAdminSe
 |---|---|---|---|
 | `/` | GET | `subdomain_index_route` | index-subpage.html |
 | `/add_pref` | GET | `prefix_edit_page` |  |
+| `/analyse` | GET | `analysis_page` | analyse.html |
+| `/analyse/spieler/<path:player_name>` | GET | `analysis_player_page` | analyse_spieler.html |
 | `/datenschutz` | GET | `datenschutz` |  |
 | `/duelle` | GET | `duels_page` | duelle.html |
 | `/entdeckungen` | GET | `discoveries_page` | entdeckungen.html |

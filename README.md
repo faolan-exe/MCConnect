@@ -53,7 +53,7 @@ fingerprint of the local socket certificate (`certs/`) for a test plugin's `tls-
 
 ## Status
 
-State of 2026-11-14: schema version 37, plugin 3.28 (client metrics), addon Discoveries. Written as a handoff for the next development session.
+State of 2026-11-14: schema version 38, plugin 3.29 (client analysis), addon Discoveries. Written as a handoff for the next development session.
 
 ### Features
 
@@ -73,7 +73,8 @@ State of 2026-11-14: schema version 37, plugin 3.28 (client metrics), addon Disc
 | Access | `/mitmachen`, `/regeln` | whitelist by application and/or invite code (the plugin runs `whitelist add`; the kick message links to `/mitmachen`), optional rules & FAQ page |
 | Addons | `database/addons.py`, `/manage/<id>#addons` (owners), `java plugin/addons/` | plug-and-play extensions through MCDataLink (no own key): store with one-click install (download + SHA-256 check + live load), approval by the owner (bound to the jar's checksum, official releases automatically), settings page built from the addon's `mcconnect-addon.json`, in-game changes checked and stored by MCConnect, settings cached by the plugin for offline starts; the owner can let moderators edit the settings (`/users/erweiterungen`) and switch on automatic updates of official addons. Official: BetterJoinMessages, Discoveries (places with own advancements, `/entdeckungen`, [ADR 0007](docs/adr/0007-discoveries.md)), EasyHeadDrop, EasyNewCraftingRecipes, SpawnElytra, SpawnProtect. Decision and security limits: `docs/adr/0001-addon-system.md`, writing an addon: `java plugin/addons/README.md` |
 | Join messages & rewards | `database/rewards.py`, `/profil/spiel`, `/users/belohnungen`, `/joinmessage` | **only with the addon BetterJoinMessages** (since 3.22; without it everything here is off and the game's message is shown); reward levels (default 6, editable per server; conditions are alternatives ("oder") of groups that must all be met ("und"), unlocks add up, a reached level is stored and never lowered); players choose text, leave text, color, symbol, style and sound from what they unlocked (templates only, moderators add own texts; moderators/OPs also gold/red/dark red); while on, everyone gets an MCConnect message (without a choice the first level's default, `!joindefault`); players can hide others' messages and all sounds |
-| Moderation | `/users` (moderators) | overview (open tasks, server health incl. average ping, newest log entries) and sub pages `spieler` (reports, bans, warnings, X-ray hints ([ADR 0012](docs/adr/0012-xray-hints.md)), connections & clients, activity), `inhalte` (gallery, guestbook, events, polls, competitions, goals), `zugang` (whitelist, codes, rules/FAQ), `belohnungen`, `protokoll`; templates in `web/templates/mod/` |
+| Analysis | `/analyse` (moderators, own menu entry) | connections and clients: ping charts, spikes, clients, mod loaders, mods, versions, languages, client options, resource pack, join addresses, Bedrock; a page per player (`database/clients.py`, [ADR 0013](docs/adr/0013-client-metrics.md)) |
+| Moderation | `/users` (moderators) | overview (open tasks, server health incl. average ping, newest log entries) and sub pages `spieler` (reports, bans, warnings, X-ray hints ([ADR 0012](docs/adr/0012-xray-hints.md)), activity), `inhalte` (gallery, guestbook, events, polls, competitions, goals), `zugang` (whitelist, codes, rules/FAQ), `belohnungen`, `protokoll`; templates in `web/templates/mod/` |
 | Admin | `/manage` (server owners) | server tiles; `/manage/<id>` with tabs: overview (health, e-mail alerts), plugin (config with `tls-fingerprint`), server page (texts, images, directory), moderation (moderators, bans), danger zone |
 | Year in review | `/rueckblick/<name>` | year gains from the first/last snapshot of the year (both kept forever), sessions, achievements, trophies |
 | Reach & design | main page, `web/static/css/dark.css` | public server directory (`servers.listed`), dark mode for all server pages (`_theme.html`, `--srv-*` tokens) |
@@ -116,7 +117,8 @@ again ([ADR 0006](docs/adr/0006-whitelist-confirmation.md)). · 3.27 `!BANNED`, 
 unbans and removals wait in `plugin_tasks` while the server is offline ([ADR 0008](docs/adr/0008-plugin-confirmations.md)). · 3.28 `!CLIENTS`
 (`!FEATURES~…,clients`) and `ping_avg` in `!HEALTH`: ping, client brand, version (ViaVersion), language, view distance
 and Bedrock device (Floodgate) of the online players once a minute, for moderators only (`/users/spieler#clients`,
-[ADR 0013](docs/adr/0013-client-metrics.md)).
+[ADR 0013](docs/adr/0013-client-metrics.md)). · 3.29 more client data in `!CLIENTS`: plugin channels (mods), resource
+pack status, Paper's client options, main hand, join address, Bedrock input/UI/version; shown on `/analyse`.
 
 Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss the newer features.
 
