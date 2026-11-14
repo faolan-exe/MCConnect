@@ -616,6 +616,30 @@ MIGRATIONS = {
              dismissed_by text,
              at timestamptz NOT NULL DEFAULT now())""",
     ],
+    37: [
+        # connection and client of the players (plugin 3.28, "clients"), only for moderators; no IP addresses
+        "ALTER TABLE server_health ADD COLUMN ping_avg integer",
+        """CREATE TABLE player_clients(
+             player_id uuid PRIMARY KEY REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             ping integer,
+             brand text,
+             version text,
+             locale text,
+             view_distance smallint,
+             bedrock boolean NOT NULL DEFAULT false,
+             device text,
+             updated_at timestamptz NOT NULL DEFAULT now())""",
+        # one row per player and day: the minute samples of the ping added up
+        """CREATE TABLE player_ping_daily(
+             player_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             day date NOT NULL,
+             samples integer NOT NULL,
+             total bigint NOT NULL,
+             min_ms integer NOT NULL,
+             max_ms integer NOT NULL,
+             PRIMARY KEY (player_id, day))""",
+        "CREATE INDEX player_ping_daily_day_idx ON player_ping_daily (day)",
+    ],
 }
 # X-ray hints: the blocks a player breaks around the ore. Since the cave update (1.18) diamonds lie in deepslate, tuff
 # and the stone variants of the caves, and debris next to basalt and blackstone, not only in netherrack.
@@ -655,6 +679,8 @@ ALERT_TPS_MINUTES = 5
 ALERT_REPEAT_HOURS = 6
 # Health samples older than this are deleted.
 HEALTH_RETENTION_DAYS = 7
+# Daily ping values of the players older than this are deleted.
+PING_RETENTION_DAYS = 90
 # Snapshots older than this are deleted (the newest older one of each metric is kept as baseline).
 SNAPSHOT_RETENTION_DAYS = 90
 SCHEMA_VERSION = max(MIGRATIONS, default=1)
@@ -2339,7 +2365,7 @@ class DatabaseManager:
     ###----------------------------- Server health ------------------------------------###
 
     _HEALTH_FIELDS = ("tps", "mem_used_mb", "mem_max_mb", "players", "chunks", "entities", "uptime_s",
-                      "mc_version", "plugin_version")
+                      "mc_version", "plugin_version", "ping_avg")
 
     def add_health_sample(self, server_id, sample):
         """Store one sample of the plugin (dict with _HEALTH_FIELDS) and drop old ones."""
@@ -2354,6 +2380,66 @@ class DatabaseManager:
         row = self._fetchone(f"""SELECT at, {", ".join(self._HEALTH_FIELDS)} FROM server_health
                                  WHERE server_id = %s ORDER BY at DESC LIMIT 1""", (server_id,))
         return dict(zip(("at",) + self._HEALTH_FIELDS, row)) if row else None
+
+    def add_client_samples(self, server_id, samples):
+        """One minute of the plugin's client report: [{"uuid", "ping", "brand", "version", "locale", "view", "bedrock",
+        "device"}] (validated, see mc_socket.main.parse_clients). Players not on this server are skipped."""
+        with self._cursor() as cur:
+            for sample in samples:
+                cur.execute("SELECT player_id FROM player_server_info WHERE server_id = %s AND mojang_uuid = %s",
+                            (server_id, sample["uuid"]))
+                row = cur.fetchone()
+                if row is None:
+                    continue
+                cur.execute("""INSERT INTO player_clients (player_id, ping, brand, version, locale, view_distance, bedrock,
+                                                           device, updated_at)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now())
+                               ON CONFLICT (player_id) DO UPDATE SET ping = EXCLUDED.ping,
+                                 brand = COALESCE(EXCLUDED.brand, player_clients.brand), version = EXCLUDED.version,
+                                 locale = COALESCE(EXCLUDED.locale, player_clients.locale),
+                                 view_distance = COALESCE(EXCLUDED.view_distance, player_clients.view_distance),
+                                 bedrock = EXCLUDED.bedrock, device = EXCLUDED.device, updated_at = now()""",
+                            (row[0], sample.get("ping"), sample.get("brand"), sample.get("version"), sample.get("locale"),
+                             sample.get("view"), bool(sample.get("bedrock")), sample.get("device")))
+                if sample.get("ping") is not None:
+                    cur.execute("""INSERT INTO player_ping_daily (player_id, day, samples, total, min_ms, max_ms)
+                                   VALUES (%s, current_date, 1, %s, %s, %s)
+                                   ON CONFLICT (player_id, day) DO UPDATE SET samples = player_ping_daily.samples + 1,
+                                     total = player_ping_daily.total + EXCLUDED.total,
+                                     min_ms = least(player_ping_daily.min_ms, EXCLUDED.min_ms),
+                                     max_ms = greatest(player_ping_daily.max_ms, EXCLUDED.max_ms)""",
+                                (row[0], sample["ping"], sample["ping"], sample["ping"]))
+            cur.execute("DELETE FROM player_ping_daily WHERE day < current_date - %s", (PING_RETENTION_DAYS,))
+
+    def get_player_clients(self, server_id, days=7):
+        """Everyone with a client report, slowest connection first: [{"name", "uuid", "ping", "ping_avg", "ping_min",
+        "ping_max", "brand", "version", "locale", "view_distance", "bedrock", "device", "updated_at", "online"}]
+        (ping_avg/min/max over the last `days` days, None without samples)."""
+        rows = self._fetchall("""
+            SELECT p.name, psi.mojang_uuid, c.ping, d.total::float / NULLIF(d.samples, 0), d.min_ms, d.max_ms, c.brand,
+                   c.version, c.locale, c.view_distance, c.bedrock, c.device, c.updated_at, psi.online
+            FROM player_clients c
+            JOIN player_server_info psi ON psi.player_id = c.player_id
+            JOIN player p ON p.uuid = psi.mojang_uuid
+            LEFT JOIN (SELECT player_id, sum(samples) AS samples, sum(total) AS total, min(min_ms) AS min_ms,
+                              max(max_ms) AS max_ms
+                       FROM player_ping_daily WHERE day > current_date - %s GROUP BY player_id) d
+                   ON d.player_id = c.player_id
+            WHERE psi.server_id = %s
+            ORDER BY 4 DESC NULLS LAST, p.name""", (days, server_id))
+        keys = ("name", "uuid", "ping", "ping_avg", "ping_min", "ping_max", "brand", "version", "locale", "view_distance",
+                "bedrock", "device", "updated_at", "online")
+        return [dict(zip(keys, row), uuid=str(row[1])) for row in rows]
+
+    def get_ping_history(self, server_id, hours=24, bucket_minutes=10):
+        """[(bucket start, average ping of the online players)] of the last `hours` hours, from the health samples."""
+        return self._fetchall("""
+            WITH buckets AS (SELECT generate_series(date_trunc('hour', now()) - %s * interval '1 hour', now(),
+                                                    %s * interval '1 minute') AS start)
+            SELECT b.start, avg(h.ping_avg)
+            FROM buckets b LEFT JOIN server_health h ON h.server_id = %s AND h.ping_avg IS NOT NULL
+                 AND h.at >= b.start AND h.at < b.start + %s * interval '1 minute'
+            GROUP BY b.start ORDER BY b.start""", (hours, bucket_minutes, server_id, bucket_minutes))
 
     def get_health_history(self, server_id, hours=24, bucket_minutes=10):
         """[(bucket start, avg tps, avg used MB, max MB)] of the last `hours` hours (None without samples)."""

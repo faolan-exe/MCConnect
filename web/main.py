@@ -1751,7 +1751,7 @@ def moderation_players_page():
                       players=db().get_players_overview_from_subdomain(g.subdomain),
                       activity=player_activity(g.server["id"]), settings=db().get_server_settings(g.server["id"]),
                       unwhitelist="unwhitelist" in db().get_plugin_features(g.server["id"]),
-                      xray=xray_hints(g.server["id"]),
+                      xray=xray_hints(g.server["id"]), clients=clients_view(g.server["id"]),
                       reports=[dict(r, when=r["created_at"].strftime("%d.%m.%Y, %H:%M"),
                                     handled=r["handled_at"].strftime("%d.%m.%Y, %H:%M") if r["handled_at"] else None)
                                for r in db().list_reports(g.server["id"], include_handled=True, limit=50)])
@@ -2052,7 +2052,86 @@ def health_view(server_id):
                                                         for t, v, _, _ in history]},
         "mem_chart": {"unit": " MB", "max": latest["mem_max_mb"],
                       "points": [{"t": fmt(t), "v": None if v is None else round(float(v))} for t, _, v, _ in history]},
+        "ping": latest.get("ping_avg"), "ping_quality": ping_quality(latest.get("ping_avg")),
+        "ping_chart": {"unit": " ms", "points": [{"t": fmt(t), "v": None if v is None else round(float(v))}
+                                                 for t, v in db().get_ping_history(server_id, 24, 10)]},
     }
+
+
+# Ping in ms: below PING_GOOD nobody notices, above PING_BAD hits and blocks lag behind.
+PING_GOOD, PING_BAD = 80, 150
+CLIENT_BRANDS = (("lunarclient", "Lunar Client"), ("badlion", "Badlion"), ("feather", "Feather"), ("labymod", "LabyMod"),
+                 ("neoforge", "NeoForge"), ("forge", "Forge"), ("fabric", "Fabric"), ("quilt", "Quilt"),
+                 ("optifine", "OptiFine"), ("vanilla", "Vanilla"), ("geyser", "Bedrock (Geyser)"))
+LOCALE_LABELS = {"de": "Deutsch", "en": "Englisch", "fr": "Französisch", "es": "Spanisch", "it": "Italienisch",
+                 "nl": "Niederländisch", "pl": "Polnisch", "tr": "Türkisch", "ru": "Russisch", "pt": "Portugiesisch",
+                 "cs": "Tschechisch", "sv": "Schwedisch", "da": "Dänisch", "uk": "Ukrainisch", "ja": "Japanisch",
+                 "zh": "Chinesisch", "ko": "Koreanisch"}
+LOCALE_REGIONS = {"de": "Deutschland", "at": "Österreich", "ch": "Schweiz", "us": "USA", "gb": "UK", "au": "Australien",
+                  "ca": "Kanada", "br": "Brasilien", "pt": "Portugal", "es": "Spanien", "fr": "Frankreich", "nl": "Niederlande",
+                  "be": "Belgien", "lu": "Luxemburg"}
+
+
+def ping_quality(ms):
+    if ms is None:
+        return None
+    return "good" if ms < PING_GOOD else "ok" if ms < PING_BAD else "bad"
+
+
+def client_label(brand, bedrock=False):
+    """"Fabric", "Vanilla", ... for the brand a client sends; unknown brands as they are."""
+    if bedrock:
+        return "Bedrock"
+    if not brand:
+        return "unbekannt"
+    lower = brand.lower()
+    return next((label for key, label in CLIENT_BRANDS if key in lower), brand)
+
+
+def locale_label(code):
+    if not code:
+        return "–"
+    language, _, region = code.partition("_")
+    name = LOCALE_LABELS.get(language, code)
+    return f"{name} ({LOCALE_REGIONS[region]})" if region in LOCALE_REGIONS and language in LOCALE_LABELS else name
+
+
+def clients_view(server_id):
+    """Connections and clients of the players for moderators: rows and how often each client, version and language
+    occurs among the players seen in the last 30 days."""
+    now = datetime.now(timezone.utc)
+    rows, recent = [], []
+    for c in db().get_player_clients(server_id):
+        row = dict(c, client=client_label(c["brand"], c["bedrock"]), language=locale_label(c["locale"]),
+                   ping_avg=None if c["ping_avg"] is None else round(c["ping_avg"]),
+                   quality=ping_quality(None if c["ping_avg"] is None else round(c["ping_avg"])),
+                   seen="jetzt" if c["online"] else format_ago(now - c["updated_at"]))
+        rows.append(row)
+        if now - c["updated_at"] < timedelta(days=30):
+            recent.append(row)
+
+    def share(key):
+        counts = {}
+        for row in recent:
+            counts[row[key]] = counts.get(row[key], 0) + 1
+        return [{"label": label, "count": n, "percent": round(n * 100 / len(recent))}
+                for label, n in sorted(counts.items(), key=lambda item: (-item[1], str(item[0])))]
+
+    for row in recent:
+        row["version_label"] = row["version"] or "wie der Server"
+    pings = [r["ping_avg"] for r in recent if r["ping_avg"] is not None]
+    return {"rows": rows, "clients": share("client"), "versions": share("version_label"), "languages": share("language"),
+            "ping_avg": round(sum(pings) / len(pings)) if pings else None, "players": len(recent),
+            "via": any(r["version"] for r in recent)}
+
+
+def format_ago(delta):
+    minutes = int(delta.total_seconds() // 60)
+    if minutes < 60:
+        return f"vor {max(minutes, 1)} Min."
+    if minutes < 48 * 60:
+        return f"vor {minutes // 60} Std."
+    return f"vor {minutes // (24 * 60)} Tagen"
 
 
 def player_activity(server_id):

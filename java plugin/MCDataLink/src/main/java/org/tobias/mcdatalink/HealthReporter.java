@@ -62,8 +62,9 @@ final class HealthReporter {
         long uptimeSeconds = ManagementFactory.getRuntimeMXBean().getUptime() / 1000;
         String json = String.format(Locale.ROOT,
                 "{\"tps\":%.2f,\"mem_used_mb\":%d,\"mem_max_mb\":%d,\"players\":%d,\"chunks\":%d,\"entities\":%d,"
-                        + "\"uptime_s\":%d,\"mc_version\":\"%s\",\"plugin_version\":\"%s\"}",
+                        + "\"uptime_s\":%d,\"ping_avg\":%d,\"mc_version\":\"%s\",\"plugin_version\":\"%s\"}",
                 tps(), usedMb, maxMb, plugin.getServer().getOnlinePlayers().size(), chunks, entities, uptimeSeconds,
+                plugin.clientReporter() == null ? -1 : plugin.clientReporter().averagePing(),
                 clean(plugin.getServer().getBukkitVersion()), clean(plugin.getDescription().getVersion()));
         plugin.sendHealth(json);
     }
