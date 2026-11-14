@@ -12,7 +12,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     MCC_PLUGIN_JAR=/app/plugin/MCDataLink.jar \
     MCC_ADDON_DIR=/app/addons \
-    MCC_UPLOAD_DIR=/app/uploads
+    MCC_UPLOAD_DIR=/app/uploads \
+    MCC_CACHE_DIR=/app/cache
 WORKDIR /app
 
 COPY requirements.txt .
@@ -25,7 +26,7 @@ COPY --from=plugin /out/MCDataLink.jar ./plugin/MCDataLink.jar
 COPY --from=plugin /out/addons ./addons
 
 # /tls: the socket server's own certificate (a docker volume takes over the owner on the first start)
-RUN useradd --system --create-home --uid 1000 mcconnect && mkdir -p logs uploads /tls && chown mcconnect logs uploads /tls
+RUN useradd --system --create-home --uid 1000 mcconnect && mkdir -p logs uploads cache /tls && chown mcconnect logs uploads cache /tls
 USER mcconnect
 
 EXPOSE 8000 9991

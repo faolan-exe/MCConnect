@@ -110,3 +110,11 @@ def certificate(tmp_path_factory):
     """Self-signed TLS certificate of the socket server in the tests: (cert path, key path)."""
     from mc_socket import tlscert
     return tlscert.ensure_certificate(str(tmp_path_factory.mktemp("certs")))
+
+
+@pytest.fixture(autouse=True)
+def offline_skins(tmp_path, monkeypatch):
+    """Skins and heads (web/skins.py) never come from the internet in tests: an empty cache in tmp, every download
+    fails unless a test replaces skins._get."""
+    monkeypatch.setattr(config, "CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setattr("web.skins._get", lambda url: None)

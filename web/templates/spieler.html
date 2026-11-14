@@ -37,7 +37,7 @@
   <li class="pl-row" data-index="{{ p.index }}" data-name="{{ p.name | lower }}" data-online="{{ 1 if p.online else 0 }}"
       data-last="{{ p.last_seen.isoformat() if p.last_seen else '' }}" data-play="{{ p.play_time }}"
       data-fav="{{ 1 if p.favorite else 0 }}"{% if p.hidden %} data-hidden="1"{% endif %}>
-    <img class="pl-avatar" src="https://mc-heads.net/avatar/{{ p.uuid }}/64" alt="" width="44" height="44" loading="lazy"/>
+    <img class="pl-avatar" src="/mc/avatar/{{ p.uuid }}/64" alt="" width="44" height="44" loading="lazy"/>
     <div class="pl-main">
       <div class="pl-title">
         <a class="pl-name" href="/spieler?player={{ p.name | urlencode }}">{% if p.prefix %}{{ prefix_chip(p.prefix[0], p.prefix[1], prefix_colors) }} {% endif %}{{ p.name }}</a>

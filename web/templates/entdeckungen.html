@@ -24,7 +24,7 @@
       {% if p.count %}
       <span>{{ p.count }} {{ "Spieler hat" if p.count == 1 else "Spieler haben" }} ihn entdeckt</span>
       <span class="dc-first">Als Erster:
-        {% if p.first_name %}<img src="https://mc-heads.net/avatar/{{ p.first_uuid }}/32" alt="" width="18" height="18" loading="lazy"/>
+        {% if p.first_name %}<img src="/mc/avatar/{{ p.first_uuid }}/32" alt="" width="18" height="18" loading="lazy"/>
         <a href="/spieler?player={{ p.first_name | urlencode }}">{{ p.first_name }}</a>{% else %}jemand{% endif %} · {{ p.first_date }}</span>
       {% endif %}
     </span>

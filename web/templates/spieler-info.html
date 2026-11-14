@@ -35,17 +35,10 @@
       type="image/vnd.microsoft.icon"
     />
 
-    <script
-      crossorigin="anonymous"
-      integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8="
-      src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"
-    ></script>
-    <script
-      crossorigin="anonymous"
-      integrity="sha256-NGC9JEuTWN4GhTj091wctgjzftr+8WNDmw0H8J5YPYE="
-      src="https://cdnjs.cloudflare.com/ajax/libs/three.js/94/three.min.js"
-    ></script>
-    <script src="https://cdn.jsdelivr.net/gh/InventivetalentDev/MineRender@1.4.6/dist/skin.min.js"></script>
+    <!-- jQuery 3.3.1, three.js r94 and MineRender 1.4.6 (3D skin), kept here instead of loading them from CDNs -->
+    <script src="{{ url_for('static', filename='vendor/jquery/jquery.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/three/three.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/minerender/skin.min.js') }}"></script>
 
     <link
       href="{{ url_for ('static', filename='css/banned-banner.css') }}"
@@ -299,7 +292,7 @@
             </div>
             <div class="downloadButton">
               <button
-                data-on-click="forceDownload" data-args='{{ ["https://mc-heads.net/skin/" ~ uuid, "Skin-" ~ user_name ~ ".png"] | tojson | forceescape }}'
+                data-on-click="forceDownload" data-args='{{ ["/mc/skin/" ~ uuid, "Skin-" ~ user_name ~ ".png"] | tojson | forceescape }}'
                 style="width: 40px; height: 40px"
               >
                 <svg
@@ -564,7 +557,7 @@
           <ul class="gb-list">
             {% for e in guestbook %}
             <li class="gb-entry">
-              <img src="https://mc-heads.net/avatar/{{ e.author_uuid }}/32" alt="" width="28" height="28" loading="lazy"/>
+              <img src="/mc/avatar/{{ e.author_uuid }}/32" alt="" width="28" height="28" loading="lazy"/>
               <div>
                 <div class="gb-head"><a href="/spieler?player={{ e.author | urlencode }}"><b>{{ e.author }}</b></a> <span>{{ e.when }}</span></div>
                 <p>{{ e.text }}</p>
@@ -683,7 +676,6 @@
         </ul>
       </nav>
     </footer>
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
     <script nonce="{{ csp_nonce() }}">
       (() => {
         const fav = document.querySelector("[data-favorite]");
@@ -742,7 +734,8 @@
     {% endif %}
 
     <script nonce="{{ csp_nonce() }}">
-      //Loading player model
+      // 3D player model: the skin comes from this server (web/skins.py); without it the box stays empty
+      if (window.SkinRender) {
       var skinRender = new SkinRender(
         {
           autoResize: true,
@@ -753,7 +746,8 @@
         },
         document.getElementById("mySkinContainer")
       );
-      skinRender.render({ url: "https://mc-heads.net/skin/{{uuid}}" });
+      skinRender.render({ url: "/mc/skin/{{uuid}}" });
+      }
     </script>
 
     <script src="{{ url_for('static', filename='poll.js') }}"></script>
@@ -1054,14 +1048,13 @@
       }
     </script>
     <script nonce="{{ csp_nonce() }}">
-      window.onload = function () {
-        console.debug("BANNED: {{banned}}");
+      // right away, not on window.onload: that waits for every image (skin, heads), and the table needs none of them
+      (function () {
         if ("{{banned}}" == "True") {
-          console.log("banned");
           document.getElementById("banned-banner").classList.add("active");
         }
         doTabAction("blocks", "blocks_name", "sort-state-0", 1, true);
-      };
+      })();
     </script>
 
     <script nonce="{{ csp_nonce() }}">

@@ -11,7 +11,7 @@
   <div class="du-sides">
     {% for side in ("challenger", "opponent") %}
     <div class="du-side{% if d.leader == side %} du-lead{% endif %}">
-      <img src="https://mc-heads.net/avatar/{{ d[side ~ '_uuid'] }}/32" alt="" width="28" height="28" loading="lazy"/>
+      <img src="/mc/avatar/{{ d[side ~ '_uuid'] }}/32" alt="" width="28" height="28" loading="lazy"/>
       <a class="st-name" href="/spieler?player={{ d[side] | urlencode }}"><span>{{ d[side] }}</span></a>
       {% if d.status in ("running", "finished") %}
       <span class="du-value">{{ d[side ~ '_text'] }}</span>

@@ -1,11 +1,10 @@
 """Shareable stat card of a player (1200x630 PNG, the usual og:image size)."""
 import io
 import os
-import threading
-import time
 
-import requests
 from PIL import Image, ImageDraw, ImageFont
+
+from web import skins
 
 FONT_DIR = os.path.join(os.path.dirname(__file__), "card_fonts")
 WIDTH, HEIGHT = 1200, 630
@@ -16,10 +15,6 @@ MUTED = (160, 172, 166)
 WHITE = (255, 255, 255)
 TILE = (29, 38, 33)
 AVATAR_SIZE = 168
-AVATAR_TTL = 6 * 3600
-
-_avatars = {}  # uuid -> (fetched at, image or None)
-_avatar_lock = threading.Lock()
 
 
 def _font(name, size):
@@ -27,22 +22,8 @@ def _font(name, size):
 
 
 def _avatar(uuid):
-    """The player's head from mc-heads.net (cached), or None if it can't be loaded."""
-    with _avatar_lock:
-        cached = _avatars.get(uuid)
-    if cached and time.monotonic() - cached[0] < AVATAR_TTL:
-        return cached[1]
-    image = None
-    try:
-        response = requests.get(f"https://mc-heads.net/avatar/{uuid}/{AVATAR_SIZE}", timeout=3)
-        if response.ok:
-            image = Image.open(io.BytesIO(response.content)).convert("RGBA")
-            image = image.resize((AVATAR_SIZE, AVATAR_SIZE), Image.NEAREST)
-    except (requests.RequestException, OSError):
-        image = None
-    with _avatar_lock:
-        _avatars[uuid] = (time.monotonic(), image)
-    return image
+    """The player's head from the skin cache (web/skins.py), or None without a skin."""
+    return skins.head_image(uuid, AVATAR_SIZE) if skins.has_skin(uuid) else None
 
 
 def _hex(color):

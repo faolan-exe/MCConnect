@@ -4,7 +4,7 @@
 {% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
 {% block content %}
 <div class="srv-card pv-card">
-  <img src="https://mc-heads.net/avatar/{{ uuid }}/96" alt="" width="96" height="96"/>
+  <img src="/mc/avatar/{{ uuid }}/96" alt="" width="96" height="96"/>
   <div>
     {% if player_prefix %}{{ prefix_chip(player_prefix.text, player_prefix.color, prefix_colors) }}{% endif %}
     <h1>{{ player_name }}</h1>

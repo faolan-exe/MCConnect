@@ -99,7 +99,7 @@
         {% for p in activity %}
         <tr data-name="{{ p.name }}" data-last="{{ p.last_seen.isoformat() if p.last_seen else '' }}"
             data-online="{{ 1 if p.online else 0 }}" data-first="{{ p.first_seen.isoformat() if p.first_seen else '' }}">
-          <td data-label="Spieler"><img src="https://mc-heads.net/avatar/{{ p.uuid }}/32" alt="" width="22" height="22" loading="lazy"/><a href="/spieler?player={{ p.name | urlencode }}">{{ p.name }}</a>
+          <td data-label="Spieler"><img src="/mc/avatar/{{ p.uuid }}/32" alt="" width="22" height="22" loading="lazy"/><a href="/spieler?player={{ p.name | urlencode }}">{{ p.name }}</a>
             {% if p.banned %}<span class="pl-badge pl-badge-ban">Gebannt</span>{% endif %}</td>
           <td data-label="Zuletzt online">{{ "online" if p.online else (p.last_seen.strftime("%d.%m.%Y, %H:%M") if p.last_seen else "nie") }}</td>
           <td data-label="Dabei seit">{{ p.first_seen.strftime("%d.%m.%Y") if p.first_seen else "–" }}</td>

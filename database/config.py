@@ -63,3 +63,6 @@ REGISTRY_SYNC_HOURS = float(_env("MCC_REGISTRY_SYNC_HOURS", "24"))
 
 # Uploaded server images (banner, gallery).
 UPLOAD_DIR = _env("MCC_UPLOAD_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads"))
+
+# Files fetched from other sites and kept here (player skins and heads, web/skins.py, ADR 0010).
+CACHE_DIR = _env("MCC_CACHE_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache"))

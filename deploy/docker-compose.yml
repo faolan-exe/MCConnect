@@ -94,6 +94,7 @@ services:
       - "${WEB_BIND:-0.0.0.0}:8000:8000"
     volumes:
       - uploads:/app/uploads  # server images
+      - cache:/app/cache      # skins and heads of the players (web/skins.py)
       - socket_tls:/tls:ro    # the socket server's certificate (fingerprint for the admin page)
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/healthz', headers={'Host': '${MCC_DOMAIN}'}))"]
@@ -151,6 +152,7 @@ services:
 volumes:
   db_data:
   uploads:
+  cache:
   socket_tls:
   letsencrypt:
 

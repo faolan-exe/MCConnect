@@ -4,7 +4,7 @@
 {% block page_class %}srv-page-wide{% endblock %}
 
 {% macro who(name, uuid, size=28) %}
-<img class="st-avatar" src="https://mc-heads.net/avatar/{{ uuid }}/32" alt="" width="{{ size }}" height="{{ size }}" loading="lazy"/>
+<img class="st-avatar" src="/mc/avatar/{{ uuid }}/32" alt="" width="{{ size }}" height="{{ size }}" loading="lazy"/>
 <a class="st-name" href="/spieler?player={{ name | urlencode }}"><span>{{ name }}</span></a>
 {% endmacro %}
 
@@ -20,7 +20,7 @@
     <a class="st-record" href="/spieler?player={{ r.name | urlencode }}">
       <span class="st-record-label">{{ r.label }}</span>
       <span class="st-record-value">{{ r.text }}</span>
-      <span class="st-record-who"><img src="https://mc-heads.net/avatar/{{ r.uuid }}/32" alt="" width="22" height="22" loading="lazy"/><span>{{ r.name }}</span></span>
+      <span class="st-record-who"><img src="/mc/avatar/{{ r.uuid }}/32" alt="" width="22" height="22" loading="lazy"/><span>{{ r.name }}</span></span>
       <span class="ss-note">{{ "seit " ~ r.since if r.since else ("seit Aufzeichnungsbeginn" if r.first else "") }}</span>
     </a>
     {% endfor %}

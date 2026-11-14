@@ -46,6 +46,7 @@ from mc_socket import commands as game_commands
 from database.databaseManagerV2 import MAX_GALLERY_IMAGES, MODERATOR_LEVEL, DatabaseManager
 from database import stats as stats_mod
 from database.stats import format_time
+from web import skins
 from web.uploads import FILENAME_RE, MAX_UPLOAD_BYTES, InvalidImage, delete_images, save_image
 
 logger = get_logger("webServer")
@@ -3665,6 +3666,41 @@ def uploaded_image(filename):
     return send_from_directory(config.UPLOAD_DIR, filename, max_age=31536000)
 
 
+# Player heads, skins and body pictures, served from the cache of web/skins.py (ADR 0010). On the main domain and on
+# every server subdomain, so the pages load them from their own host.
+SKIN_MAX_AGE = 6 * 3600
+
+
+def _skin_response(data, fallback=False):
+    response = Response(data, mimetype="image/png")
+    # the placeholder only briefly: the real head is shown as soon as the skin can be loaded
+    response.headers["Cache-Control"] = f"public, max-age={300 if fallback else SKIN_MAX_AGE}"
+    response.add_etag()
+    return response.make_conditional(request)
+
+
+@main_bp.route("/mc/avatar/<player>/<int:size>")
+@server_bp.route("/mc/avatar/<player>/<int:size>")
+def player_head(player, size):
+    image = skins.head_image(player, size)
+    return _skin_response(skins.png_bytes(image), fallback=not skins.has_skin(player))
+
+
+@main_bp.route("/mc/body/<player>/<int:size>")
+@server_bp.route("/mc/body/<player>/<int:size>")
+def player_body(player, size):
+    return _skin_response(skins.body_png(player, size), fallback=not skins.has_skin(player))
+
+
+@main_bp.route("/mc/skin/<player>")
+@server_bp.route("/mc/skin/<player>")
+def player_skin(player):
+    data = skins.skin(player)
+    if data is None:
+        abort(404)
+    return _skin_response(data)
+
+
 ################################ APP FACTORY #################################
 
 def csp_nonce():
@@ -3674,21 +3710,18 @@ def csp_nonce():
     return g.csp_nonce
 
 
-# External scripts: jQuery and MineRender (3D skin) on the player page. Skins come from mc-heads.net.
-CSP_SCRIPT_HOSTS = "https://cdnjs.cloudflare.com https://ajax.googleapis.com https://cdn.jsdelivr.net"
-
-
 def content_security_policy():
+    """Everything comes from this server: no CDNs, the skins and heads too (web/skins.py, ADR 0010)."""
     static = f"{config.PUBLIC_SCHEME}://{current_app.config['SERVER_NAME']}"  # static files and uploads (main domain)
     return "; ".join((
         "default-src 'self'",
-        f"script-src 'self' {static} 'nonce-{csp_nonce()}' {CSP_SCRIPT_HOSTS}",
+        f"script-src 'self' {static} 'nonce-{csp_nonce()}'",
         # style attributes are everywhere (and harmless without script)
-        f"style-src 'self' {static} 'unsafe-inline' https://fonts.googleapis.com",
-        f"font-src 'self' {static} https://fonts.gstatic.com data:",
+        f"style-src 'self' {static} 'unsafe-inline'",
+        f"font-src 'self' {static} data:",
         f"img-src 'self' {static} https: data: blob:",
         # MineRender also reports every page view to minerender.org: not allowed
-        "connect-src 'self' https://mc-heads.net https://textures.minecraft.net",
+        "connect-src 'self'",
         "frame-ancestors 'self'", "object-src 'none'", "base-uri 'self'", "form-action 'self'",
     ))
 
@@ -3758,8 +3791,8 @@ def create_app(db_manager=None, config_overrides=None):
         response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        # Scripts only from here, the static files of the main domain, the two libraries of the player page and
-        # inline <script nonce>; no inline event handlers (web/static/actions.js replaces them).
+        # Scripts only from here, the static files of the main domain and inline <script nonce>; no inline event
+        # handlers (web/static/actions.js replaces them).
         if response.mimetype == "text/html":
             response.headers.setdefault("Content-Security-Policy", content_security_policy())
         return response
