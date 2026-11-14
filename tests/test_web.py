@@ -538,7 +538,7 @@ def test_admin_login_with_email(client, admin_id):
 
 
 def test_fonts_can_be_embedded_from_subdomains(client):
-    response = client.get("/static/fonts/chakra-petch-700.woff2", headers={"Origin": f"http://testdomain.{BASE}"}, **on(None))
+    response = client.get("/static/fonts/big-shoulders-display-800.woff2", headers={"Origin": f"http://testdomain.{BASE}"}, **on(None))
     assert response.status_code == 200
     assert response.headers["Access-Control-Allow-Origin"] == "*"
     assert "Access-Control-Allow-Origin" not in client.get("/static/css/admin.css", **on(None)).headers

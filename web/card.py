@@ -17,8 +17,15 @@ TILE = (29, 38, 33)
 AVATAR_SIZE = 168
 
 
+# the same fonts as the website (fonts.css), as variable TTFs: (file, weight)
+FONTS = {"display": ("big-shoulders-display.ttf", 800), "body": ("schibsted-grotesk.ttf", 700)}
+
+
 def _font(name, size):
-    return ImageFont.truetype(os.path.join(FONT_DIR, f"{name}.ttf"), size)
+    file, weight = FONTS[name]
+    font = ImageFont.truetype(os.path.join(FONT_DIR, file), size)
+    font.set_variation_by_axes([weight])
+    return font
 
 
 def _avatar(uuid):
@@ -60,16 +67,16 @@ def render_card(name, uuid, server_name, prefix, prefix_colors, tiles, ranks, ac
         draw.rounded_rectangle([left, top, left + AVATAR_SIZE, top + AVATAR_SIZE], radius=12, fill=TILE)
 
     text_left = left + AVATAR_SIZE + 40
-    draw.text((text_left, top + 4), server_name.upper(), font=_font("chakra-petch-700", 24), fill=MUTED)
+    draw.text((text_left, top + 4), server_name.upper(), font=_font("display", 24), fill=MUTED)
     y = top + 44
     if prefix:
-        chip_font = _font("chakra-petch-700", 26)
+        chip_font = _font("display", 26)
         chip = f"[{prefix['text']}]"
         chip_width = draw.textlength(chip, font=chip_font)
         draw.rounded_rectangle([text_left, y, text_left + chip_width + 20, y + 40], radius=6, fill=(27, 31, 29))
         draw.text((text_left + 10, y + 4), chip, font=chip_font, fill=_hex(prefix_colors.get(prefix["color"], "#AAAAAA")))
         y += 50
-    name_font = _fit(draw, name, "chakra-petch-700", 76, WIDTH - text_left - 72)
+    name_font = _fit(draw, name, "display", 76, WIDTH - text_left - 72)
     draw.text((text_left, y), name, font=name_font, fill=WHITE)
 
     # four value tiles
@@ -78,20 +85,20 @@ def render_card(name, uuid, server_name, prefix, prefix_colors, tiles, ranks, ac
     for i, (label, value) in enumerate(tiles[:4]):
         x = left + i * (tile_width + gap)
         draw.rounded_rectangle([x, tile_top, x + tile_width, tile_top + 150], radius=14, fill=TILE)
-        draw.text((x + 22, tile_top + 24), label, font=_font("atkinson-hyperlegible-700", 22), fill=MUTED)
-        value_font = _fit(draw, value, "chakra-petch-700", 40, tile_width - 44, min_size=22)
+        draw.text((x + 22, tile_top + 24), label, font=_font("body", 22), fill=MUTED)
+        value_font = _fit(draw, value, "display", 40, tile_width - 44, min_size=22)
         draw.text((x + 22, tile_top + 72), value, font=value_font, fill=WHITE)
 
     # ranking places and achievements
     y = tile_top + 190
     x = left
-    chip_font = _font("chakra-petch-700", 24)
+    chip_font = _font("display", 24)
     for rank in ranks:
         width = draw.textlength(rank, font=chip_font) + 28
         draw.rounded_rectangle([x, y, x + width, y + 44], radius=8, outline=(47, 90, 64), width=2)
         draw.text((x + 14, y + 7), rank, font=chip_font, fill=GREEN_TEXT)
         x += width + 12
-    draw.text((WIDTH - left, y + 8), achievements, font=_font("atkinson-hyperlegible-700", 24), fill=MUTED, anchor="ra")
+    draw.text((WIDTH - left, y + 8), achievements, font=_font("body", 24), fill=MUTED, anchor="ra")
 
     out = io.BytesIO()
     image.save(out, "PNG", optimize=True)
