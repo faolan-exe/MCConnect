@@ -9,7 +9,7 @@
 <div class="yr" id="review" tabindex="-1">
   <div class="yr-stage" aria-live="polite">
     <section class="yr-slide yr-intro" data-slide>
-      <img src="https://mc-heads.net/body/{{ uuid }}/120" alt="" width="84" loading="lazy"/>
+      <img src="/mc/body/{{ uuid }}/120" alt="" width="84" loading="lazy"/>
       <span class="yr-kicker">{{ server_name }}</span>
       <h1>{{ player ~ ("’" if player[-1] in "sSßxXzZ" else "s") }} Jahr {{ year }}</h1>
       <p>{% if running %}Bisher – das Jahr läuft noch.{% else %}Ein Rückblick in {{ slides | length + 2 }} Bildern.{% endif %}

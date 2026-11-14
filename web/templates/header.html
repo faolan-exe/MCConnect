@@ -107,7 +107,7 @@
             {% if name == "" %}
             <a class="mh-login" href="/login">Login</a>
             {% else %}
-            <div class="mh-me"><img alt="" width="32" height="32" src="https://mc-heads.net/avatar/{{ uuid_profile }}/64"/><b>{{ name }}</b></div>
+            <div class="mh-me"><img alt="" width="32" height="32" src="/mc/avatar/{{ uuid_profile }}/64"/><b>{{ name }}</b></div>
             <a href="/spieler?player={{ name | urlencode }}">Meine Statistiken</a>
             <a href="/profil">Mein Profil</a>
             {% if config.FEATURE_PREFIXES %}
@@ -131,7 +131,7 @@
             <img
               alt=""
               class="profile-image"
-              src="https://mc-heads.net/avatar/{{uuid_profile}}/64"
+              src="/mc/avatar/{{uuid_profile}}/64"
             />
           </button>
           <div class="dropdown-content">

@@ -70,7 +70,7 @@
                 </div>
                 <ol class="cp-podium">
                     {% for row in c.rows %}
-                    <li><span class="cp-place">{{ row.rank }}</span><img src="https://mc-heads.net/avatar/{{ row.uuid }}/32" alt="" width="28" height="28" loading="lazy"/>
+                    <li><span class="cp-place">{{ row.rank }}</span><img src="/mc/avatar/{{ row.uuid }}/32" alt="" width="28" height="28" loading="lazy"/>
                         <span class="cp-name">{{ row.name }}</span><span class="cp-value">{{ row.text }}</span></li>
                     {% else %}
                     <li class="cp-none">Noch hat niemand Punkte. Leg los!</li>
@@ -124,7 +124,7 @@
                     {% for tile in recap.tiles %}
                     <a class="rc-tile" href="/spieler?player={{ tile.name | urlencode }}">
                         <span class="rc-tile-title">{{ tile.title }}</span>
-                        <span class="rc-tile-who"><img src="https://mc-heads.net/avatar/{{ tile.uuid }}/32" alt="" width="24" height="24" loading="lazy"/><span>{{ tile.name }}</span></span>
+                        <span class="rc-tile-who"><img src="/mc/avatar/{{ tile.uuid }}/32" alt="" width="24" height="24" loading="lazy"/><span>{{ tile.name }}</span></span>
                         <span class="rc-tile-text">{{ tile.text }}</span>
                     </a>
                     {% endfor %}
@@ -151,7 +151,7 @@
                         <span class="st-record-label">{{ record.label }}</span>
                         <span class="st-record-value">{{ record.text }}</span>
                         <span class="st-record-who">
-                            <img src="https://mc-heads.net/avatar/{{ record.uuid }}/32" alt="" width="22" height="22" loading="lazy"/>
+                            <img src="/mc/avatar/{{ record.uuid }}/32" alt="" width="22" height="22" loading="lazy"/>
                             <span>{{ record.name }}</span>
                         </span>
                         {% if record.since %}<span class="ss-note">seit {{ record.since }}</span>{% endif %}
@@ -255,7 +255,7 @@
                 icon.className = "fd-icon";
                 if (e.uuid) {
                     const img = document.createElement("img");
-                    img.src = `https://mc-heads.net/avatar/${e.uuid}/32`;
+                    img.src = `/mc/avatar/${e.uuid}/32`;
                     img.alt = "";
                     icon.append(img);
                 } else {

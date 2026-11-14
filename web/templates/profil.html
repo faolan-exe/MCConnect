@@ -120,7 +120,7 @@
   {% if favorites %}
   <ul class="pf-favs">
     {% for f in favorites %}
-    <li><a href="/spieler?player={{ f.name | urlencode }}"><img src="https://mc-heads.net/avatar/{{ f.uuid }}/32" alt="" width="24" height="24"/>{{ f.name }}</a></li>
+    <li><a href="/spieler?player={{ f.name | urlencode }}"><img src="/mc/avatar/{{ f.uuid }}/32" alt="" width="24" height="24"/>{{ f.name }}</a></li>
     {% endfor %}
   </ul>
   {% else %}

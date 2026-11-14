@@ -17,7 +17,7 @@
   <div class="gl-numbers"><span><b>{{ goal.total_text }}</b> von {{ goal.target_text }}</span><span>{{ goal.percent }} %</span></div>
   {% if goal.top %}
   <ul class="gl-top" aria-label="Am meisten beigetragen">
-    {% for p in goal.top %}<li><img src="https://mc-heads.net/avatar/{{ p.uuid }}/16" alt="" loading="lazy"/>{{ p.name }} · {{ p.text }}</li>{% endfor %}
+    {% for p in goal.top %}<li><img src="/mc/avatar/{{ p.uuid }}/16" alt="" loading="lazy"/>{{ p.name }} · {{ p.text }}</li>{% endfor %}
   </ul>
   {% endif %}
 </article>

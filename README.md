@@ -148,6 +148,11 @@ Plugins before 3.12 are refused (TLS only). Older plugins keep working but miss 
   running server (3.24, per server). Names are only added. Values stored as an item before a name was known as a
   block move to the block categories, and the player's snapshots move by the same amount, so the correction is no
   gain. Update `registry.json` with a new Minecraft release (see the ADR).
+- **No third-party requests from the browser.** Heads, skins and the body picture are `/mc/avatar/<uuid>/<size>`,
+  `/mc/skin/<uuid>` and `/mc/body/<uuid>/<size>` (`web/skins.py`): the skin comes from Mojang (mc-heads.net only as
+  the second source) and is kept as a file in `MCC_CACHE_DIR` (docker volume `cache`) for 6 hours, an old file stays
+  in use while the sources are down; heads are cut out of the skin. Scripts are in `web/static/vendor/`, the CSP
+  allows nothing else ([ADR 0010](docs/adr/0010-skin-cache.md)). Never link `mc-heads.net` or a CDN in a template.
 - **Live values.** The plugin sends custom stats and changed block/item/mob stats every 5 s, all blocks once
   a minute. The socket server checks achievements, records and streaks at most every 15 s per player and
   updates sidebars 5 s after new stats. Pages poll (`web/static/poll.js`, `LiveCache`, 2 s per

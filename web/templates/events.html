@@ -21,7 +21,7 @@
         {% if e.description %}<p class="ev-text">{{ e.description }}</p>{% endif %}
         <div class="ev-people">
           <span class="ev-count" data-role="count">{{ e.people | length }} {{ "Anmeldung" if e.people | length == 1 else "Anmeldungen" }}</span>
-          <span class="ev-heads" data-role="heads">{% for p in e.people[:12] %}<img src="https://mc-heads.net/avatar/{{ p.uuid }}/24" alt="{{ p.name }}" title="{{ p.name }}" width="22" height="22" loading="lazy"/>{% endfor %}</span>
+          <span class="ev-heads" data-role="heads">{% for p in e.people[:12] %}<img src="/mc/avatar/{{ p.uuid }}/24" alt="{{ p.name }}" title="{{ p.name }}" width="22" height="22" loading="lazy"/>{% endfor %}</span>
         </div>
         {% if logged_in %}
         <button class="mcc-btn mcc-btn-small{% if e.signed_up %} mcc-btn-secondary{% endif %}" type="button" data-signup="{{ e.id }}"
@@ -60,7 +60,7 @@
     const heads = card.querySelector('[data-role="heads"]');
     heads.replaceChildren(...people.slice(0, 12).map((p) => {
       const img = document.createElement("img");
-      img.src = `https://mc-heads.net/avatar/${p.uuid}/24`;
+      img.src = `/mc/avatar/${p.uuid}/24`;
       img.alt = img.title = p.name;
       img.width = img.height = 22;
       return img;

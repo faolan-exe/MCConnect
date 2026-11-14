@@ -37,7 +37,7 @@
       <span class="st-bar"><span style="width: {{ '%.1f' | format(team.share * 100) }}%"></span></span>
       <ul class="tm-members">
         {% for p in team.members %}
-        <li><a href="/spieler?player={{ p.name | urlencode }}" title="{{ p.name }}"><img src="https://mc-heads.net/avatar/{{ p.uuid }}/32" alt="{{ p.name }}" width="24" height="24" loading="lazy"/></a></li>
+        <li><a href="/spieler?player={{ p.name | urlencode }}" title="{{ p.name }}"><img src="/mc/avatar/{{ p.uuid }}/32" alt="{{ p.name }}" width="24" height="24" loading="lazy"/></a></li>
         {% endfor %}
       </ul>
     </div>

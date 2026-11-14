@@ -28,7 +28,7 @@
     <li data-name="{{ p.name | lower }}">
       <label>
         <input type="checkbox" value="{{ p.name }}"{% if p in selected %} checked{% endif %}/>
-        <img src="https://mc-heads.net/avatar/{{ p.uuid }}/32" alt="" width="22" height="22" loading="lazy"/>
+        <img src="/mc/avatar/{{ p.uuid }}/32" alt="" width="22" height="22" loading="lazy"/>
         <span>{{ p.name }}</span>
       </label>
     </li>
@@ -53,7 +53,7 @@
           <th scope="col" class="cmp-metric-col"><span class="st-sr">Kennzahl</span></th>
           {% for p in selected %}
           <th scope="col" class="cmp-player" style="--c: {{ p.color }}">
-            <img src="https://mc-heads.net/avatar/{{ p.uuid }}/64" alt="" width="44" height="44"/>
+            <img src="/mc/avatar/{{ p.uuid }}/64" alt="" width="44" height="44"/>
             <a href="/spieler?player={{ p.name | urlencode }}" title="{{ p.name }}">{{ p.name }}</a>
             {% set pre = prefixes.get(p.uuid) %}{% if pre %}<span>{{ prefix_chip(pre[0], pre[1], prefix_colors) }}</span>{% endif %}
             <span class="cmp-wins"><strong>{{ wins[loop.index0] }}</strong> von {{ metric_count }} Bestwerten</span>
@@ -118,7 +118,7 @@
       {% if rows %}
       <div class="mcc-table-wrap">
         <table class="mcc-table cmp-detail-table">
-          <thead><tr><th></th>{% for p in selected %}<th style="--c: {{ p.color }}"><span class="cmp-key"></span><span class="st-sr">{{ p.name }}</span><img src="https://mc-heads.net/avatar/{{ p.uuid }}/32" alt="{{ p.name }}" title="{{ p.name }}" width="20" height="20"/></th>{% endfor %}</tr></thead>
+          <thead><tr><th></th>{% for p in selected %}<th style="--c: {{ p.color }}"><span class="cmp-key"></span><span class="st-sr">{{ p.name }}</span><img src="/mc/avatar/{{ p.uuid }}/32" alt="{{ p.name }}" title="{{ p.name }}" width="20" height="20"/></th>{% endfor %}</tr></thead>
           <tbody>
             {% for row in rows %}
             <tr>

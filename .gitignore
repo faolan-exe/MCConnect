@@ -23,6 +23,8 @@ __pycache__/
 .env
 deploy/backups/
 uploads/
+# skins and heads fetched from Mojang / mc-heads.net (web/skins.py)
+cache/
 docs/
 
 # TLS certificate and private key of the socket server
