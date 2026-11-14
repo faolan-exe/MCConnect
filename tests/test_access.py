@@ -1,4 +1,5 @@
 """Phase 8: whitelist access, warnings and mutes, X-ray hints, alerts, rules and FAQ."""
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -84,6 +85,61 @@ def test_failed_whitelist_add_is_sent_again_after_a_reconnect(db, server, plugin
     wait_for(lambda: db.get_unsynced_whitelist(server["id"]) == ["Neuling_1"])
     connection.close()
     assert until(plugin().auth(server["key"]), "!whitelist~")[-1] == "!whitelist~add|Neuling_1"
+
+
+def test_name_without_mojang_account_is_not_sent_again(db, server, plugin, socket_server, monkeypatch):
+    """A typo in an application: the server cannot whitelist it ("That player does not exist" in its console every
+    5 minutes). After the plugin's 0 MCConnect asks Mojang; no account: never sent again (ADR 0011)."""
+    monkeypatch.setattr(type(db.minecraft), "missing", {"mrschief4120"})
+    db.create_invite_code(server["id"], "HERBST-26")
+    connection = connect(plugin, server, "click,whitelistack")
+    assert db.redeem_invite_code(server["id"], "MrSchief4120", "HERBST-26") == "ok"
+    socket_server.handle_server_event({"type": "whitelist", "server_id": server["id"]})
+    assert connection.recv() == "!whitelist~add|MrSchief4120"
+    connection.send("!WHITELISTED~MrSchief4120|0")
+    wait_for(lambda: db.list_access_requests(server["id"])[0]["unknown_name"])
+    assert db.get_unsynced_whitelist(server["id"]) == []
+    socket_server.whitelist_retry_interval = 0.1
+    time.sleep(0.5)
+    socket_server.whitelist_retry_interval = 3600
+    assert db.get_unsynced_whitelist(server["id"]) == []
+    # the player redeems a code again (e.g. the account was created later): sent once more
+    assert db.redeem_invite_code(server["id"], "MrSchief4120", "HERBST-26") == "resent"
+    assert db.get_unsynced_whitelist(server["id"]) == ["MrSchief4120"]
+    assert not db.list_access_requests(server["id"])[0]["unknown_name"]
+
+
+def test_name_stays_in_the_retry_while_mojang_cannot_be_asked(db, server, plugin, socket_server):
+    """Mojang down (the cause of ADR 0006): nothing can be said, the name is sent again as before."""
+    db.create_invite_code(server["id"], "HERBST-26")
+    connection = connect(plugin, server, "click,whitelistack")
+    db.redeem_invite_code(server["id"], "Neuling_1", "HERBST-26")
+    socket_server.handle_server_event({"type": "whitelist", "server_id": server["id"]})
+    assert connection.recv() == "!whitelist~add|Neuling_1"
+    connection.send("!WHITELISTED~Neuling_1|0")
+    socket_server.whitelist_retry_interval = 0.1
+    assert until(connection, "!whitelist~")[-1] == "!whitelist~add|Neuling_1"
+    socket_server.whitelist_retry_interval = 3600
+    assert not db.list_access_requests(server["id"])[0]["unknown_name"]
+
+
+def test_plugin_success_clears_the_unknown_mark(db, server):
+    db.create_invite_code(server["id"], "HERBST-26")
+    db.redeem_invite_code(server["id"], "Neuling_1", "HERBST-26")
+    db.mark_whitelist_unknown(server["id"], "neuling_1")
+    assert db.get_unsynced_whitelist(server["id"]) == []
+    db.mark_whitelist_synced(server["id"], ["Neuling_1"])
+    request = db.list_access_requests(server["id"])[0]
+    assert request["synced"] and not request["unknown_name"]
+
+
+def test_moderators_see_names_without_account(mod_client, db, server):
+    db.update_server_settings(server["id"], access_mode="code")
+    db.create_invite_code(server["id"], "HERBST-26")
+    db.redeem_invite_code(server["id"], "MrSchief4120", "HERBST-26")
+    db.mark_whitelist_unknown(server["id"], "MrSchief4120")
+    html = mod_client.get("/users/zugang", **on("testdomain")).get_data(as_text=True)
+    assert "diesen Minecraft-Namen gibt es nicht" in html and "wartet aufs Plugin" not in html
 
 
 def test_invite_codes(client, mod_client, db, server):
