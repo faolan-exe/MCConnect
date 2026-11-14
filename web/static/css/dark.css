@@ -45,9 +45,13 @@
 :root[data-dark] .cm-card, :root[data-dark] .bg-item, :root[data-dark] .gb-entry, :root[data-dark] .nt-card,
 :root[data-dark] .st-hint, :root[data-dark] .yr-nav {
   background-color: var(--srv-card);
-  border-color: var(--srv-border);
-  box-shadow: var(--dk-shadow);
+  box-shadow: var(--dk-shadow);  /* the border keeps its color: gray via --srv-border, green or tier accents stay */
 }
+/* highlighted cards (running event / competition, own poll answer): their green ring is a shadow, keep it */
+:root[data-dark] .ev-running, :root[data-dark] .cp-running, :root[data-dark] .po-mine {
+  box-shadow: 0 0 0 1px var(--srv-green), var(--dk-shadow);
+}
+:root[data-dark] .nt-card { border-color: var(--srv-border); }
 :root[data-dark] .srv-numbers { box-shadow: var(--dk-shadow), 0 24px 48px -24px rgba(0, 0, 0, 0.9); }
 :root[data-dark] .pl-row:hover { border-color: #34413a; }
 /* "So kommst du drauf": in light mode the dark card among white ones; here a green tinted one */

@@ -164,6 +164,18 @@ def test_polls_page_and_api(mod_client, db, server):
 
 # ------------------------------------------------------------------ build gallery
 
+def test_gallery_upload_form_is_well_formed(player_client, db, server, two_players, upload_dir):
+    """A div inside the <details> tag broke the page for logged in players: the form ran out of the page frame and
+    a stray ">" was shown. The waiting list is a live part, so a new upload shows up without reload."""
+    html = player_client.get("/galerie", **on("testdomain")).get_data(as_text=True)
+    assert '<details class="srv-card bg-upload">' in html and "</div>>" not in html
+    player_client.post("/api/builds", data={"title": "Leuchtturm", "image": (png(), "a.png")},
+                       content_type="multipart/form-data", **on("testdomain"))
+    html = player_client.get("/galerie", **on("testdomain")).get_data(as_text=True)
+    assert '<details class="srv-card bg-upload" open>' in html
+    assert html.index('data-live="waiting"') < html.index("Wartet auf Freigabe") < html.index("</details>")
+
+
 def test_build_upload_approve_like(player_client, client, db, server, two_players, upload_dir):
     response = player_client.post("/api/builds", data={"title": "Leuchtturm", "coordinates": "X 1 Z 2", "image": (png(), "a.png")},
                                   content_type="multipart/form-data", **on("testdomain"))
