@@ -40,3 +40,12 @@ def test_cards_are_lifted_from_the_page():
     cards = [body for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", CSS) if ".srv-card" in selector and ".pl-row" in selector]
     assert cards and "var(--dk-shadow)" in cards[0]
     assert "box-shadow: none" not in CSS
+
+
+def test_cards_keep_their_accent_borders():
+    """The card rule set every border gray: the green edge of hints and banners and the tier color of achievements
+    were gone. Only the shadow is set; the gray comes from --srv-border."""
+    cards = [body for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", CSS) if ".srv-card" in selector and ".st-hint" in selector]
+    assert cards and "border" not in cards[0].split("/*")[0].replace("box-shadow", "")
+    rings = " ".join(rules(".ev-running"))
+    assert "0 0 0 1px var(--srv-green)" in rings
