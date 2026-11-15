@@ -31,6 +31,15 @@
   Kennzahlen beziehen sich auf die {{ data.players }} Spieler der letzten 30 Tage, Ping auf 7 Tage. Keine IP-Adressen.
   „Typisch“ ist der Median: Die Hälfte liegt darunter, die Hälfte darüber, damit einzelne Ausreißer (ein Spieler am
   anderen Ende der Welt, ein paar Minuten mit hängender Verbindung) das Bild nicht verzerren.</p>
+{% set pl = data.plugin %}
+{% macro missing(feature) -%}
+{%- if pl.needs[feature] -%}Der Server läuft noch mit MCDataLink {{ pl.version }}; diese Daten kommen ab {{ "3.29" if feature == "329" else "3.30" }}. Ein heruntergeladenes Update wird erst nach einem Neustart des Servers aktiv.
+{%- elif not pl.online -%}Noch keine Daten. Sie kommen, sobald jemand online ist (das Plugin meldet einmal pro Minute).
+{%- else -%}Noch keine Daten, gleich nach der nächsten Meldung (einmal pro Minute).{%- endif -%}
+{%- endmacro %}
+<p class="mcc-hint an-status">{% if pl.version %}Server läuft mit MCDataLink {{ pl.version }}{% else %}Plugin-Version unbekannt{% endif %}
+  {%- if pl.last_report %} · letzte Meldung {{ pl.last_report }}{% endif %}
+  {%- if pl.needs["330"] %} · <b>Neustart nötig, damit das Update aktiv wird</b>{% endif %}</p>
 <nav class="md-nav" aria-label="Bereiche">
   <a href="#ueberblick">Überblick</a><a href="#ping">Ping</a><a href="#clients">Clients &amp; Mods</a>
   <a href="#einstellungen">Einstellungen</a><a href="#verbindung">Paket &amp; Verbindung</a>
@@ -99,7 +108,7 @@
   <div class="an-grid">
     {{ share_box("Clients", data.shares.clients) }}
     {{ share_box("Mod-Loader", data.shares.loaders) }}
-    {{ share_box("Mods", data.shares.mods, 12, "Keine Mods erkannt (oder Plugin älter als 3.29)") }}
+    {{ share_box("Mods", data.shares.mods, 12, missing("329") if pl.needs["329"] else "Keine Mods erkannt") }}
     {{ share_box("Mod-Arten", data.shares.kinds, 7, "Keine Mods erkannt") }}
     {{ share_box("Versionen", data.shares.versions) }}
     {{ share_box("Sprachen", data.shares.languages, 8) }}
@@ -134,8 +143,8 @@
 <section class="st-group" id="verbindung">
   <h2>Ressourcenpaket &amp; Verbindung</h2>
   <div class="an-grid">
-    {{ share_box("Ressourcenpaket", data.shares.packs, 6, "Noch keine Daten (ab Plugin 3.29)") }}
-    {{ share_box("Verbunden über", data.shares.hosts, 8, "Noch keine Daten (ab Plugin 3.29)") }}
+    {{ share_box("Ressourcenpaket", data.shares.packs, 6, missing("329")) }}
+    {{ share_box("Verbunden über", data.shares.hosts, 8, missing("329")) }}
   </div>
   <p class="mcc-hint">Das Paket bringt die Icons im Chat und über den Köpfen; wer es ablehnt, sieht einfache Symbole.
     „Verbunden über“ ist die Adresse, die der Spieler in Minecraft eingetragen hat – hilfreich nach einem Domain-Umzug.</p>
@@ -151,7 +160,7 @@
     {{ k.thresholds.double }} % Abständen unter 25 ms. Bildraten (FPS) kann der Server nicht sehen; der Client sendet pro
     Tick, nicht pro Bild.</p>
   {% if not k.players and not k.rhythm_players %}
-  <p class="st-empty">Noch keine Daten (ab Plugin 3.30).</p>
+  <p class="st-empty">{{ missing("330") }}</p>
   {% else %}
   <div class="cl-summary an-kpis">
     {{ tile("Spieler mit Klicks", k.players, "in Folge geklickt") }}

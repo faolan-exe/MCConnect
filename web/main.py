@@ -2077,6 +2077,14 @@ def share(rows, key, limit=None):
     return items[:limit] if limit else items
 
 
+def plugin_version_tuple(text):
+    """(3, 30) for "3.30", None if unknown."""
+    try:
+        return tuple(int(part) for part in str(text).split(".")[:2]) if text else None
+    except ValueError:
+        return None
+
+
 def client_row(c, now):
     """One player's client data with the labels for the pages."""
     found, unknown = clients_mod.mods(c["channels"])
@@ -2134,6 +2142,9 @@ def clients_view(server_id):
             views[r["view_distance"]] = views.get(r["view_distance"], 0) + 1
     packs = known("pack_label")
     rhythm = db().get_rhythm(server_id, 7)
+    health = db().get_latest_health(server_id)
+    running = plugin_version_tuple(health and health.get("plugin_version"))
+    newest = max((r["updated_at"] for r in rows), default=None)
     for r in rows:
         sums = rhythm.get(r["name"])
         r["click"] = clients_mod.click_summary(sums) if sums else None
@@ -2180,6 +2191,12 @@ def clients_view(server_id):
             "spike_days": [{"label": d.strftime("%d.%m."), "tip": d.strftime("%d.%m.%Y"), "value": int(sp),
                             "text": f"{int(sp)} Minuten ab {clients_mod.PING_SPIKE} ms"} for d, _, _, sp, _ in days],
         },
+        # which plugin really runs: an auto update waits in plugins/update/ until the server restarts
+        "plugin": {"version": health.get("plugin_version") if health else None,
+                   "needs": {feature: running is not None and running < version
+                             for feature, version in (("329", (3, 29)), ("330", (3, 30)))},
+                   "last_report": format_ago(now - newest) if newest else None,
+                   "online": any(r["online"] for r in rows)},
         "worst": sorted((r for r in recent if r["ping_typ"] is not None), key=lambda r: -r["ping_typ"])[:5],
         "clicks": {
             "players": len(clickers), "flagged": sum(1 for r in clickers if r["click"]["flags"]),

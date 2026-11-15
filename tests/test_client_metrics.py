@@ -320,5 +320,23 @@ def test_analysis_shows_clicks_and_rhythm(mod, db, server):
 
 def test_analysis_without_click_data(mod, db, server):
     db.add_client_samples(server["id"], parse_clients(json.dumps([sample()])))
-    assert "Noch keine Daten (ab Plugin 3.30)" in mod.get("/analyse", **S).get_data(as_text=True)
+    assert "Noch keine Daten" in mod.get("/analyse", **S).get_data(as_text=True)
     assert "ab Plugin 3.30, nur Java" in mod.get("/analyse/spieler/_Tobias4444", **S).get_data(as_text=True)
+
+
+@pytest.mark.parametrize("version,restart,old_329", [("3.28", True, True), ("3.29", True, False), ("3.30", False, False),
+                                                     ("3.31", False, False)])
+def test_analysis_tells_which_plugin_runs(mod, db, server, version, restart, old_329):
+    db.add_health_sample(server["id"], dict(HEALTH, plugin_version=version))
+    db.add_client_samples(server["id"], parse_clients(json.dumps([sample()])))
+    html = mod.get("/analyse", **S).get_data(as_text=True)
+    assert f"Server läuft mit MCDataLink {version}" in html and "letzte Meldung" in html
+    assert ("Neustart nötig" in html) is restart
+    assert ("diese Daten kommen ab 3.29" in html) is old_329
+    assert ("diese Daten kommen ab 3.30" in html) is restart
+
+
+def test_plugin_version_tuple():
+    from web.main import plugin_version_tuple
+    assert plugin_version_tuple("3.30") == (3, 30) and plugin_version_tuple("3.9.1") == (3, 9)
+    assert plugin_version_tuple(None) is None and plugin_version_tuple("dev") is None
