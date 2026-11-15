@@ -10,6 +10,7 @@ import org.bukkit.event.player.PlayerResourcePackStatusEvent;
 import org.bukkit.plugin.messaging.PluginMessageListener;
 
 import java.lang.reflect.Field;
+import java.net.InetSocketAddress;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
@@ -54,6 +55,11 @@ final class ClientReporter implements Listener, PluginMessageListener {
             plugin.getLogger().fine("Client brands only from the API: " + e.getMessage());
         }
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
+        // Paper knows the join address of every player (Player.getVirtualHost). Recent Paper versions warn about
+        // plugins listening to PlayerLoginEvent (it turns off their configuration APIs): only Spigot needs it here.
+        if (!hasMethod(Player.class, "getVirtualHost")) {
+            plugin.getServer().getPluginManager().registerEvents(new LoginHosts(), plugin);
+        }
         plugin.getServer().getScheduler().runTaskTimer(plugin, this::report, REPORT_INTERVAL_TICKS, REPORT_INTERVAL_TICKS);
     }
 
@@ -74,16 +80,45 @@ final class ClientReporter implements Listener, PluginMessageListener {
         packs.remove(uuid);
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onLogin(PlayerLoginEvent event) {
-        String host = event.getHostname();
-        if (host == null || host.isEmpty()) return;
-        int colon = host.lastIndexOf(':');
-        if (colon > 0 && host.indexOf(':') == colon) host = host.substring(0, colon);  // drop the port (not of IPv6)
-        // Forge and some proxies append markers after a NUL character
+    /** Spigot: the join address only comes with the login. */
+    private final class LoginHosts implements Listener {
+        @EventHandler(priority = EventPriority.MONITOR)
+        public void onLogin(PlayerLoginEvent event) {
+            String host = event.getHostname();
+            if (host == null) return;
+            int colon = host.lastIndexOf(':');
+            if (colon > 0 && host.indexOf(':') == colon) host = host.substring(0, colon);  // drop the port (not of IPv6)
+            host = cleanHost(host);
+            if (host != null) hosts.put(event.getPlayer().getUniqueId(), host);
+        }
+    }
+
+    /** The address a player joined with: on Paper from the player, on Spigot as seen at the login. */
+    private String host(Player player) {
+        String host = hosts.get(player.getUniqueId());
+        if (host != null) return host;
+        Object address = call(player, "getVirtualHost");  // Paper: the host name and port of the handshake
+        if (!(address instanceof InetSocketAddress)) return null;
+        host = cleanHost(((InetSocketAddress) address).getHostString());
+        if (host != null) hosts.put(player.getUniqueId(), host);  // removed again on quit
+        return host;
+    }
+
+    /** Lower case, without the markers Forge and some proxies append after a NUL character; null if empty. */
+    static String cleanHost(String host) {
+        if (host == null) return null;
         int nul = host.indexOf('\0');
         if (nul >= 0) host = host.substring(0, nul);
-        hosts.put(event.getPlayer().getUniqueId(), host.toLowerCase(Locale.ROOT));
+        return host.isEmpty() ? null : host.toLowerCase(Locale.ROOT);
+    }
+
+    static boolean hasMethod(Class<?> type, String name) {
+        try {
+            type.getMethod(name);
+            return true;
+        } catch (NoSuchMethodException | LinkageError e) {
+            return false;
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -141,7 +176,7 @@ final class ClientReporter implements Listener, PluginMessageListener {
                 appendText(json, "ui", text(call(floodgate, "getUiProfile")));
                 appendText(json, "bedrock_version", text(call(floodgate, "getVersion")));
             }
-            appendText(json, "host", hosts.get(uuid));
+            appendText(json, "host", host(player));
             appendText(json, "pack", packs.get(uuid));
             Object hand = call(player, "getMainHand");
             appendText(json, "hand", text(hand));

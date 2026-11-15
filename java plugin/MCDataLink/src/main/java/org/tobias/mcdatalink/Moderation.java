@@ -3,12 +3,14 @@ package org.tobias.mcdatalink;
 import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.Event;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerLoginEvent;
 
+import java.lang.reflect.Method;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Date;
@@ -40,6 +42,45 @@ final class Moderation implements Listener {
 
     Moderation(MCDataLink plugin) {
         this.plugin = plugin;
+    }
+
+    /**
+     * The kick message with the link for players who are not on the whitelist. Paper has its own event for the
+     * whitelist check; recent Paper versions warn about plugins listening to PlayerLoginEvent (it turns off their
+     * configuration APIs), so that one is only used on Spigot.
+     */
+    @SuppressWarnings("unchecked")
+    void registerWhitelistMessage() {
+        try {
+            Class<?> type = Class.forName("com.destroystokyo.paper.event.profile.ProfileWhitelistVerifyEvent");
+            Method whitelisted = type.getMethod("isWhitelisted");
+            Method setMessage = type.getMethod("setKickMessage", String.class);
+            plugin.getServer().getPluginManager().registerEvent((Class<? extends Event>) type, new Listener() { },
+                    EventPriority.HIGH, (listener, event) -> {
+                        if (!type.isInstance(event) || joinUrl.isEmpty()) return;
+                        try {
+                            if (!(Boolean) whitelisted.invoke(event)) setMessage.invoke(event, whitelistMessage());
+                        } catch (ReflectiveOperationException e) {
+                            plugin.getLogger().fine("Whitelist message not set: " + e);
+                        }
+                    }, plugin, false);
+        } catch (ClassNotFoundException | NoSuchMethodException | LinkageError e) {
+            plugin.getServer().getPluginManager().registerEvents(new LoginMessage(), plugin);  // Spigot
+        }
+    }
+
+    private String whitelistMessage() {
+        return ChatColor.GOLD + "Du stehst noch nicht auf der Whitelist.\n" + ChatColor.GRAY
+                + "Bewirb dich oder löse einen Einladungscode ein:\n" + ChatColor.AQUA + joinUrl;
+    }
+
+    private final class LoginMessage implements Listener {
+        @EventHandler(priority = EventPriority.HIGH)
+        public void onLogin(PlayerLoginEvent event) {
+            if (event.getResult() == PlayerLoginEvent.Result.KICK_WHITELIST && !joinUrl.isEmpty()) {
+                event.setKickMessage(whitelistMessage());
+            }
+        }
     }
 
     /** From the connection thread: until 0 = unmuted. untilText may be empty (older MCConnect). */
@@ -120,14 +161,6 @@ final class Moderation implements Listener {
         if (message != null) {
             event.setCancelled(true);
             event.getPlayer().sendMessage(message);
-        }
-    }
-
-    @EventHandler(priority = EventPriority.HIGH)
-    public void onLogin(PlayerLoginEvent event) {
-        if (event.getResult() == PlayerLoginEvent.Result.KICK_WHITELIST && !joinUrl.isEmpty()) {
-            event.setKickMessage(ChatColor.GOLD + "Du stehst noch nicht auf der Whitelist.\n" + ChatColor.GRAY
-                    + "Bewirb dich oder löse einen Einladungscode ein:\n" + ChatColor.AQUA + joinUrl);
         }
     }
 }

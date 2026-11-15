@@ -124,6 +124,7 @@ public final class MCDataLink extends JavaPlugin {
         nameBadges = new NameBadges(this, getConfig().getBoolean("name-badges", true));
         moderation = new Moderation(this);
         getServer().getPluginManager().registerEvents(moderation, this);
+        moderation.registerWhitelistMessage();
         commands = new InGameCommands(this);
         for (String name : InGameCommands.COMMANDS) {
             org.bukkit.command.PluginCommand command = getCommand(name);
