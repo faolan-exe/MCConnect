@@ -62,7 +62,7 @@
         <dependency>
             <groupId>org.tobias</groupId>
             <artifactId>MCDataLink</artifactId>
-            <version>3.30</version>
+            <version>3.31</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>

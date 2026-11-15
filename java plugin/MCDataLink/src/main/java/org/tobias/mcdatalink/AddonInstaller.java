@@ -1,6 +1,9 @@
 package org.tobias.mcdatalink;
 
 import com.google.gson.JsonObject;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandMap;
+import org.bukkit.command.PluginCommandYamlParser;
 import org.bukkit.entity.Player;
 import org.bukkit.permissions.Permission;
 import org.bukkit.plugin.InvalidDescriptionException;
@@ -17,6 +20,8 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
@@ -141,6 +146,7 @@ final class AddonInstaller {
                 result(id, "failed", "Die Erweiterung hat sich nicht eingeschaltet, Details im Server-Log.");
                 return;
             }
+            registerMissingCommands(loaded);
             for (Player player : plugin.getServer().getOnlinePlayers()) updateCommands(player);
             plugin.getLogger().info("Addon " + id + " " + version + " installed and enabled (" + target.getName() + ")");
             result(id, "installed", version);
@@ -223,6 +229,27 @@ final class AddonInstaller {
             return contents == null ? null : contents.addonId;
         } catch (IOException e) {
             return null;
+        }
+    }
+
+    /**
+     * Spigot registers the commands of a plugin.yml only for the plugins it loads at startup (Paper also for ones
+     * loaded later): without this an addon installed from the store had no command until the next restart. Such a
+     * command runs the addon's own onCommand/onTabComplete (the default executor of a plugin command).
+     */
+    private void registerMissingCommands(Plugin loaded) {
+        String prefix = loaded.getName().toLowerCase(Locale.ROOT);
+        List<Command> missing = new ArrayList<>();
+        for (Command command : PluginCommandYamlParser.parse(loaded)) {
+            if (plugin.getServer().getPluginCommand(prefix + ":" + command.getName()) == null) missing.add(command);
+        }
+        if (missing.isEmpty()) return;
+        try {
+            CommandMap map = (CommandMap) plugin.getServer().getClass().getMethod("getCommandMap").invoke(plugin.getServer());
+            map.registerAll(prefix, missing);
+            plugin.getLogger().info("Registered the commands of " + loaded.getName() + " (" + missing.size() + ")");
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            plugin.getLogger().warning("Could not register the commands of " + loaded.getName() + ", they work after a restart: " + e);
         }
     }
 
