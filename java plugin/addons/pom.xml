@@ -18,6 +18,7 @@
         <module>Discoveries</module>
         <module>SpawnElytra</module>
         <module>SpawnProtect</module>
+        <module>Tickets</module>
     </modules>
 
     <properties>

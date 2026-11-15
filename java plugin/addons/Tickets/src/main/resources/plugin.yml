@@ -1,0 +1,17 @@
+name: Tickets
+version: '${project.version}'
+main: org.tobias.mcconnect.tickets.Tickets
+api-version: '1.13'
+depend: [MCDataLink]
+authors: [Tobias Auer]
+description: Tickets von Spielern an die Moderatoren (MCConnect-Erweiterung)
+website: mc.tobisit.de
+commands:
+  ticket:
+    description: Ein Ticket an die Moderatoren schicken, eigene Tickets ansehen und schließen
+    usage: /ticket <add <kategorie> <text>|status [nummer]|close <nummer>>
+    permission: tickets.use
+permissions:
+  tickets.use:
+    description: Tickets schreiben
+    default: true

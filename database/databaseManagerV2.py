@@ -665,6 +665,39 @@ MIGRATIONS = {
         "ALTER TABLE player_ping_daily ADD COLUMN ping_hist integer[]",
         "ALTER TABLE server_health ADD COLUMN ping_median integer",
     ],
+    40: [
+        # Tickets of the addon Tickets (ADR 0014). number: per server, what players type in /ticket status|close;
+        # request_id: chosen by the plugin, a ticket it sends again (no answer received) is stored once.
+        """CREATE TABLE tickets (
+             id serial PRIMARY KEY,
+             server_id integer NOT NULL REFERENCES servers (id) ON DELETE CASCADE,
+             number integer NOT NULL,
+             request_id text NOT NULL,
+             player_id uuid NOT NULL REFERENCES player_server_info (player_id) ON DELETE CASCADE,
+             category text NOT NULL,
+             message text NOT NULL,
+             world text,
+             x integer,
+             y integer,
+             z integer,
+             created_at timestamptz NOT NULL DEFAULT now(),
+             closed_at timestamptz,
+             closed_by text,
+             UNIQUE (server_id, number),
+             UNIQUE (server_id, request_id))""",
+        "CREATE INDEX tickets_player_idx ON tickets (player_id)",
+        # what happened to a ticket: a moderator's reply, closed, reopened. author NULL: the player themself.
+        # delivered: told to the player in the chat (players who are offline get it with their next join)
+        """CREATE TABLE ticket_events (
+             id serial PRIMARY KEY,
+             ticket_id integer NOT NULL REFERENCES tickets (id) ON DELETE CASCADE,
+             kind text NOT NULL CHECK (kind IN ('reply', 'closed', 'reopened')),
+             author text,
+             text text,
+             created_at timestamptz NOT NULL DEFAULT now(),
+             delivered boolean NOT NULL DEFAULT false)""",
+        "CREATE INDEX ticket_events_ticket_idx ON ticket_events (ticket_id)",
+    ],
 }
 # X-ray hints: the blocks a player breaks around the ore. Since the cave update (1.18) diamonds lie in deepslate, tuff
 # and the stone variants of the caves, and debris next to basalt and blackstone, not only in netherrack.
@@ -2312,6 +2345,125 @@ class DatabaseManager:
             ) events ORDER BY at DESC LIMIT %s""", (server_id, days, days, server_id, days, server_id, days,
                                                    server_id, days, days, server_id, days, days, server_id, days, limit))
         return [dict(zip(("at", "kind", "name", "uuid", "detail", "tier"), row)) for row in rows]
+
+    ###----------------------------- Tickets (addon) ------------------------------------###
+
+    _TICKET_COLUMNS = ("t.id, t.number, t.category, t.message, t.world, t.x, t.y, t.z, t.created_at, t.closed_at, "
+                       "t.closed_by, p.name, psi.mojang_uuid::text, t.player_id::text")
+    _TICKET_KEYS = ("id", "number", "category", "message", "world", "x", "y", "z", "created_at", "closed_at",
+                    "closed_by", "player_name", "player_uuid", "player_id")
+    _TICKET_FROM = """FROM tickets t JOIN player_server_info psi ON psi.player_id = t.player_id
+                      LEFT JOIN player p ON p.uuid = psi.mojang_uuid"""
+
+    def add_ticket(self, server_id, request_id, mojang_uuid, category, message, location, max_open):
+        """
+        A new ticket of a player; location (world, x, y, z) or None. Returns {"status", "number", "player_id"}:
+        status "new", "repeat" (the plugin sent it again: stored already) or "full" (max_open open tickets).
+        """
+        player_id = self.ensure_player_on_server(server_id, mojang_uuid)
+        world, x, y, z = location or (None, None, None, None)
+        with self._cursor() as cur:
+            cur.execute("SELECT 1 FROM servers WHERE id = %s FOR UPDATE", (server_id,))  # numbers and the limit
+            cur.execute("SELECT number FROM tickets WHERE server_id = %s AND request_id = %s", (server_id, request_id))
+            row = cur.fetchone()
+            if row:
+                return {"status": "repeat", "number": row[0], "player_id": player_id}
+            cur.execute("SELECT count(*) FROM tickets WHERE player_id = %s AND closed_at IS NULL", (player_id,))
+            if cur.fetchone()[0] >= max_open:
+                return {"status": "full", "number": None, "player_id": player_id}
+            cur.execute("""INSERT INTO tickets (server_id, number, request_id, player_id, category, message, world, x, y, z)
+                           SELECT %s, coalesce(max(number), 0) + 1, %s, %s, %s, %s, %s, %s, %s, %s
+                           FROM tickets WHERE server_id = %s RETURNING number""",
+                        (server_id, request_id, player_id, category, message, world, x, y, z, server_id))
+            return {"status": "new", "number": cur.fetchone()[0], "player_id": player_id}
+
+    def _tickets_with_events(self, rows):
+        tickets = [dict(zip(self._TICKET_KEYS, row), events=[]) for row in rows]
+        if tickets:
+            by_id = {t["id"]: t for t in tickets}
+            for ticket_id, kind, author, text, at in self._fetchall(
+                    "SELECT ticket_id, kind, author, text, created_at FROM ticket_events WHERE ticket_id = ANY(%s) ORDER BY id",
+                    (list(by_id),)):
+                by_id[ticket_id]["events"].append({"kind": kind, "author": author, "text": text, "at": at})
+        return tickets
+
+    def list_tickets(self, server_id, state="open", category=None, limit=200):
+        """Tickets with their events, newest first; state "open", "closed" or None (all)."""
+        rows = self._fetchall(f"""
+            SELECT {self._TICKET_COLUMNS} {self._TICKET_FROM}
+            WHERE t.server_id = %s AND (%s IS NULL OR (t.closed_at IS NULL) = (%s = 'open'))
+              AND (%s IS NULL OR t.category = %s)
+            ORDER BY t.number DESC LIMIT %s""", (server_id, state, state, category, category, limit))
+        return self._tickets_with_events(rows)
+
+    def get_ticket(self, server_id, ticket_id):
+        rows = self._fetchall(f"SELECT {self._TICKET_COLUMNS} {self._TICKET_FROM} WHERE t.server_id = %s AND t.id = %s",
+                              (server_id, ticket_id))
+        return next(iter(self._tickets_with_events(rows)), None)
+
+    def get_player_ticket(self, player_id, number):
+        """A ticket of the player by its number, or None (also for the tickets of others)."""
+        rows = self._fetchall(f"SELECT {self._TICKET_COLUMNS} {self._TICKET_FROM} WHERE t.player_id = %s AND t.number = %s",
+                              (player_id, number))
+        return next(iter(self._tickets_with_events(rows)), None)
+
+    def list_player_tickets(self, player_id, limit=5):
+        """The player's open tickets (all) and the newest closed ones (up to limit), newest first, without events."""
+        rows = self._fetchall(f"""
+            (SELECT {self._TICKET_COLUMNS} {self._TICKET_FROM} WHERE t.player_id = %s AND t.closed_at IS NULL)
+            UNION ALL
+            (SELECT {self._TICKET_COLUMNS} {self._TICKET_FROM} WHERE t.player_id = %s AND t.closed_at IS NOT NULL
+             ORDER BY t.number DESC LIMIT %s)
+            ORDER BY 2 DESC""", (player_id, player_id, limit))
+        return [dict(zip(self._TICKET_KEYS, row)) for row in rows]
+
+    def count_open_tickets(self, server_id):
+        return self._fetchvalue("SELECT count(*) FROM tickets WHERE server_id = %s AND closed_at IS NULL", (server_id,))
+
+    def get_ticket_categories(self, server_id):
+        """Every category a ticket of the server has (also ones removed from the settings since)."""
+        return [row[0] for row in self._fetchall(
+            "SELECT DISTINCT category FROM tickets WHERE server_id = %s ORDER BY 1", (server_id,))]
+
+    def set_ticket_open(self, server_id, ticket_id, open_, author):
+        """
+        Close or reopen a ticket; author None: the player themself (not told to them again). Returns the ticket's
+        player_id, or None if the ticket is unknown or already in that state.
+        """
+        with self._cursor() as cur:
+            cur.execute(f"""UPDATE tickets SET closed_at = {"NULL" if open_ else "now()"}, closed_by = %s
+                            WHERE id = %s AND server_id = %s AND (closed_at IS NULL) = %s RETURNING player_id::text""",
+                        (None if open_ else author, ticket_id, server_id, not open_))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            cur.execute("INSERT INTO ticket_events (ticket_id, kind, author, delivered) VALUES (%s, %s, %s, %s)",
+                        (ticket_id, "reopened" if open_ else "closed", author, author is None))
+            return row[0]
+
+    def add_ticket_reply(self, server_id, ticket_id, author, text):
+        """A moderator's answer. Returns the ticket's player_id, or None for an unknown ticket."""
+        with self._cursor() as cur:
+            cur.execute("""INSERT INTO ticket_events (ticket_id, kind, author, text)
+                           SELECT id, 'reply', %s, %s FROM tickets WHERE id = %s AND server_id = %s
+                           RETURNING (SELECT player_id::text FROM tickets WHERE id = %s)""",
+                        (author, text, ticket_id, server_id, ticket_id))
+            row = cur.fetchone()
+            return row[0] if row else None
+
+    def is_player_online(self, player_id):
+        return bool(self._fetchvalue("SELECT online FROM player_server_info WHERE player_id = %s", (player_id,)))
+
+    def take_undelivered_ticket_events(self, player_id):
+        """
+        What moderators did with the player's tickets that the player was not told yet, oldest first; marked as
+        delivered. [{"number", "kind", "author", "text"}]
+        """
+        rows = self._fetchall("""
+            UPDATE ticket_events e SET delivered = true FROM tickets t
+            WHERE t.id = e.ticket_id AND t.player_id = %s AND NOT e.delivered
+            RETURNING e.id, t.number, e.kind, e.author, e.text""", (player_id,))
+        return [{"number": n, "kind": k, "author": a, "text": t} for _, n, k, a, t in sorted(rows)]
 
     ###----------------------------- Discoveries (addon) ------------------------------------###
 

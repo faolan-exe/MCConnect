@@ -71,6 +71,9 @@
       {% if config.FEATURE_ADMIN_PANEL and perm <= 1 %}
       <li><a class="nav-top{% if request.path.startswith('/users') %} current{% endif %}" href="/users">Verwaltung</a></li>
       <li><a class="nav-top{% if request.path.startswith('/analyse') %} current{% endif %}" href="/analyse">Analyse</a></li>
+      {% if tickets_open is not none %}
+      <li><a class="nav-top{% if request.path == '/tickets' %} current{% endif %}" href="/tickets">Tickets<b class="nav-count" data-tickets-open{% if not tickets_open %} hidden{% endif %}>{{ tickets_open }}</b></a></li>
+      {% endif %}
       {% endif %}
       <li class="mh-account{% if name %} nav-group{% endif %}">
         {% if name == "" %}

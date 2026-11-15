@@ -361,3 +361,16 @@
   .content { margin-top: 56px; }  /* old pages without the srv layout (player page) */
 }
 @media (prefers-reduced-motion: reduce) { .mcc-header .mh-toggle-icon i { transition: none; } }
+
+/* number of open tickets next to "Tickets" (moderators) */
+.mcc-header .nav-count {
+  margin-left: 6px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #e5484d;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+}
+.mcc-header .nav-count[hidden] { display: none; }

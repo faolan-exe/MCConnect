@@ -1,0 +1,28 @@
+{
+  "id": "tickets",
+  "name": "Tickets",
+  "summary": "Spieler melden Anliegen mit /ticket, Moderatoren beantworten sie auf der Website.",
+  "description": "Jeder Spieler kann mit /ticket add <kategorie> <text> ein Ticket aufmachen, zum Beispiel für einen Bug, einen Grief oder eine Frage. Die Position wird mitgeschickt. Moderatoren sehen alle Tickets auf der Website unter „Tickets“, antworten dort, schließen sie oder öffnen sie wieder. Die Antworten bekommt der Spieler im Chat, auch wenn er gerade offline ist: dann beim nächsten Join.",
+  "features": [
+    "/ticket add <kategorie> <text> – mit Position",
+    "/ticket status [nummer] – eigene Tickets und Antworten",
+    "/ticket close <nummer> – eigenes Ticket schließen",
+    "Kategorien frei einstellbar, mit Tab-Vervollständigung",
+    "Online-Moderatoren bekommen neue Tickets im Chat",
+    "Antworten erreichen Spieler auch nach dem nächsten Join"
+  ],
+  "settings": [
+    {
+      "title": "Tickets",
+      "fields": [
+        {"key": "categories", "type": "lines", "max": 20, "max_items": 20, "default": ["bug", "grief", "hilfe", "sonstiges"],
+         "label": "Kategorien",
+         "help": "Eine pro Zeile, ohne Leerzeichen (Buchstaben, Ziffern, _ und -). So tippen die Spieler sie bei /ticket add."},
+        {"key": "max_open", "type": "number", "default": 3, "min": 1, "max": 20, "step": 1, "unit": "Tickets",
+         "label": "Offene Tickets pro Spieler höchstens",
+         "help": "Schutz gegen Spam: Wer so viele offene Tickets hat, muss erst eins schließen oder auf eine Antwort warten."},
+        {"key": "notify_mods", "type": "toggle", "default": true, "label": "Online-Moderatoren im Chat benachrichtigen"}
+      ]
+    }
+  ]
+}

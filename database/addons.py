@@ -43,6 +43,7 @@ STORE = {
     "spawnelytra": ("elytra", "Bewegung"),
     "easynewcraftingrecipes": ("crafting_table", "Crafting"),
     "discoveries": ("filled_map", "Entdecken"),
+    "tickets": ("writable_book", "Moderation"),
 }
 
 ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,39}$")

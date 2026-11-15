@@ -1511,3 +1511,23 @@ nav.md-nav { margin-bottom: 26px; }
 .an-details .an-wide .an-dl { max-width: 560px; margin-bottom: 16px; }
 .an-details .an-wide .an-charts { margin: 8px 0 0; }
 @media (max-width: 800px) { .an-charts { grid-template-columns: 1fr; } }
+
+/* tickets (addon Tickets, page /tickets) */
+.tk-filter { margin-top: -14px; }
+.tk-card { margin-bottom: 16px; }
+.tk-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.tk-head h2 { margin: 0; }
+.tk-cat { padding: 1px 10px; border: 1px solid var(--srv-border); border-radius: 999px; color: var(--srv-text); font-size: 13px; font-weight: 600; }
+.tk-badge-closed { background: #eceff1; color: #4a5358; }
+:root[data-dark] .tk-badge-closed { background: rgba(255, 255, 255, 0.1); color: #c4ccd0; }
+.tk-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 10px 0 0; color: var(--srv-muted); font-size: 14px; }
+.tk-player { display: inline-flex; align-items: center; gap: 6px; color: var(--srv-text); font-weight: 600; text-decoration: none; }
+.tk-player img { border-radius: 4px; image-rendering: pixelated; }
+.tk-message { margin: 12px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tk-events { margin: 14px 0 0; padding: 0 0 0 14px; border-left: 3px solid var(--srv-border); list-style: none; }
+.tk-events li { margin: 0 0 8px; overflow-wrap: anywhere; }
+.tk-events .tk-event-closed, .tk-events .tk-event-reopened { color: var(--srv-muted); font-size: 14px; }
+.tk-when { display: block; color: var(--srv-muted); font-size: 12px; }
+.tk-form { margin-top: 14px; }
+.tk-form .mcc-actions { margin-top: 8px; }
+.tk-closed .tk-message { color: var(--srv-muted); }

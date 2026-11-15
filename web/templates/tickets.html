@@ -1,0 +1,62 @@
+{% extends "server_base.html" %}
+{% block title %}Tickets – {{ server_name }}{% endblock %}
+{% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block content %}
+<h1>Tickets</h1>
+<p class="srv-lead">Anliegen der Spieler aus dem Spiel (<code>/ticket add &lt;kategorie&gt; &lt;text&gt;</code>), mit der Position, an der sie
+  geschrieben wurden. Antworten, Schließen und Wieder-Öffnen bekommt der Spieler im Chat, wenn er offline ist beim nächsten Join.</p>
+
+<nav class="md-nav" aria-label="Status">
+  {% for key, (state, label) in states.items() %}
+  <a href="?status={{ key }}{% if category %}&amp;kategorie={{ category | urlencode }}{% endif %}"{% if key == state_key %} aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</nav>
+{% if categories | length > 1 %}
+<nav class="md-nav tk-filter" aria-label="Kategorie">
+  <a href="?status={{ state_key }}"{% if not category %} aria-current="page"{% endif %}>Alle Kategorien</a>
+  {% for c in categories %}
+  <a href="?status={{ state_key }}&amp;kategorie={{ c | urlencode }}"{% if c == category %} aria-current="page"{% endif %}>{{ c }}</a>
+  {% endfor %}
+</nav>
+{% endif %}
+
+<div class="tk-list">
+  {% for t in tickets %}{% include "_ticket.html" %}{% endfor %}
+</div>
+{% if not tickets %}
+<p class="st-empty">{% if state_key == "offen" %}Keine offenen Tickets.{% else %}Keine Tickets.{% endif %}</p>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script nonce="{{ csp_nonce() }}">
+  async function ticketAction(card, path, body) {
+    const message = card.querySelector('[data-role="message"]');
+    const result = await postJson(`/api/mod/tickets/${card.dataset.ticket}/${path}`, body);
+    if (!result.ok) {
+      showMessage(message, result.data.error || "Das hat nicht geklappt.", "error");
+      return;
+    }
+    const template = document.createElement("template");
+    template.innerHTML = result.data.html.trim();
+    card.replaceWith(template.content.firstElementChild);
+    const count = document.querySelector("[data-tickets-open]");
+    if (count) {
+      count.textContent = result.data.open;
+      count.hidden = !result.data.open;
+    }
+  }
+
+  const list = document.querySelector(".tk-list");
+  list.addEventListener("submit", (event) => {
+    const form = event.target.closest("[data-ticket-form]");
+    if (!form) return;
+    event.preventDefault();
+    const text = form.elements.text.value.trim();
+    if (text) ticketAction(form.closest("[data-ticket]"), "reply", { text });
+  });
+  list.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-ticket-state]");
+    if (button) ticketAction(button.closest("[data-ticket]"), "state", { open: button.dataset.ticketState === "open" });
+  });
+</script>
+{% endblock %}
