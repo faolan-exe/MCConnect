@@ -2148,14 +2148,12 @@ def clients_view(server_id):
     for r in rows:
         sums = rhythm.get(r["name"])
         r["click"] = clients_mod.click_summary(sums) if sums else None
-        r["rhythm"] = clients_mod.rhythm_summary(sums) if sums else None
         r["cps_max"] = sums.get("cps_max") if sums else None
     hist = [0] * len(clients_mod.CLICK_HIST_LABELS)
     for sums in rhythm.values():
         for i, value in enumerate(sums["click_hist"] or ()):
             hist[i] += int(value)
     clickers = sorted((r for r in rows if r["click"]), key=lambda r: (-len(r["click"]["flags"]), -(r["cps_max"] or 0)))
-    timed = [r for r in rows if r["rhythm"]]
     return {
         "rows": rows, "players": len(recent), "via": any(r["version"] for r in recent),
         # the median of the players: a single player far away does not move it, the mean is shown for comparison
@@ -2203,10 +2201,6 @@ def clients_view(server_id):
             "cps_max": max(clickers, key=lambda r: r["cps_max"] or 0) if clickers else None,
             "rows": clickers, "hist": [{"label": label.replace(" ms", ""), "tip": label, "value": n,
                                         "text": f"{n} Klicks"} for label, n in zip(clients_mod.CLICK_HIST_LABELS, hist)],
-            "rhythm_players": len(timed),
-            # median of the players: one player on a bad mobile connection does not make everyone look bad
-            "stalls_per_hour": round(clients_mod.median(r["rhythm"]["stalls_per_hour"] for r in timed), 1) if timed else None,
-            "stallers": sorted(timed, key=lambda r: -r["rhythm"]["stalls_per_hour"])[:5],
             "thresholds": {"even_cv": round(clients_mod.CLICK_EVEN_CV * 100), "fast": clients_mod.CLICK_FAST_CPS,
                            "double": round(clients_mod.CLICK_DOUBLE_SHARE * 100),
                            "even_cps": round(1000 / clients_mod.CLICK_EVEN_MAX_MEAN), "min": clients_mod.CLICK_MIN_INTERVALS},
@@ -2246,7 +2240,7 @@ def client_detail_view(server_id, name):
     day_label = lambda d: {"label": d.strftime("%d.%m."), "tip": d.strftime("%d.%m.%Y")}  # noqa: E731
     clicks = {
         "summary": clients_mod.click_summary(totals) if totals else None,
-        "rhythm": clients_mod.rhythm_summary(totals) if totals else None, "cps_max": totals.get("cps_max"),
+        "reported": bool(totals.get("rhythm_minutes")), "cps_max": totals.get("cps_max"),
         "click_min": totals.get("click_min"), "clicks": totals.get("clicks", 0),
         "hist": [{"label": label.replace(" ms", ""), "tip": label, "value": n, "text": f"{n} Klicks"}
                  for label, n in zip(clients_mod.CLICK_HIST_LABELS, totals.get("click_hist") or [0] * 8)],
@@ -2255,8 +2249,6 @@ def client_detail_view(server_id, name):
         "cv_days": {"unit": " %", "clock": False, "empty": "zu wenige Klicks", "points": [
             {"t": d.strftime("%d.%m."), "v": (lambda cs: cs["cv_percent"] if cs and cs["n"] >= 20 else None)(
                 clients_mod.click_summary(r))} for d, r in rhythm_days]},
-        "stall_days": [dict(day_label(d), value=r["stalls"], text=f"{r['stalls']} Aussetzer in {r['rhythm_minutes']} Minuten")
-                       for d, r in rhythm_days],
     }
     return dict(c, days=len(days), changes=changes[-10:], clicks=clicks,
                 chart_avg={"unit": " ms", "clock": False, "empty": "nicht online", "points": [
