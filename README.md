@@ -53,7 +53,7 @@ fingerprint of the local socket certificate (`certs/`) for a test plugin's `tls-
 
 ## Status
 
-State of 2026-11-15: schema version 40, plugin 3.30 (client analysis with click patterns), addons Discoveries and Tickets. Written as a handoff for the next development session.
+State of 2026-11-15: schema version 40, plugin 3.31 (no PlayerLoginEvent on Paper, commands of store addons without restart), addons Discoveries and Tickets. Written as a handoff for the next development session.
 
 ### Features
 
