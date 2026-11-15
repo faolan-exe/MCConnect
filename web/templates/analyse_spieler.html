@@ -88,7 +88,7 @@
       {% for name, kind in c.mod_kinds %}<li><b>{{ name }}</b> <span class="mcc-hint">{{ {"loader": "Mod-Loader", "client": "Client/Launcher", "map": "Karte", "voice": "Sprachchat", "build": "Bauen", "recipes": "Rezepte", "other": "Sonstige"}[kind] }}</span></li>{% endfor %}
     </ul>
     {% else %}
-    <p class="mcc-hint">Keine Mods erkannt. Mods ohne eigene Plugin-Kanäle (z. B. Sodium, Iris) sieht der Server nicht.</p>
+    <p class="mcc-hint">Keine Mods erkannt.</p>
     {% endif %}
     {% if c.unknown_channels %}
     <p class="mcc-hint">Weitere Kanäle: <code>{{ c.unknown_channels | join(", ") }}</code></p>
@@ -96,8 +96,8 @@
   </section>
   {% set k = c.clicks %}
   <section class="srv-card an-wide">
-    <h2>Klicks &amp; Rhythmus <span class="mcc-hint">30 Tage</span></h2>
-    {% if not k.rhythm %}
+    <h2>Klicks <span class="mcc-hint">30 Tage</span></h2>
+    {% if not k.reported %}
     <p class="mcc-hint">Noch keine Daten (ab Plugin 3.30, nur Java-Spieler).</p>
     {% else %}
     <dl class="an-dl">
@@ -111,9 +111,6 @@
       {{ row("Doppelklicks (unter 25 ms)", k.summary.doubles_percent ~ " %") }}
       {{ row("Hinweise", k.summary.flags | join(", ") if k.summary.flags else "keine") }}
       {% endif %}
-      {{ row("Aussetzer", k.rhythm.stalls ~ " (" ~ k.rhythm.stalls_per_hour ~ " pro Stunde, ab " ~ k.rhythm.threshold ~ " ms)") }}
-      {{ row("Längste Pause", (k.rhythm.gap_max ~ " ms") if k.rhythm.gap_max is not none else none) }}
-      {{ row("Ticks pro Sekunde des Clients", k.rhythm.tps) }}
     </dl>
     {% if k.summary %}
     <div class="an-charts">
@@ -131,11 +128,6 @@
         <h3>Höchstens Klicks pro Sekunde, pro Tag</h3>
         <script id="click-cps" type="application/json">{{ k.cps_days | tojson }}</script>
         <div class="pi-chart" data-bar-chart="click-cps" aria-label="Meiste Klicks in einer Sekunde pro Tag"></div>
-      </div>
-      <div class="an-chart-card">
-        <h3>Aussetzer pro Tag</h3>
-        <script id="stall-days" type="application/json">{{ k.stall_days | tojson }}</script>
-        <div class="pi-chart" data-bar-chart="stall-days" aria-label="Aussetzer des Clients pro Tag"></div>
       </div>
     </div>
     {% endif %}

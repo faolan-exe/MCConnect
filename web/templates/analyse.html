@@ -25,12 +25,8 @@
 
 {% block content %}
 <h1>Analyse</h1>
-<p class="srv-lead">Verbindungen, Clients, Mods und Einstellungen der Spieler. Nur für Moderatoren; das Plugin meldet die Werte
-  einmal pro Minute für alle, die online sind (ab Version 3.28, Mods, Ressourcenpaket und Einstellungen ab 3.29, Klicks
-  und Rhythmus ab 3.30). Anteile und
-  Kennzahlen beziehen sich auf die {{ data.players }} Spieler der letzten 30 Tage, Ping auf 7 Tage. Keine IP-Adressen.
-  „Typisch“ ist der Median: Die Hälfte liegt darunter, die Hälfte darüber, damit einzelne Ausreißer (ein Spieler am
-  anderen Ende der Welt, ein paar Minuten mit hängender Verbindung) das Bild nicht verzerren.</p>
+<p class="srv-lead">Verbindungen, Clients, Mods und Einstellungen der {{ data.players }} Spieler der letzten 30 Tage, Ping der
+  letzten 7 Tage. „Typisch“ ist der Median, damit einzelne Ausreißer das Bild nicht verzerren.</p>
 {% set pl = data.plugin %}
 {% macro missing(feature) -%}
 {%- if pl.needs[feature] -%}Der Server läuft noch mit MCDataLink {{ pl.version }}; diese Daten kommen ab {{ "3.29" if feature == "329" else "3.30" }}. Ein heruntergeladenes Update wird erst nach einem Neustart des Servers aktiv.
@@ -43,7 +39,7 @@
 <nav class="md-nav" aria-label="Bereiche">
   <a href="#ueberblick">Überblick</a><a href="#ping">Ping</a><a href="#clients">Clients &amp; Mods</a>
   <a href="#einstellungen">Einstellungen</a><a href="#verbindung">Paket &amp; Verbindung</a>
-  <a href="#klicks">Klicks &amp; Rhythmus</a>
+  <a href="#klicks">Klicks</a>
   {% if data.bedrock %}<a href="#bedrock">Bedrock</a>{% endif %}<a href="#spieler">Spieler</a>
 </nav>
 
@@ -152,21 +148,18 @@
 
 {% set k = data.clicks %}
 <section class="st-group" id="klicks">
-  <h2>Klicks &amp; Rhythmus</h2>
-  <p class="mcc-hint">Gemessen an den Paketen der Clients, auf die Millisekunde (ab Plugin 3.30, nur Java, 7 Tage). Abbauen und
-    Rechtsklicks zählen nicht. Die Hinweise sind Anhaltspunkte, kein Beweis: gleichmäßig heißt mindestens {{ k.thresholds.min }}
+  <h2>Klicks</h2>
+  <p class="mcc-hint">Nur Java-Spieler, 7 Tage; Abbauen und Rechtsklicks zählen nicht. Die Hinweise sind Anhaltspunkte, kein Beweis: gleichmäßig heißt mindestens {{ k.thresholds.min }}
     Klicks in Folge mit {{ k.thresholds.even_cps }}+ pro Sekunde und einer Streuung unter {{ k.thresholds.even_cv }} %
     (Menschen liegen bei 15–40 %), sehr schnell ab {{ k.thresholds.fast }} Klicks in einer Sekunde, Doppelklicks ab
-    {{ k.thresholds.double }} % Abständen unter 25 ms. Bildraten (FPS) kann der Server nicht sehen; der Client sendet pro
-    Tick, nicht pro Bild.</p>
-  {% if not k.players and not k.rhythm_players %}
+    {{ k.thresholds.double }} % Abständen unter 25 ms.</p>
+  {% if not k.players %}
   <p class="st-empty">{{ missing("330") }}</p>
   {% else %}
   <div class="cl-summary an-kpis">
     {{ tile("Spieler mit Klicks", k.players, "in Folge geklickt") }}
     {{ tile("Hinweise", k.flagged, "Spieler mit auffälligem Muster", "bad" if k.flagged else None) }}
     {{ tile("Meiste Klicks pro Sekunde", k.cps_max.cps_max if k.cps_max else "–", k.cps_max.name if k.cps_max else None) }}
-    {{ tile("Aussetzer pro Stunde", k.stalls_per_hour if k.stalls_per_hour is not none else "–", "Median der Spieler") }}
   </div>
   <div class="an-charts">
     <div class="srv-card an-chart-card">
@@ -174,17 +167,6 @@
       <script id="click-hist" type="application/json">{{ k.hist | tojson }}</script>
       <div class="pi-chart" data-bar-chart="click-hist" data-every="1" aria-label="Klicks nach Abstand zum vorigen Klick"></div>
     </div>
-    {% if k.stallers %}
-    <div class="srv-card an-chart-card">
-      <h3>Meiste Aussetzer</h3>
-      <ol class="an-list">
-        {% for r in k.stallers %}
-        <li><a href="/analyse/spieler/{{ r.name | urlencode }}">{{ r.name }}</a> <b>{{ r.rhythm.stalls_per_hour }}/h</b>
-          <span class="mcc-hint">längste Pause {{ r.rhythm.gap_max }} ms{% if r.ping_typ is not none %} · Ping typisch {{ r.ping_typ }} ms{% endif %}</span></li>
-        {% endfor %}
-      </ol>
-    </div>
-    {% endif %}
   </div>
   {% if k.rows %}
   <div class="mcc-table-wrap srv-card an-table">

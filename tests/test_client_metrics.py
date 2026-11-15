@@ -308,14 +308,16 @@ def test_minutes_add_up_to_the_day(db, server):
     assert db.get_rhythm_days(server["id"], "_tobias4444")[0][1]["click_n"] == 3
 
 
-def test_analysis_shows_clicks_and_rhythm(mod, db, server):
+def test_analysis_shows_clicks_without_rhythm(mod, db, server):
     db.add_client_samples(server["id"], parse_clients(json.dumps([sample(**minute(even(160, 90, 2), cps_max=12, stalls=3))])))
     html = mod.get("/analyse", **S).get_data(as_text=True)
-    for text in ('id="klicks"', 'data-bar-chart="click-hist"', "gleichmäßig", "Meiste Aussetzer", "_Tobias4444"):
+    for text in ('id="klicks"', 'data-bar-chart="click-hist"', "gleichmäßig", "_Tobias4444"):
         assert text in html, text
+    assert "Aussetzer" not in html and "Rhythmus" not in html
     detail = mod.get("/analyse/spieler/_Tobias4444", **S).get_data(as_text=True)
-    for text in ("Klicks in Folge", "gleichmäßig", 'data-line-chart="click-cv"', "Ticks pro Sekunde des Clients", "20.0"):
+    for text in ("Klicks in Folge", "gleichmäßig", 'data-line-chart="click-cv"'):
         assert text in detail, text
+    assert "Aussetzer" not in detail and "Ticks pro Sekunde" not in detail
 
 
 def test_analysis_without_click_data(mod, db, server):

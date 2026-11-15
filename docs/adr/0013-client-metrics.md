@@ -29,6 +29,8 @@ version and language players use. The server health only knew TPS and memory.
   per minute, plus the most clicks within one second. Rhythm: the longest silence between two packets and the stalls
   (silences of 250 ms or more for clients since 1.21.2 that send a packet at the end of every tick, 1.5 s for older
   ones), and the client's ticks. Bedrock players are skipped (Geyser makes up their packets). Config `input-analysis`.
+  The web pages show only the click pattern: stalls, longest pause and the client's ticks proved not useful for
+  moderators (2026-11-15) and are only stored.
 - Hints from the click pattern (`database/clients.py`, never automatic punishment): "gleichmäßig" for at least 150
   intervals at 8+ clicks per second with a spread (coefficient of variation) below 8 % (people: 15–40 %; the measured
   times include connection jitter, so an auto clicker looks a bit less even than it is), "sehr schnell" from 20 clicks
