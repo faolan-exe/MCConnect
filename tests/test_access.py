@@ -149,7 +149,9 @@ def test_invite_codes(client, mod_client, db, server):
     assert mod_client.post("/api/mod/codes", json={"code": "SOMMER-26"}, **on("testdomain")).status_code == 409
     redeem = lambda name, code: client.post("/api/access/redeem", json={"name": name, "code": code}, **on("testdomain"))
     assert redeem("Neuling_1", "falsch").status_code == 400
-    assert redeem("Neuling_1", "sommer-26").status_code == 200
+    response = redeem("Neuling_1", "sommer-26")
+    assert response.status_code == 200
+    assert response.json["address"] == "mc.example.com"  # needed to join a whitelist server
     assert redeem("Neuling_2", "SOMMER-26").status_code == 400  # used up
     assert db.list_invite_codes(server["id"])[0]["uses"] == 1
     assert db.get_unsynced_whitelist(server["id"]) == ["Neuling_1"]
