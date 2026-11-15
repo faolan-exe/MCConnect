@@ -1,0 +1,35 @@
+{# One ticket on the page /tickets; also sent alone after a reply, closing or reopening (replaces the card). #}
+<article class="srv-card tk-card{% if t.closed %} tk-closed{% endif %}" id="ticket-{{ t.number }}" data-ticket="{{ t.id }}">
+  <header class="tk-head">
+    <h2>#{{ t.number }}</h2>
+    <span class="tk-cat">{{ t.category }}</span>
+    {% if t.closed %}<span class="pl-badge tk-badge-closed">geschlossen</span>{% else %}<span class="pl-badge pl-badge-mod">offen</span>{% endif %}
+  </header>
+  <p class="tk-meta">
+    <a class="tk-player" href="/spieler?player={{ t.player_name | urlencode }}"><img alt="" width="24" height="24" loading="lazy" src="/mc/avatar/{{ t.player_uuid }}/64"/>{{ t.player_name or "?" }}</a>
+    <span>{{ t.when }}</span>
+    {% if t.world %}<code>{{ t.world }} {{ t.x }} {{ t.y }} {{ t.z }}</code>{% endif %}
+  </p>
+  <p class="tk-message">{{ t.message }}</p>
+  {% if t.events %}
+  <ol class="tk-events">
+    {% for e in t.events %}
+    <li class="tk-event-{{ e.kind }}"><span class="tk-when">{{ e.when }}</span>
+      {% if e.kind == "reply" %}<b>{{ e.author }}</b>: {{ e.text }}
+      {% elif e.kind == "closed" %}Geschlossen von {{ e.author or "dem Spieler" }}
+      {% else %}Wieder geöffnet von {{ e.author }}{% endif %}</li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+  <form class="tk-form" data-ticket-form>
+    <label class="st-sr" for="tk-reply-{{ t.id }}">Antwort an {{ t.player_name }}</label>
+    <textarea class="mcc-input" id="tk-reply-{{ t.id }}" name="text" rows="2" maxlength="{{ reply_max }}"
+              placeholder="Antwort – {{ t.player_name }} bekommt sie im Chat"></textarea>
+    <div class="mcc-actions">
+      <button class="mcc-btn mcc-btn-small" type="submit">Antworten</button>
+      {% if t.closed %}<button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-ticket-state="open">Wieder öffnen</button>
+      {% else %}<button class="mcc-btn mcc-btn-secondary mcc-btn-small" type="button" data-ticket-state="close">Schließen</button>{% endif %}
+      <span class="mcc-message" data-role="message"></span>
+    </div>
+  </form>
+</article>

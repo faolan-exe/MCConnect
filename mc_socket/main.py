@@ -47,6 +47,7 @@ Plugin -> server:
                                  "version", "file", "sha256" (of the jar), "manifest" (mcconnect-addon.json),
                                  "commands"}]; answered with !addonstate for each (see database/addons.py)
     !ADDON~<id>|<message>        a message of an active addon to MCConnect
+                                 (Discoveries: found|..., Tickets: add|..., close|..., status|..., see the handlers)
     !ADDONCONFIG~<id>|<player name or empty>|<settings json>   an active addon changes its settings (in-game command);
                                  checked, stored and sent back with !addonstate
     !ADDONRESULT~<id>|<installed|restart|removed|failed>|<text>   result of !addoninstall / !addonremove
@@ -155,7 +156,7 @@ from colorlogx import get_logger
 import requests
 
 from database import (achievements, addons, badges, config, discoveries, glyphs, metrics, motivation, plugin_jar,
-                      registry, rewards)
+                      registry, rewards, tickets)
 from database import chat as chat_markup
 from mc_socket import commands, tlscert
 from database.databaseManagerV2 import DatabaseManager
@@ -774,6 +775,112 @@ class SocketServer:
             name = self.db.get_player_name_from_player_id(result["player_id"])
             self.broadcast(server_id, "gold", f"&6✦ &e{name} &7hat &f»{title}« &7als Erster entdeckt!")
 
+    def ticket_message(self, server_id, message):
+        """
+        Addon Tickets (ADR 0014), answered in the chat:
+          add|<request id>|<uuid>|<category>|<world>|<x>|<y>|<z>|<epoch ms>|<text>   always confirmed with
+              "done|<request id>" (also a refused one), the addon keeps the ticket until then
+          close|<uuid>|<number>       the player closes an own ticket
+          status|<uuid>|<number or empty>   the player's tickets, or one with its answers
+        """
+        kind = message.split("|", 1)[0]
+        if kind == "add":
+            parts = message.split("|", 9)
+            if len(parts) != 10 or not tickets.REQUEST_RE.match(parts[1]):
+                raise ValueError("ticket must be add|request|uuid|category|world|x|y|z|ms|text")
+            _, request_id, mojang_uuid, category, world, x, y, z, _, text = parts
+            self.add_ticket(server_id, request_id, parse_uuid(mojang_uuid), category, (world[:64], int(x), int(y), int(z)), text)
+            self._send_to_server(server_id, f"!addon~{tickets.ADDON_ID}|done|{request_id}")
+        elif kind in ("close", "status"):
+            parts = message.split("|")
+            if len(parts) != 3 or not (parts[2].isdigit() or kind == "status" and parts[2] == ""):
+                raise ValueError("ticket command must be close|uuid|number or status|uuid|[number]")
+            mojang_uuid = parse_uuid(parts[1])
+            player_id = self.db.ensure_player_on_server(server_id, mojang_uuid)
+            number = int(parts[2]) if parts[2] else None
+            lines = self.close_own_ticket(server_id, player_id, number) if kind == "close" \
+                else self.ticket_status(player_id, number)
+            for line in lines:
+                self.tell(server_id, mojang_uuid, line)
+        else:
+            raise ValueError("unknown ticket message")
+
+    def add_ticket(self, server_id, request_id, mojang_uuid, category, location, text):
+        addon = self.db.get_addon(server_id, tickets.ADDON_ID)
+        text = tickets.clean_text(text, tickets.MAX_TEXT)
+        if category not in tickets.categories(addon):  # removed from the settings while the ticket waited
+            self.tell(server_id, mojang_uuid, f"&cDein Ticket wurde nicht angenommen: die Kategorie »{commands.clean(category)}« "
+                                              "gibt es nicht mehr. &7/ticket")
+            return
+        if len(text) < tickets.MIN_TEXT:
+            self.tell(server_id, mojang_uuid, "&cDein Ticket wurde nicht angenommen: der Text ist zu kurz.")
+            return
+        limit = tickets.max_open(addon)
+        result = self.db.add_ticket(server_id, request_id, mojang_uuid, category, text, location, limit)
+        if result["status"] == "full":
+            self.tell(server_id, mojang_uuid, f"&cDu hast schon {limit} offene {'Ticket' if limit == 1 else 'Tickets'}. "
+                                              "&7Schließe erst eins oder warte auf eine Antwort. "
+                                              + commands.button("&e[Meine Tickets]", "/ticket status"))
+            return
+        if result["status"] != "new":
+            return  # sent again: the player was told the first time
+        number = result["number"]
+        self.tell(server_id, mojang_uuid, f"&aTicket #{number} ist bei den Moderatoren angekommen. "
+                                          + commands.button("&e[Status]", f"/ticket status {number}"))
+        if tickets.notify_mods(addon):
+            name = self.db.get_player_name_from_player_id(result["player_id"]) or "?"
+            short = commands.clean(text if len(text) <= 60 else text[:57] + "…")
+            line = (f"&6[Ticket #{number}] &f{commands.clean(name)} &7({category}): &f{short} &7– "
+                    f"&b{commands.page_url(self.db, server_id, '/tickets')}")
+            for moderator in self.db.get_online_moderator_uuids(server_id):
+                self.tell(server_id, moderator, line)
+
+    def close_own_ticket(self, server_id, player_id, number):
+        ticket = self.db.get_player_ticket(player_id, number)
+        if ticket is None:
+            return [f"&cDu hast kein Ticket #{number}. " + commands.button("&e[Meine Tickets]", "/ticket status")]
+        if ticket["closed_at"] is not None or self.db.set_ticket_open(server_id, ticket["id"], False, None) is None:
+            return [f"&7Ticket #{number} ist schon geschlossen."]
+        return [f"&aTicket #{number} ist geschlossen. &7Danke!"]
+
+    def ticket_status(self, player_id, number):
+        if number is None:
+            own = self.db.list_player_tickets(player_id)
+            if not own:
+                return ["&7Du hast noch keine Tickets. Neues Ticket: &f/ticket add <kategorie> <text>"]
+            lines = ["&6Deine Tickets"]
+            for t in own:
+                short = commands.clean(t["message"] if len(t["message"]) <= 40 else t["message"][:37] + "…")
+                state = "&aoffen" if t["closed_at"] is None else "&8geschlossen"
+                lines.append(commands.button(f"&e#{t['number']}", f"/ticket status {t['number']}")
+                             + f" &7{t['category']} · {state} &7– &f{short}")
+            return lines
+        ticket = self.db.get_player_ticket(player_id, number)
+        if ticket is None:
+            return [f"&cDu hast kein Ticket #{number}. " + commands.button("&e[Meine Tickets]", "/ticket status")]
+        state = "offen" if ticket["closed_at"] is None else "geschlossen"
+        lines = [f"&6Ticket #{number} &7({ticket['category']}, {state}, vom {ticket['created_at'].strftime('%d.%m.%Y %H:%M')})",
+                 f"&f{commands.clean(ticket['message'])}"]
+        events = ticket["events"]
+        if len(events) > 6:
+            lines.append(f"&8… {len(events) - 6} ältere Einträge auf der Website")
+        lines += [ticket_event_line(e) for e in events[-6:]]
+        if ticket["closed_at"] is None:
+            lines.append("&7Noch keine Antwort." if not any(e["kind"] == "reply" for e in events) else "")
+            lines.append(commands.button("&e[Schließen]", f"/ticket close {number}"))
+        return [line for line in lines if line]
+
+    def deliver_ticket_events(self, server_id, player_id):
+        """Tell a player what moderators did with their tickets (only while online; otherwise with the next join)."""
+        if not self.db.is_addon_active(server_id, tickets.ADDON_ID) or not self.db.is_player_online(player_id):
+            return
+        events = self.db.take_undelivered_ticket_events(player_id)
+        if events:
+            mojang_uuid = self.db.get_mojang_uuid_from_player_id(player_id)
+            for event in events:
+                self.tell(server_id, mojang_uuid, f"&6[Ticket #{event['number']}] " + ticket_event_line(event)
+                          + " " + commands.button("&e[Status]", f"/ticket status {event['number']}"))
+
     def whitelist_confirmed(self, server_id, value):
         """!WHITELISTED~name|1/0 of the plugin."""
         name, sep, ok = value.partition("|")
@@ -1052,6 +1159,8 @@ class SocketServer:
                 self.tell(server_id, mojang_uuid, str(event.get("text") or ""))
         elif kind == "sidebar":
             self.update_sidebar(server_id, event["player_id"])
+        elif kind == "tickets":
+            self.deliver_ticket_events(server_id, event["player_id"])
         elif kind == "stats_reset":
             self.request_stats_reset(server_id, event)
         elif kind == "whitelist":
@@ -1313,6 +1422,7 @@ class SocketServer:
                 if self.db.get_sidebar(player_id) != "off":
                     self.update_sidebar(client.server_id, player_id)
                 self.update_badge(client.server_id, player_id, force=True)
+                self.deliver_ticket_events(client.server_id, player_id)  # answers while the player was offline
                 # new on the server (not only new to MCConnect, e.g. an old player after installing the plugin)
                 new_here = first and (first_played is None or first_played > datetime.now(timezone.utc) - timedelta(days=1))
                 if new_here and self.db.get_server_settings(client.server_id)["rules_enabled"]:
@@ -1421,7 +1531,18 @@ class SocketServer:
             client.send("error|005")
 
 
+def ticket_event_line(event):
+    """One line about a reply, a closing or reopening of a ticket (author None: the player)."""
+    who = f"&e{commands.clean(event['author'])}" if event["author"] else "&7dir"
+    if event["kind"] == "reply":
+        return f"{who}&7: &f{commands.clean(event['text'])}"
+    if event["kind"] == "closed":
+        return f"&7Geschlossen von {who}" if event["author"] else "&7Von dir geschlossen"
+    return f"&7Wieder geöffnet von {who}"
+
+
 ADDON_HANDLERS[discoveries.ADDON_ID] = SocketServer.discovery_reported
+ADDON_HANDLERS[tickets.ADDON_ID] = SocketServer.ticket_message
 
 if __name__ == "__main__":
     mailer = None

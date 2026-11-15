@@ -41,7 +41,7 @@ class _NoDB:
 
 
 def path_for(rule, server_id=1):
-    values = {"server_id": server_id, "image_id": 1, "addon_id": "betterjoinmessages", "player_name": "Notch",
+    values = {"server_id": server_id, "image_id": 1, "ticket_id": 1, "addon_id": "betterjoinmessages", "player_name": "Notch",
               "token": "x", "username": "x", "sha1": "x", "codepoint": 65, "filename": "x"}
     return re.sub(r"<(?:[^:>]+:)?([^>]+)>", lambda m: str(values[m.group(1)]), rule)
 

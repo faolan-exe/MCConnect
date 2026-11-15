@@ -13,7 +13,7 @@ How things work and why is in [README.md](../README.md) ("How things work") and 
 | `web/static/` | Own JS (no build step), CSS, fonts, glyph SVGs, `vendor/` (jQuery, three.js, MineRender for the player page only) |
 | `web/skins.py`, `web/item_icons.py`, `web/card.py`, `web/uploads.py` | Heads/skins cache, block/item icons, stat card PNG, image uploads |
 | `database/databaseManagerV2.py` | Every SQL query (`DatabaseManager`), schema and migrations (`SCHEMA_VERSION`) |
-| `database/*.py` | Domain rules without Flask: metrics, achievements, motivation, rewards, badges, glyphs, registry, addons, discoveries, chat tooltips, stats classification, config |
+| `database/*.py` | Domain rules without Flask: metrics, achievements, motivation, rewards, badges, glyphs, registry, addons, discoveries, tickets, chat tooltips, stats classification, config |
 | `mc_socket/main.py` | Socket server for the plugin (TLS on 9991): protocol, periodic checks, announcements |
 | `mc_socket/commands.py` | In-game commands (`/stats`, `/top`, `/duell`, ...) and the sidebar |
 | `java plugin/MCDataLink/` | The Spigot/Paper plugin; `java plugin/addons/` the official addons |
@@ -34,6 +34,7 @@ The menu is `web/templates/header.html` (one markup for desktop and phone, style
 | Community | `/events` (events and polls; `/umfragen` redirects), `/galerie`, `/regeln`, `/mitmachen`, `/melden` | same names | inline |
 | Konto | `/profil`, `/profil/spiel`, `/profil/prefix` (`/add_pref`, `/join_pref` redirect) | `profil.html` (one template, `tab` decides the part) | inline, `poll.js` on the prefix tab |
 | Analyse | `/analyse`, `/analyse/spieler/<name>` (moderators) | `analyse.html`, `analyse_spieler.html` | `line-chart.js`, `bar-chart.js`; values and mod names in `database/clients.py` |
+| Tickets | `/tickets` (moderators, only with the addon Tickets; the menu shows the number of open ones) | `tickets.html`, `_ticket.html` (one card, also sent back by the APIs) | inline; `stats.css` (`tk-*`); rules in `database/tickets.py` |
 | Verwaltung | `/users`, `/users/spieler`, `/users/inhalte`, `/users/zugang`, tab "Im Spiel": `/users/belohnungen`, `/users/icons`, `/users/erweiterungen`; `/users/protokoll` | `mod/*.html` | `mod.js`, `addons.js`; tabs in `MOD_TABS` (`web/main.py`) |
 | – | `/rueckblick/<name>`, `/login`, `/impressum`, `/datenschutz` | `rueckblick.html`, `login.html` (keep its design), `legal_*.html` | |
 
@@ -68,7 +69,7 @@ overview, plugin, addons, server page, moderation, danger zone in `serverAdminSe
 | Motivation, achievements, rewards, badges, icons | `test_motivation.py`, `test_achievements.py`, `test_rewards.py`, `test_badges.py`, `test_icons.py` |
 | Client analysis (ping, mods, options, clicks, medians) | `test_client_metrics.py` |
 | Community, in game, moderation | `test_community.py`, `test_ingame.py`, `test_moderation_log.py`, `test_confirmations.py` |
-| Plugin connection, addons, updates | `test_socket.py`, `test_socket_tls.py`, `test_addons.py`, `test_addon_protected.py`, `test_plugin_update.py`, `test_discoveries.py` |
+| Plugin connection, addons, updates | `test_socket.py`, `test_socket_tls.py`, `test_addons.py`, `test_addon_protected.py`, `test_plugin_update.py`, `test_discoveries.py`, `test_tickets.py` |
 | Skins, item icons, mail, names | `test_skins.py`, `test_item_icons.py`, `test_mailer.py`, `test_mojang_names.py` |
 | Templates and dark mode details | `test_template_markup.py`, `test_dark_mode.py`, `test_reach.py` |
 
@@ -104,6 +105,7 @@ overview, plugin, addons, server page, moderation, danger zone in `serverAdminSe
 | `/spieler` | GET | `player_overview_route` | spieler_verborgen.html, spieler-info.html |
 | `/spieler/<path:player_name>/karte.png` | GET | `player_card` |  |
 | `/teams` | GET | `teams_page` | teams.html |
+| `/tickets` | GET | `tickets_page` | tickets.html |
 | `/umfragen` | GET | `polls_page` |  |
 | `/users` | GET | `moderation_page` | mod/overview.html |
 | `/users/belohnungen` | GET | `moderation_rewards_page` | mod/rewards.html |
@@ -165,6 +167,8 @@ overview, plugin, addons, server page, moderation, danger zone in `serverAdminSe
 | `/api/mod/reports/resolve` | POST | `mod_report_resolve_api` |  |
 | `/api/mod/rewards` | POST | `mod_rewards_api` |  |
 | `/api/mod/settings` | POST | `mod_settings_api` |  |
+| `/api/mod/tickets/<int:ticket_id>/reply` | POST | `mod_ticket_reply_api` |  |
+| `/api/mod/tickets/<int:ticket_id>/state` | POST | `mod_ticket_state_api` |  |
 | `/api/mod/unban` | POST | `mod_unban_api` |  |
 | `/api/mod/warn` | POST | `mod_warn_api` |  |
 | `/api/mod/warnings/delete` | POST | `mod_warning_delete_api` |  |

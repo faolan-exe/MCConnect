@@ -10,6 +10,7 @@ Plugins that extend MCConnect through MCDataLink (3.22+). Background and securit
 | EasyHeadDrop | player heads (date, killer, weapon) with chance, looting bonus and anti-farming cooldown; optional mob heads and chat announcement | – |
 | EasyNewCraftingRecipes | own shaped, shapeless and furnace recipes, applied without a restart, problems shown on the website; special results (invisible item frames, knockback stick, throwable fireballs, …) and own item data like `/give` (owner only, [ADR 0009](../../docs/adr/0009-protected-addon-fields.md)) | – |
 | SpawnElytra | double jump in rectangles and circles, each with its own boost, starts a glide without an elytra, no fall damage | `/spawnelytra` |
+| Tickets | players open tickets in categories (`/ticket add <kategorie> <text>`, `close`, `status`) with their position; moderators answer, close and reopen them on the page `/tickets`, players get the answers in the chat (also later on their next join) ([ADR 0014](../../docs/adr/0014-tickets.md)) | `/ticket` |
 | SpawnProtect | protected regions (box or circle around the spawn) with 13 protections, bypass, greeting | `/spawnprotect` (`/sprot`) |
 
 Build: `mvn package` in `java plugin/` (builds MCDataLink and all addons). The Dockerfile copies the addon jars to

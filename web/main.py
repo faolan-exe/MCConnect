@@ -42,6 +42,7 @@ from database import glyphs
 from database import metrics as metrics_mod
 from database import motivation
 from database import plugin_jar
+from database import tickets as tickets_mod
 from database import rewards
 from mc_socket import commands as game_commands
 from database.databaseManagerV2 import MAX_GALLERY_IMAGES, MODERATOR_LEVEL, DatabaseManager
@@ -254,6 +255,7 @@ def inject_server_context():
                 whitelist=server["whitelist"],
                 rules_enabled=settings["rules_enabled"], access_open=settings["access_mode"] != "off",
                 discoveries_open=bool(discovery_places(server["id"])),
+                tickets_open=open_ticket_count(server["id"]) if (permission_level if permission_level is not None else 99) <= MODERATOR_LEVEL else None,
                 server_name=server["server_name"])
 
 
@@ -1971,6 +1973,7 @@ MOD_LOG_ACTIONS = {
     "addon_approve": "Erweiterung freigegeben", "addon_block": "Erweiterung gesperrt",
     "addon_pause": "Erweiterung pausiert", "addon_resume": "Erweiterung fortgesetzt", "addon_config": "Erweiterung eingestellt",
     "stats_reset": "Statistiken zurückgesetzt", "stats_reset_failed": "Zurücksetzen der Statistiken fehlgeschlagen",
+    "ticket_reply": "Ticket beantwortet", "ticket_close": "Ticket geschlossen", "ticket_reopen": "Ticket wieder geöffnet",
 }
 
 
@@ -2260,6 +2263,85 @@ def client_detail_view(server_id, name):
                                "text": f"{sp} Minuten ab {clients_mod.PING_SPIKE} ms"} for d, _, _, _, sp, _, _, _ in days],
                 colors_label=yes_no(c["chat_colors"]), filter_label=yes_no(c["text_filter"]),
                 listing_label=yes_no(c["listing"]), cape_label=yes_no(c["cape"]))
+
+
+################################ TICKETS (addon) #################################
+
+TICKET_STATES = {"offen": ("open", "Offen"), "geschlossen": ("closed", "Geschlossen"), "alle": (None, "Alle")}
+
+
+def tickets_active(server_id):
+    return db().is_addon_active(server_id, tickets_mod.ADDON_ID)
+
+
+def open_ticket_count(server_id):
+    """Open tickets for the menu of the moderators; None without the addon (no menu entry)."""
+    return db().count_open_tickets(server_id) if tickets_active(server_id) else None
+
+
+def ticket_view(ticket):
+    fmt = lambda at: at.strftime("%d.%m.%Y, %H:%M")
+    return dict(ticket, when=fmt(ticket["created_at"]), closed=fmt(ticket["closed_at"]) if ticket["closed_at"] else None,
+                events=[dict(e, when=fmt(e["at"])) for e in ticket["events"]])
+
+
+@server_bp.route("/tickets")
+@moderator_required
+def tickets_page():
+    server_id = g.server["id"]
+    if not tickets_active(server_id):
+        abort(404)
+    state_key = request.args.get("status", "offen")
+    state_key = state_key if state_key in TICKET_STATES else "offen"
+    configured = tickets_mod.categories(db().get_addon(server_id, tickets_mod.ADDON_ID))
+    known = configured + [c for c in db().get_ticket_categories(server_id) if c not in configured]
+    category = request.args.get("kategorie") if request.args.get("kategorie") in known else None
+    rows = db().list_tickets(server_id, TICKET_STATES[state_key][0], category)
+    return render_template("tickets.html", tickets=[ticket_view(t) for t in rows], states=TICKET_STATES,
+                           state_key=state_key, categories=known, category=category, reply_max=tickets_mod.MAX_REPLY)
+
+
+def ticket_action_result(server_id, ticket_id, player_id, action, actor):
+    """After a reply, closing or reopening: tell the player (in the game), log it, send the new card."""
+    db().notify_server_event(server_id, "tickets", player_id=player_id)
+    ticket = db().get_ticket(server_id, ticket_id)
+    db().add_mod_log(server_id, actor, action, ticket["player_name"], f"#{ticket['number']}")
+    return {"html": render_template("_ticket.html", t=ticket_view(ticket), reply_max=tickets_mod.MAX_REPLY),
+            "open": db().count_open_tickets(server_id)}
+
+
+@server_bp.route("/api/mod/tickets/<int:ticket_id>/reply", methods=["POST"])
+@moderator_required
+def mod_ticket_reply_api(ticket_id):
+    server_id = g.server["id"]
+    if not tickets_active(server_id):
+        abort(404)
+    text = tickets_mod.clean_text((request.get_json(silent=True) or {}).get("text"), tickets_mod.MAX_REPLY + 1)
+    if not 1 <= len(text) <= tickets_mod.MAX_REPLY:
+        return {"error": f"Die Antwort muss 1-{tickets_mod.MAX_REPLY} Zeichen lang sein."}, 400
+    actor = db().get_player_name_from_player_id(logged_in_player_id())
+    player_id = db().add_ticket_reply(server_id, ticket_id, actor, text)
+    if player_id is None:
+        return {"error": "Unbekanntes Ticket."}, 404
+    return ticket_action_result(server_id, ticket_id, player_id, "ticket_reply", actor)
+
+
+@server_bp.route("/api/mod/tickets/<int:ticket_id>/state", methods=["POST"])
+@moderator_required
+def mod_ticket_state_api(ticket_id):
+    server_id = g.server["id"]
+    if not tickets_active(server_id):
+        abort(404)
+    open_ = (request.get_json(silent=True) or {}).get("open")
+    if not isinstance(open_, bool):
+        return {"error": "open must be true or false"}, 400
+    actor = db().get_player_name_from_player_id(logged_in_player_id())
+    player_id = db().set_ticket_open(server_id, ticket_id, open_, actor)
+    if player_id is None:
+        if db().get_ticket(server_id, ticket_id) is None:
+            return {"error": "Unbekanntes Ticket."}, 404
+        return {"error": "Das Ticket ist schon " + ("offen." if open_ else "geschlossen.")}, 409
+    return ticket_action_result(server_id, ticket_id, player_id, "ticket_reopen" if open_ else "ticket_close", actor)
 
 
 @server_bp.route("/analyse")
