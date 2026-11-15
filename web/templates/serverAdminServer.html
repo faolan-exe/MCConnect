@@ -108,10 +108,10 @@ tls-fingerprint: "{{ plugin_fingerprint }}"{% endif %}</pre>
           <span class="hint">– die Adresse wird auf der Serverseite angezeigt</span></label>
         <label><input type="radio" name="whitelist" value="true" {% if server.whitelist %}checked{% endif %}
                       data-on-change="updateAddressField" /> Nur Whitelist
-          <span class="hint">– die Adresse wird nicht veröffentlicht</span></label>
+          <span class="hint">– die Adresse sehen nur Spieler, die sich per Einladungscode freischalten</span></label>
       </fieldset>
-      <div class="address-field" {% if server.whitelist %}hidden{% endif %}>
-        <label>Adresse zum Verbinden</label>
+      <div class="address-field">
+        <label>Adresse zum Verbinden <span class="hint address-optional" {% if not server.whitelist %}hidden{% endif %}>(optional)</span></label>
         <input name="mc_server_domain" maxlength="253" value="{{ server.mc_server_domain or '' }}"
                {% if not server.whitelist %}required{% endif %} />
       </div>
@@ -288,7 +288,7 @@ tls-fingerprint: "{{ plugin_fingerprint }}"{% endif %}</pre>
   function updateAddressField(radio) {
     const form = radio.form;
     const whitelist = form.querySelector('input[name="whitelist"]:checked').value === "true";
-    form.querySelector(".address-field").hidden = whitelist;
+    form.querySelector(".address-optional").hidden = !whitelist;
     form.querySelector('input[name="mc_server_domain"]').required = !whitelist;
   }
 

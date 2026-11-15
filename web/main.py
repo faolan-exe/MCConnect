@@ -1197,7 +1197,8 @@ def access_redeem_api():
     if result == "invalid":
         return {"error": "Dieser Code ist ungültig oder abgelaufen."}, 400
     db().notify_server_event(g.server["id"], "whitelist")  # also for "resent": the server whitelist may have lost the name
-    return ("", 200)
+    # the address of a whitelist server is not public, but whoever is on the whitelist needs it to join
+    return {"address": g.server["mc_server_domain"]}, 200
 
 
 def faq_entries(text):

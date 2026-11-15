@@ -83,6 +83,7 @@ body {
 .srv-tagline { font-size: 20px; max-width: 640px; margin: 0; color: rgba(255, 255, 255, 0.88); }
 
 .srv-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+.srv-actions[hidden] { display: none; }
 
 .srv-btn {
   display: inline-flex;

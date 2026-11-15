@@ -19,6 +19,11 @@
     <div class="mcc-actions"><button class="mcc-btn" type="submit">Freischalten</button></div>
     <div class="mcc-message" data-role="message" data-ok="Du bist freigeschaltet! Sobald der Server die Whitelist aktualisiert hat (meist sofort), kannst du joinen."></div>
   </form>
+  <div class="srv-actions" data-role="address" hidden>
+    <button class="srv-btn srv-btn-primary" type="button" data-role="copy-address">
+      <span data-role="copy-label">Adresse kopieren</span> <code data-role="address-text"></code>
+    </button>
+  </div>
 </section>
 {% endif %}
 
@@ -45,9 +50,21 @@
     if (result.ok) {
       form.reset();
       showMessage(message, message.dataset.ok, "success");
+      const box = form.parentElement.querySelector('[data-role="address"]');
+      if (box && result.data && result.data.address) {
+        box.querySelector('[data-role="address-text"]').textContent = result.data.address;
+        box.hidden = false;
+      }
     } else {
       showMessage(message, result.data.error || "Das hat nicht geklappt.", "error");
     }
+  }));
+
+  document.querySelectorAll('[data-role="copy-address"]').forEach((button) => button.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(button.querySelector('[data-role="address-text"]').textContent);
+    const label = button.querySelector('[data-role="copy-label"]');
+    label.textContent = "Kopiert:";
+    setTimeout(() => (label.textContent = "Adresse kopieren"), 2000);
   }));
 </script>
 {% endblock %}
