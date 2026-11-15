@@ -18,11 +18,12 @@
     <label><input type="radio" name="access" value="public" checked /> Öffentlich
       <span class="hint">– jeder darf mitspielen, die Adresse wird angezeigt</span></label>
     <label><input type="radio" name="access" value="whitelist" /> Nur Whitelist
-      <span class="hint">– die Adresse wird nicht veröffentlicht</span></label>
+      <span class="hint">– die Adresse sehen nur Spieler, die sich per Einladungscode freischalten</span></label>
   </fieldset>
 
   <div id="address-field">
-    <label for="mc_server_domain">Adresse zum Verbinden <span class="hint">– was Spieler in Minecraft eingeben</span></label>
+    <label for="mc_server_domain">Adresse zum Verbinden <span class="hint">– was Spieler in Minecraft eingeben</span>
+      <span class="hint" id="address-optional" hidden>(optional)</span></label>
     <input id="mc_server_domain" required maxlength="253" placeholder="play.meinserver.de" />
   </div>
 
@@ -50,7 +51,7 @@
     return document.querySelector('input[name="access"]:checked').value === "whitelist";
   }
   function updateAddressField() {
-    document.getElementById("address-field").hidden = isWhitelist();
+    document.getElementById("address-optional").hidden = !isWhitelist();
     document.getElementById("mc_server_domain").required = !isWhitelist();
   }
   document.querySelectorAll('input[name="access"]').forEach((radio) => radio.addEventListener("change", updateAddressField));
@@ -63,7 +64,6 @@
     const body = {};
     FIELDS.forEach((f) => (body[f] = document.getElementById(f).value));
     body.whitelist = isWhitelist();
-    if (body.whitelist) body.mc_server_domain = "";
     const result = await postJson("/api/servers", body);
     if (result.ok) {
       window.location.href = "/manage/" + result.data.id + "#plugin";

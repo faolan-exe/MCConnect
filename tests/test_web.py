@@ -576,6 +576,13 @@ def test_create_whitelist_server_without_address(admin_client, db):
     assert info["whitelist"] is True and info["mc_server_domain"] is None
 
 
+def test_create_whitelist_server_keeps_its_address(admin_client, db):
+    """Shown on the join page to players who redeem an invite code."""
+    body = dict(NEW_SERVER, whitelist=True, mc_server_domain="play.example.com")
+    assert admin_client.post("/api/servers", json=body, **on(None)).status_code == 201
+    assert db.get_server_information_dict("survival")["mc_server_domain"] == "play.example.com"
+
+
 def test_public_server_needs_address(admin_client):
     body = dict(NEW_SERVER, whitelist=False, mc_server_domain="")
     response = admin_client.post("/api/servers", json=body, **on(None))
