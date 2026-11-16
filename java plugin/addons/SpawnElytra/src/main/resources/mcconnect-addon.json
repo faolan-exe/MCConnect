@@ -1,10 +1,11 @@
 {
   "id": "spawnelytra",
   "name": "SpawnElytra",
-  "summary": "Am Spawn zweimal Leertaste – und losgleiten, ganz ohne Elytra.",
-  "description": "In den Bereichen, die du anlegst, können Spieler mit doppeltem Sprung losgleiten wie mit einer Elytra. Die Landung ist ohne Fallschaden. Rechtecke und Kreise mit eigenem Startschub, Hinweistext und wer darf, stellst du hier ein; Bereiche legst du auch im Spiel an.",
+  "summary": "Am Spawn Leertaste – und losgleiten, ganz ohne Elytra.",
+  "description": "In den Bereichen, die du anlegst, können Spieler mit doppeltem oder, wenn du willst, schon mit einfachem Sprung losgleiten wie mit einer Elytra. Die Landung ist ohne Fallschaden. Rechtecke und Kreise mit eigenem Startschub, Hinweistext und wer darf, stellst du hier ein; Bereiche legst du auch im Spiel an.",
   "features": [
     "Doppelsprung in deinen Bereichen startet einen Gleitflug",
+    "Wahlweise reicht schon ein einfacher Sprung",
     "Beliebig viele Rechtecke und Kreise, jeweils mit eigenem Startschub",
     "Landen ohne Fallschaden",
     "Kreise optional in der Höhe begrenzbar",
@@ -47,6 +48,10 @@
     {
       "title": "Flug",
       "fields": [
+        {"key": "activation", "type": "select", "default": "double", "label": "Losgleiten mit",
+         "options": [{"value": "double", "label": "Zweimal Leertaste (Doppelsprung)"},
+                     {"value": "single", "label": "Einmal Leertaste (jeder Sprung)"}],
+         "help": "Bei einmal startet jeder Sprung im Bereich den Gleitflug, normales Springen geht dort dann nicht mehr."},
         {"key": "no_fall_damage", "type": "toggle", "default": true, "label": "Landen ohne Fallschaden"},
         {"key": "allow_rockets", "type": "toggle", "default": false, "label": "Raketen zum Beschleunigen erlauben"},
         {"key": "gamemodes", "type": "multiselect", "default": ["survival", "adventure"], "label": "Für Spieler im Modus",
@@ -60,6 +65,7 @@
         {"key": "actionbar", "type": "toggle", "default": true, "label": "Hinweis in der Actionbar im Bereich"},
         {"key": "actionbar_text", "type": "text", "colors": true, "max": 80,
          "default": "&bSpawnElytra bereit &8| &3zweimal Leertaste zum Fliegen", "label": "Text",
+         "help": "Steht hier noch der vorgegebene Text, heißt es bei einmal Leertaste automatisch »Springen zum Fliegen«.",
          "show_if": {"key": "actionbar", "is": true}}
       ]
     }
