@@ -8,6 +8,7 @@ import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.Statistic;
 import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -21,6 +22,7 @@ import org.bukkit.event.entity.EntityToggleGlideEvent;
 import org.bukkit.event.player.PlayerGameModeChangeEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerStatisticIncrementEvent;
 import org.bukkit.event.player.PlayerToggleFlightEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -44,7 +46,7 @@ import java.util.regex.Pattern;
 
 /**
  * Gliding without an elytra around the spawn (the old SpawnElytra as an MCConnect addon): a double jump in one of the
- * areas (rectangles and circles, each with its own boost) starts a glide, the landing is without fall damage. Fixed
+ * areas (rectangles and circles, each with its own boost), or a single jump if so set, starts a glide, the landing is without fall damage. Fixed
  * against the old plugin: the world is configurable (it was fixed to "world"), only players in the zone get the right to fly and only that right is taken back (it used to
  * switch off /fly of other plugins for every survival player), the right is taken back on quit (the game stores it),
  * no isAir() (1.14+), the action bar is not sent every 3 ticks and players who left are forgotten.
@@ -54,6 +56,10 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
     private static final long LANDING_GRACE_MS = 2000L;
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_-]{1,32}");
     private static final double MAX_BOOST = 5.0;
+    /** ticks after a jump until the glide starts with a single jump: the player is in the air by then */
+    private static final long JUMP_DELAY = 2L;
+    private static final String BAR_DOUBLE = "&bSpawnElytra bereit &8| &3zweimal Leertaste zum Fliegen";
+    private static final String BAR_SINGLE = "&bSpawnElytra bereit &8| &3Springen zum Fliegen";
 
     private AddonHandle handle;
     private volatile AddonConfig settings;
@@ -66,6 +72,8 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
     private final Set<UUID> granted = new HashSet<>();
     private final Set<UUID> gliding = new HashSet<>();
     private final Map<UUID, Long> landedAt = new HashMap<>();
+    /** jumped with a single jump set, the glide starts in a moment */
+    private final Set<UUID> jumping = new HashSet<>();
     /** who changed the settings in the game and waits for the answer */
     private UUID savedBy;
     private String savedWhat;
@@ -131,6 +139,7 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
         }
         granted.clear();
         gliding.clear();
+        jumping.clear();
     }
 
     // ------------------------------------------------------------------ zone
@@ -149,12 +158,23 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
         return !config.getBoolean("require_permission", false) || player.hasPermission("spawnelytra.use");
     }
 
+    /** A single jump starts the glide instead of a double jump (no right to fly needed then). */
+    private static boolean singleJump(AddonConfig config) {
+        return "single".equals(config.getString("activation", "double"));
+    }
+
+    private static String barText(AddonConfig config, boolean single) {
+        String text = config.getString("actionbar_text", "");
+        return single && text.equals(BAR_DOUBLE) ? BAR_SINGLE : text;
+    }
+
     // ------------------------------------------------------------------ every few ticks
 
     private void tick() {
         AddonConfig config = settings;
         if (config == null) return;
         boolean showBar = config.getBoolean("actionbar", true) && ticks++ % 5 == 0;  // once a second
+        boolean single = singleJump(config);
         for (Player player : getServer().getOnlinePlayers()) {
             UUID uuid = player.getUniqueId();
             if (gliding.contains(uuid)) {
@@ -164,13 +184,15 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
                 continue;
             }
             if (eligible(player, config) && zoneBoost(player) != null) {
-                if (!player.getAllowFlight()) {
+                if (single) {
+                    if (granted.contains(uuid)) revoke(player);  // switched from double jump
+                } else if (!player.getAllowFlight()) {
                     player.setAllowFlight(true);
                     granted.add(uuid);
                 }
-                if (showBar && granted.contains(uuid)) {
+                if (showBar && (single || granted.contains(uuid))) {
                     player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                            TextComponent.fromLegacyText(color(config.getString("actionbar_text", ""))));
+                            TextComponent.fromLegacyText(color(barText(config, single))));
                 }
             } else if (granted.contains(uuid)) {
                 revoke(player);
@@ -210,9 +232,31 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
         if (!eligible(player, config) || zone == null) return;
         event.setCancelled(true);
         revoke(player);  // no second double jump while gliding; given again after the landing
+        startGlide(player, zone);
+    }
+
+    /** Single jump: the jump itself counts, the glide starts a moment later in the air. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onJump(PlayerStatisticIncrementEvent event) {
+        if (event.getStatistic() != Statistic.JUMP) return;
+        AddonConfig config = settings;
+        Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+        if (config == null || !singleJump(config) || gliding.contains(uuid) || player.isFlying() || player.isInsideVehicle()) return;
+        if (!eligible(player, config) || zoneBoost(player) == null || !jumping.add(uuid)) return;
+        getServer().getScheduler().runTaskLater(this, () -> {
+            jumping.remove(uuid);
+            AddonConfig now = settings;
+            if (now == null || !player.isOnline() || gliding.contains(uuid) || player.isFlying() || player.isInsideVehicle()) return;
+            if (isOnGround(player) || player.getLocation().getBlock().isLiquid() || !eligible(player, now)) return;
+            Double zone = zoneBoost(player);
+            if (zone != null) startGlide(player, zone);
+        }, JUMP_DELAY);
+    }
+
+    private void startGlide(Player player, double boost) {
         gliding.add(player.getUniqueId());
         player.setGliding(true);
-        double boost = zone;
         if (boost > 0) {
             Vector velocity = player.getLocation().getDirection().normalize().multiply(boost);
             velocity.setY(Math.max(velocity.getY(), 0.3 + 0.2 * boost));
@@ -254,6 +298,7 @@ public final class SpawnElytra extends JavaPlugin implements Addon, Listener {
         Player player = event.getPlayer();
         gliding.remove(player.getUniqueId());
         landedAt.remove(player.getUniqueId());
+        jumping.remove(player.getUniqueId());
         selections.remove(player.getUniqueId());
         if (granted.contains(player.getUniqueId())) revoke(player);  // the game stores the right to fly
     }
