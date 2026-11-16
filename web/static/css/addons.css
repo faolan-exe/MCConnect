@@ -230,3 +230,8 @@
 :root[data-dark] .ext-note-error, :root[data-dark] .ext-state-failed { background: #3d1a1a; color: #ffaaaa; }
 :root[data-dark] .ext-state-active, :root[data-dark] .ext-pill-ok { background: #173524; color: #8be3ad; }
 :root[data-dark] .ext-state, :root[data-dark] .ext-state-paused, :root[data-dark] .ext-pill-muted { background: #242c28; color: #a3aea8; }
+:root[data-dark] .ext-check:has(input:checked) { border-color: #2f6b47; background: #173524; }
+:root[data-dark] .ext-chip { border-color: #2f6b47; background: #173524; color: #8be3ad; }
+:root[data-dark] .ext-picker-item:hover, :root[data-dark] .ext-picker-item:focus-visible { background: #173524; }
+:root[data-dark] .ext-mod .message.error { background: #3d1a1a; color: #ffaaaa; }
+:root[data-dark] .ext-mod .message.success { background: #173524; color: #8be3ad; }
