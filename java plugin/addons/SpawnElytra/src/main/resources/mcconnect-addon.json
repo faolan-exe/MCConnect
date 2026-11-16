@@ -10,13 +10,15 @@
     "Landen ohne Fallschaden",
     "Kreise optional in der Höhe begrenzbar",
     "Im Spiel anlegen: /spawnelytra pos1, pos2, create, circle",
+    "Im Spiel anzeigen: /spawnelytra show zeigt Umrisse und Namen der Bereiche, nur für dich",
+    "Im Spiel bearbeiten: /spawnelytra list mit Knöpfen zum Anklicken, oder /spawnelytra edit",
     "Hinweis in der Actionbar",
     "Lässt /fly anderer Plugins in Ruhe"
   ],
   "settings": [
     {
       "title": "Bereiche",
-      "description": "Ohne Bereich kann niemand losgleiten. Im Spiel: Rechteck mit /spawnelytra pos1 und pos2 an den Ecken, dann /spawnelytra create <name> [schub]. Kreis um deine Position mit /spawnelytra circle <name> <radius> [schub] [höhe]. Liegt ein Spieler in mehreren Bereichen, gilt der erste der Liste.",
+      "description": "Ohne Bereich kann niemand losgleiten. Im Spiel: Rechteck mit /spawnelytra pos1 und pos2 an den Ecken, dann /spawnelytra create <name> [schub]. Kreis um deine Position mit /spawnelytra circle <name> <radius> [schub] [höhe]. Anzeigen mit /spawnelytra show, bearbeiten über die Knöpfe in /spawnelytra list. Liegt ein Spieler in mehreren Bereichen, gilt der erste der Liste.",
       "fields": [
         {"key": "regions", "type": "list", "label": "Bereiche", "item_label": "Bereich", "title_key": "name", "max_items": 50,
          "fields": [
