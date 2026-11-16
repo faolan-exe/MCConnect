@@ -9,6 +9,7 @@ final class Area {
     final String name;
     /** empty: the main world */
     final String world;
+    final boolean enabled;
     final boolean circle, aroundSpawn;
     final int minX, minY, minZ, maxX, maxY, maxZ;
     final int centerX, centerY, centerZ;
@@ -19,6 +20,7 @@ final class Area {
 
     private Area(AddonConfig row) {
         name = row.getString("name", "bereich");
+        enabled = row.getBoolean("enabled", true);
         world = row.getString("world", "").trim();
         String shape = row.getString("shape", "rectangle");
         aroundSpawn = "spawn".equals(shape);
@@ -48,10 +50,18 @@ final class Area {
         return row.getBoolean("enabled", true) ? new Area(row) : null;
     }
 
+    /** The area of a settings row, also if it is switched off (for list and show). */
+    static Area any(AddonConfig row) {
+        return new Area(row);
+    }
+
+    boolean inWorld(World candidate, World main) {
+        return candidate != null && (world.isEmpty() ? candidate.equals(main) : candidate.getName().equalsIgnoreCase(world));
+    }
+
     boolean contains(Location location, World main) {
         World candidate = location.getWorld();
-        if (candidate == null) return false;
-        if (!(world.isEmpty() ? candidate.equals(main) : candidate.getName().equalsIgnoreCase(world))) return false;
+        if (!inWorld(candidate, main)) return false;
         if (!circle) return inBox(location.getBlockX(), location.getBlockY(), location.getBlockZ());
         if (aroundSpawn) {
             Location spawn = candidate.getSpawnLocation();

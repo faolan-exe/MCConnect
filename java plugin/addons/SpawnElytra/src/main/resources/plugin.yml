@@ -8,8 +8,8 @@ description: Gleiten ohne Elytra in festgelegten Bereichen (MCConnect-Erweiterun
 website: mc.tobisit.de
 commands:
   spawnelytra:
-    description: Bereiche von SpawnElytra anlegen und löschen
-    usage: /spawnelytra [info|pos1|pos2|create <name> [schub]|circle <name> <radius> [schub] [höhe]|delete <name>|list]
+    description: Bereiche von SpawnElytra anzeigen, anlegen, bearbeiten und löschen
+    usage: /spawnelytra [info|show|list|pos1|pos2|create <name> [schub]|circle <name> <radius> [schub] [höhe]|edit <name> <was> [wert]|delete <name>]
     permission: spawnelytra.admin
 permissions:
   spawnelytra.admin:
