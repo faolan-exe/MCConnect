@@ -1,30 +1,46 @@
 # MCConnect
 
-MCConnect is a further development of my [other mc-stats site.](https://github.com/Tobias-Auer/Full-Stack/tree/main/minecraft_webserver)
+MCConnect gives every Minecraft server its own website with live player statistics, rankings, competitions,
+community features and moderation tools. It is the successor of my
+[earlier mc-stats site](https://github.com/Tobias-Auer/Full-Stack/tree/main/minecraft_webserver), rebuilt on
+PostgreSQL: it no longer has to run on the same file system as the Minecraft server and hosts any number of servers.
 
+A server owner registers on the main page, installs the lightweight plugin **MCDataLink** (Spigot/Paper) and gets a
+page under `<name>.<domain>`. The plugin keeps a pinned TLS connection to MCConnect, sends stats every few seconds and
+runs the website's actions in the game (whitelist, bans, chat messages, sidebar, addons).
 
-This will be version 2.0, with an improved and optimized backend with Postgres.
-Unlike before, this program no longer needs to run on the same file system as the Minecraft server.
-In addition, the website will support multiple Minecraft servers. 
+## Screenshots
 
-Anyone will be able to add their own Minecraft server to this server with a simple, lightweight minecraft plugin.
+**Main page** – public server directory, sign up and "add a server"
+![Main page](docs/screenshots/hauptseite.png)
 
-Preview:
-- Custom Server page for everyone
-![Screenshot](%23readmeImages/Startseite.png)
+**Server page** – own start page per server with address, Discord link, goals, competitions, events and activity feed
+![Server start page](docs/screenshots/startseite.png)
 
-- Player list and status information for every player ever joined the server
-![Screenshot](%23readmeImages/SpielerUebersicht.png)
+**Players** – everyone who ever joined, with search, filters, streaks, top places and favourites
+![Player list](docs/screenshots/spieler.png)
 
-- Detailed player statistics for every player
-![Screenshot](%23readmeImages/SpielerDetails.png)
+**Player page** – play time, deaths, 3D skin, achievements, trophies, charts and every block, item and mob stat
+![Player page](docs/screenshots/spielerseite.png)
 
-- Privacy friendly and easy login for every player to view and change personal data:
-![Screenshot](%23readmeImages/Login.png)
+**Rankings and comparison** – 19 metrics, all time / 30 / 7 days; compare 2–4 players side by side
+![Rankings](docs/screenshots/rangliste.png)
+![Comparison](docs/screenshots/vergleich.png)
 
-- Rankings, player comparison, teams (prefixes), competitions, achievements, server statistics,
-  weekly recap and an activity feed
-- And a lot more...
+**Server statistics** (dark mode) – totals, fun facts, online history and peak times
+![Server statistics](docs/screenshots/server-statistik.png)
+
+**Competitions and community goals**
+![Competitions](docs/screenshots/wettbewerbe.png)
+
+**Moderation** – open tasks, server health, reports, bans, whitelist, rewards, own icons and a log
+![Moderation](docs/screenshots/verwaltung.png)
+
+**Addons** – one-click install of official extensions from the store, configured on the website
+![Addon store](docs/screenshots/admin-addons.png)
+
+**Login** – players log in with a one-time PIN sent in the game, no e-mail or password needed
+![Login](docs/screenshots/login.png)
 
 ## Development
 
@@ -33,7 +49,7 @@ Where things are: [docs/CODEMAP.md](docs/CODEMAP.md) (folders, menu → page →
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 docker compose -f docker/db/docker-compose.yml -p mcconnect up -d   # local postgres
-.venv/bin/python -m pytest -q -p no:logging                         # ~470 tests, uses database mcconnect_test
+.venv/bin/python -m pytest -q -p no:logging                         # ~1050 tests, uses database mcconnect_test
 .venv/bin/python -m database.manage seed                            # dev admin 'tobi' + server 'testdomain'
 MCC_BASE_DOMAIN=mc.t-auer.local:5050 .venv/bin/python mc_socket/main.py   # plugin socket on :9991 (TLS, own certificate)
 FLASK_SERVER_NAME=mc.t-auer.local:5050 .venv/bin/python -c "from web.main import create_app; create_app().run(port=5050)"
@@ -53,7 +69,7 @@ fingerprint of the local socket certificate (`certs/`) for a test plugin's `tls-
 
 ## Status
 
-State of 2026-11-15: schema version 40, plugin 3.31 (no PlayerLoginEvent on Paper, commands of store addons without restart), addons Discoveries and Tickets. Written as a handoff for the next development session.
+State of 2026-11-17: schema version 40, plugin 3.31 (no PlayerLoginEvent on Paper, commands of store addons without restart), addons Discoveries and Tickets, SpawnElytra 2.5 (start with a jump, areas shown in the game and edited by click). Written as a handoff for the next development session.
 
 ### Features
 
