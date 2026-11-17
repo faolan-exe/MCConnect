@@ -13,7 +13,7 @@ web/instance
 database/credentials.txt
 java plugin/MCDataLink/target
 java plugin/MCDataLink/.idea
-#readmeImages
+docs/screenshots
 sampleData
 tests
 uploads
