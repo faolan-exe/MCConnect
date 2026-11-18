@@ -1531,3 +1531,9 @@ nav.md-nav { margin-bottom: 26px; }
 .tk-form { margin-top: 14px; }
 .tk-form .mcc-actions { margin-top: 8px; }
 .tk-closed .tk-message { color: var(--srv-muted); }
+
+/* Weltkarte (/karte): the server's BlueMap in an iframe, as tall as the window allows */
+.km-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.km-frame { display: block; width: 100%; height: calc(100vh - 220px); min-height: 420px; margin-top: 12px;
+  border: 1px solid var(--srv-border); border-radius: 8px; background: var(--srv-border); }
+.tk-map { font-weight: 600; }

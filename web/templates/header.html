@@ -55,10 +55,11 @@
         </div>
       </li>
       <li class="nav-group">
-        {{ nav_group("Community", ("/events", "/galerie", "/regeln", "/mitmachen", "/melden")) }}
+        {{ nav_group("Community", ("/events", "/galerie", "/karte", "/regeln", "/mitmachen", "/melden")) }}
         <div class="nav-menu">
           {{ nav_link("/events", "Events & Umfragen", "Termine, Anmeldung, Abstimmungen", "calendar") }}
           {{ nav_link("/galerie", "Baugalerie", "Screenshots der schönsten Bauten", "image") }}
+          {% if map_open %}{{ nav_link("/karte", "Weltkarte", "Die Welt von oben und in 3D", "map") }}{% endif %}
           <span class="nav-sep" role="separator"></span>
           {% if rules_enabled %}{{ nav_link("/regeln", "Regeln & FAQ", None, "book") }}{% endif %}
           {% if access_open %}{{ nav_link("/mitmachen", "Mitmachen", "Zugang zum Server bekommen", "userplus") }}{% endif %}

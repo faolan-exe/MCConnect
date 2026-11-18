@@ -121,6 +121,11 @@ tls-fingerprint: "{{ plugin_fingerprint }}"{% endif %}</pre>
       <textarea name="server_description_long" required maxlength="5000">{{ server.server_description_long }}</textarea>
       <label>Discord-Einladung <span class="hint">(optional)</span></label>
       <input name="discord_url" type="url" maxlength="300" value="{{ server.discord_url or '' }}" />
+      <label>BlueMap-Karte <span class="hint">(optional)</span></label>
+      <input name="map_url" type="url" maxlength="300" placeholder="https://karte.example.de/"
+             value="{{ server.map_url or '' }}" />
+      <p class="hint">Adresse deiner BlueMap. Sie erscheint öffentlich unter „Weltkarte“. Nur https: Den Webserver von
+        BlueMap (Port 8100) dafür hinter einen Reverse Proxy mit Zertifikat stellen, z. B. Caddy oder nginx.</p>
       <div class="btn-row"><button class="btn" type="submit">Speichern</button></div>
       <div class="message"></div>
     </form>
