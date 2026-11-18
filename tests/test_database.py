@@ -341,6 +341,7 @@ def test_email_verification_expires(db):
 def test_migration_from_version_1(db):
     with db._cursor() as cur:
         # back to schema version 1
+        cur.execute("ALTER TABLE servers DROP COLUMN map_url")  # schema 41
         cur.execute("DROP TABLE ticket_events, tickets")  # schema 40
         cur.execute("DROP TABLE player_ping_daily, player_clients")  # schema 37 and 38
         cur.execute("ALTER TABLE server_health DROP COLUMN ping_avg, DROP COLUMN ping_median")  # schema 37 and 39

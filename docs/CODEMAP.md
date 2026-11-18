@@ -31,7 +31,7 @@ The menu is `web/templates/header.html` (one markup for desktop and phone, style
 | Spieler | `/spieler` (list), `/spieler?player=` (player page), `/teams`, `/vergleich` | `spieler.html`, `spieler-info.html` (own old design, keep it), `teams.html`, `vergleich.html` | `compare.js`, `history-chart.js`; player page: `player-info.css`, `responsive-player-info.css`, `minecraft.css` |
 | Statistiken | `/rangliste`, `/server-statistik`, `/ruhmeshalle`, `/entdeckungen` | same names | `bar-chart.js`, `line-chart.js`, `online-chart.js`; `stats.css` |
 | Wettkämpfe | `/wettbewerbe`, `/duelle` | same names, `_goals.html` | `poll.js` (standings refresh) |
-| Community | `/events` (events and polls; `/umfragen` redirects), `/galerie`, `/regeln`, `/mitmachen`, `/melden` | same names | inline |
+| Community | `/events` (events and polls; `/umfragen` redirects), `/galerie`, `/karte` (only with a BlueMap address, ADR 0015), `/regeln`, `/mitmachen`, `/melden` | same names | inline; `/karte`: `stats.css` (`km-*`), rules in `database/bluemap.py` |
 | Konto | `/profil`, `/profil/spiel`, `/profil/prefix` (`/add_pref`, `/join_pref` redirect) | `profil.html` (one template, `tab` decides the part) | inline, `poll.js` on the prefix tab |
 | Analyse | `/analyse`, `/analyse/spieler/<name>` (moderators) | `analyse.html`, `analyse_spieler.html` | `line-chart.js`, `bar-chart.js`; values and mod names in `database/clients.py` |
 | Tickets | `/tickets` (moderators, only with the addon Tickets; the menu shows the number of open ones) | `tickets.html`, `_ticket.html` (one card, also sent back by the APIs) | inline; `stats.css` (`tk-*`); rules in `database/tickets.py` |
@@ -92,6 +92,7 @@ overview, plugin, addons, server page, moderation, danger zone in `serverAdminSe
 | `/galerie` | GET | `gallery_page` | galerie.html |
 | `/impressum` | GET | `impressum` |  |
 | `/join_pref` | GET | `prefix_join_page` |  |
+| `/karte` | GET | `map_page` | karte.html |
 | `/login` | GET, POST | `player_login` | logout_confirmation.html, login.html |
 | `/melden` | GET | `report_page` | melden.html |
 | `/mitmachen` | GET | `access_page` | mitmachen.html |

@@ -1,0 +1,13 @@
+{% extends "server_base.html" %}
+{% block title %}Weltkarte · {{ server_name }}{% endblock %}
+{% block head %}<link href="{{ url_for('static', filename='css/stats.css') }}" rel="stylesheet"/>{% endblock %}
+{% block page_class %}km-page{% endblock %}
+{% block content %}
+<div class="km-head">
+  <h1>Weltkarte</h1>
+  <a class="mcc-btn mcc-btn-secondary mcc-btn-small" href="{{ map_src }}" target="_blank" rel="noopener">Im Vollbild öffnen</a>
+</div>
+<iframe class="km-frame" src="{{ map_src }}" title="Weltkarte von {{ server_name }}" allow="fullscreen"
+        referrerpolicy="no-referrer"></iframe>
+<p class="st-hint">Die Karte kommt direkt vom Server (BlueMap). Lädt sie nicht? <a href="{{ map_url }}" target="_blank" rel="noopener">Hier direkt öffnen.</a></p>
+{% endblock %}

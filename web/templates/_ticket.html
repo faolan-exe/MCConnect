@@ -9,6 +9,7 @@
     <a class="tk-player" href="/spieler?player={{ t.player_name | urlencode }}"><img alt="" width="24" height="24" loading="lazy" src="/mc/avatar/{{ t.player_uuid }}/64"/>{{ t.player_name or "?" }}</a>
     <span>{{ t.when }}</span>
     {% if t.world %}<code>{{ t.world }} {{ t.x }} {{ t.y }} {{ t.z }}</code>{% endif %}
+    {% if t.map %}<a class="tk-map" href="{{ t.map }}" target="_blank" rel="noopener">Auf der Karte</a>{% endif %}
   </p>
   <p class="tk-message">{{ t.message }}</p>
   {% if t.events %}

@@ -14,7 +14,7 @@ runs the website's actions in the game (whitelist, bans, chat messages, sidebar,
 **Main page** – public server directory, sign up and "add a server"
 ![Main page](docs/screenshots/hauptseite.png)
 
-**Server page** – own start page per server with address, Discord link, goals, competitions, events and activity feed
+**Server page** – own start page per server with address, Discord link, world map (BlueMap, optional), goals, competitions, events and activity feed
 ![Server start page](docs/screenshots/startseite.png)
 
 **Players** – everyone who ever joined, with search, filters, streaks, top places and favourites

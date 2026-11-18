@@ -698,6 +698,10 @@ MIGRATIONS = {
              delivered boolean NOT NULL DEFAULT false)""",
         "CREATE INDEX ticket_events_ticket_idx ON ticket_events (ticket_id)",
     ],
+    # the address of the server's BlueMap (database/bluemap.py, ADR 0015); NULL: no map page
+    41: [
+        "ALTER TABLE servers ADD COLUMN map_url text",
+    ],
 }
 # X-ray hints: the blocks a player breaks around the ore. Since the cave update (1.18) diamonds lie in deepslate, tuff
 # and the stone variants of the caves, and debris next to basalt and blackstone, not only in netherrack.
@@ -1953,7 +1957,7 @@ class DatabaseManager:
 
     def update_server(self, server_id, owner_id, **fields):
         """Update editable server fields; only succeeds for the owner. Returns True if updated."""
-        allowed = {"server_name", "mc_server_domain", "discord_url", "whitelist", "auto_mod_ops", "alerts_enabled", "listed",
+        allowed = {"server_name", "mc_server_domain", "discord_url", "map_url", "whitelist", "auto_mod_ops", "alerts_enabled", "listed",
                    "server_description_short", "server_description_long", "addon_mods", "addon_auto_update",
                    "addon_mods_protected"}
         fields = {k: v for k, v in fields.items() if k in allowed}

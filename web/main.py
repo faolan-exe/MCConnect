@@ -18,7 +18,7 @@ import time
 import uuid as uuid_mod
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
@@ -35,6 +35,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from database import achievements as achievements_mod
 from database import addons
 from database import badges as badges_mod
+from database import bluemap
 from database import clients as clients_mod
 from database import config
 from database import discoveries as discoveries_mod
@@ -250,6 +251,7 @@ def inject_server_context():
                 server_description_short=server["server_description_short"],
                 server_description_long=server["server_description_long"],
                 discord_url=server["discord_url"],
+                map_open=bool(server["map_url"]),
                 license_type=server["license_type"],
                 mc_server_domain=server["mc_server_domain"],
                 whitelist=server["whitelist"],
@@ -1219,6 +1221,25 @@ def rules_page():
     if not settings["rules_enabled"]:
         abort(404)
     return render_template("regeln.html", rules=settings["rules"] or "", faq=faq_entries(settings["faq"]))
+
+
+@server_bp.route("/karte")
+def map_page():
+    """The server's BlueMap in an iframe; ?welt=&x=&y=&z= jumps to a position (links from the tickets)."""
+    url = g.server["map_url"]
+    if not url:
+        abort(404)
+    g.frame_src = bluemap.origin(url)
+    args = request.args
+    return render_template("karte.html", map_src=bluemap.view_url(url, args.get("welt"), args.get("x"), args.get("y"),
+                                                                    args.get("z")), map_url=url)
+
+
+def map_link(world, x, y, z):
+    """/karte jumping to a position, None without map or position."""
+    if not g.server["map_url"] or bluemap.position(world, x, y, z) is None:
+        return None
+    return "/karte?" + urlencode({"welt": world, "x": x, "y": y, "z": z})
 
 
 ################################ COMMUNITY: events, polls, build gallery, guestbook #################################
@@ -2281,7 +2302,7 @@ def open_ticket_count(server_id):
 
 def ticket_view(ticket):
     fmt = lambda at: at.strftime("%d.%m.%Y, %H:%M")
-    return dict(ticket, when=fmt(ticket["created_at"]), closed=fmt(ticket["closed_at"]) if ticket["closed_at"] else None,
+    return dict(ticket, map=map_link(ticket["world"], ticket["x"], ticket["y"], ticket["z"]), when=fmt(ticket["created_at"]), closed=fmt(ticket["closed_at"]) if ticket["closed_at"] else None,
                 events=[dict(e, when=fmt(e["at"])) for e in ticket["events"]])
 
 
@@ -3633,6 +3654,10 @@ def _validate_server_fields(data, current=None):
         return None, "Öffentliche Server brauchen eine Adresse zum Verbinden."
     if domain and " " in domain:
         return None, "Die Server-Adresse darf keine Leerzeichen enthalten."
+    if "map_url" in data or current is None:
+        fields["map_url"], error = bluemap.normalize_url(data.get("map_url"))
+        if error:
+            return None, error
     discord = fields.get("discord_url")
     if discord and not re.match(r"^https://(discord\.gg|discord\.com|www\.discord\.com)/\S+$", discord):
         return None, "Der Discord-Link muss mit https://discord.gg/ oder https://discord.com/ beginnen."
@@ -4139,6 +4164,8 @@ def content_security_policy():
         f"img-src 'self' {static} https: data: blob:",
         # MineRender would report every page view to minerender.org (switched off with sendStats: false; not allowed)
         "connect-src 'self'",
+        # only /karte frames another site: the server's own BlueMap (ADR 0015)
+        f"frame-src {g.frame_src}" if g.get("frame_src") else "frame-src 'self'",
         "frame-ancestors 'self'", "object-src 'none'", "base-uri 'self'", "form-action 'self'",
     ))
 
