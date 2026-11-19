@@ -12,7 +12,7 @@ moderators should get from a ticket straight to its place.
 
 - **The owner enters the address** of the BlueMap under `/manage/<id>` → "Serverseite" (column `servers.map_url`,
   optional, like the Discord link). Without an address there is no page and no menu entry.
-- **iframe, no proxy, no own viewer.** `/karte` ("Weltkarte" in the menu group Community) shows the map in an iframe.
+- **iframe, no proxy, no own viewer.** `/karte` (own menu entry "Karte") shows the map in an iframe.
   MCConnect does not proxy the tiles (thousands of requests per visit through the web app, plus a request forgery
   risk) and does not render the map itself. The button "Im Vollbild öffnen" opens the map directly.
 - **Only https.** A page on https may not frame http (mixed content). The address must be `https://` without user
