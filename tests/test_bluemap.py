@@ -80,7 +80,7 @@ def test_no_map_no_page(client, server):  # noqa: F811
 
 def test_the_map_is_public_and_only_it_may_be_framed(client, db, server, admin_id):  # noqa: F811
     db.update_server(server["id"], admin_id, map_url=MAP)
-    assert 'href="/karte"' in client.get("/", **on("testdomain")).get_data(as_text=True)  # not logged in
+    assert '<a class="nav-top" href="/karte">Karte</a>' in client.get("/", **on("testdomain")).get_data(as_text=True)  # not logged in
 
     response = client.get("/karte", **on("testdomain"))
     assert response.status_code == 200

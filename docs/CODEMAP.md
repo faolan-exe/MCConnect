@@ -31,8 +31,9 @@ The menu is `web/templates/header.html` (one markup for desktop and phone, style
 | Spieler | `/spieler` (list), `/spieler?player=` (player page), `/teams`, `/vergleich` | `spieler.html`, `spieler-info.html` (own old design, keep it), `teams.html`, `vergleich.html` | `compare.js`, `history-chart.js`; player page: `player-info.css`, `responsive-player-info.css`, `minecraft.css` |
 | Statistiken | `/rangliste`, `/server-statistik`, `/ruhmeshalle`, `/entdeckungen` | same names | `bar-chart.js`, `line-chart.js`, `online-chart.js`; `stats.css` |
 | Wettkämpfe | `/wettbewerbe`, `/duelle` | same names, `_goals.html` | `poll.js` (standings refresh) |
-| Community | `/events` (events and polls; `/umfragen` redirects), `/galerie`, `/karte` (only with a BlueMap address, ADR 0015), `/regeln`, `/mitmachen`, `/melden` | same names | inline; `/karte`: `stats.css` (`km-*`), rules in `database/bluemap.py` |
+| Community | `/events` (events and polls; `/umfragen` redirects), `/galerie`, `/regeln`, `/mitmachen`, `/melden` | same names | inline |
 | Konto | `/profil`, `/profil/spiel`, `/profil/prefix` (`/add_pref`, `/join_pref` redirect) | `profil.html` (one template, `tab` decides the part) | inline, `poll.js` on the prefix tab |
+| Karte | `/karte` (own menu entry, only with a BlueMap address, ADR 0015) | `karte.html` | `stats.css` (`km-*`); rules in `database/bluemap.py` |
 | Analyse | `/analyse`, `/analyse/spieler/<name>` (moderators) | `analyse.html`, `analyse_spieler.html` | `line-chart.js`, `bar-chart.js`; values and mod names in `database/clients.py` |
 | Tickets | `/tickets` (moderators, only with the addon Tickets; the menu shows the number of open ones) | `tickets.html`, `_ticket.html` (one card, also sent back by the APIs) | inline; `stats.css` (`tk-*`); rules in `database/tickets.py` |
 | Verwaltung | `/users`, `/users/spieler`, `/users/inhalte`, `/users/zugang`, tab "Im Spiel": `/users/belohnungen`, `/users/icons`, `/users/erweiterungen`; `/users/protokoll` | `mod/*.html` | `mod.js`, `addons.js`; tabs in `MOD_TABS` (`web/main.py`) |

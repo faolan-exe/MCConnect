@@ -55,18 +55,21 @@
         </div>
       </li>
       <li class="nav-group">
-        {{ nav_group("Community", ("/events", "/galerie", "/karte", "/regeln", "/mitmachen", "/melden")) }}
+        {{ nav_group("Community", ("/events", "/galerie", "/regeln", "/mitmachen", "/melden")) }}
         <div class="nav-menu">
           {{ nav_link("/events", "Events & Umfragen", "Termine, Anmeldung, Abstimmungen", "calendar") }}
           {{ nav_link("/galerie", "Baugalerie", "Screenshots der schönsten Bauten", "image") }}
-          {% if map_open %}{{ nav_link("/karte", "Weltkarte", "Die Welt von oben und in 3D", "map") }}{% endif %}
           <span class="nav-sep" role="separator"></span>
           {% if rules_enabled %}{{ nav_link("/regeln", "Regeln & FAQ", None, "book") }}{% endif %}
           {% if access_open %}{{ nav_link("/mitmachen", "Mitmachen", "Zugang zum Server bekommen", "userplus") }}{% endif %}
           {{ nav_link("/melden", "Etwas melden", None, "alert") }}
         </div>
       </li>
-      {% else %}
+      {% endif %}
+      {% if map_open %}
+      <li><a class="nav-top{% if request.path == '/karte' %} current{% endif %}" href="/karte">Karte</a></li>
+      {% endif %}
+      {% if not config.FEATURE_RANKINGS %}
       <li><a class="nav-top{% if request.path == '/spieler' %} current{% endif %}" href="/spieler">Spieler</a></li>
       {% endif %}
       {% if config.FEATURE_ADMIN_PANEL and perm <= 1 %}
