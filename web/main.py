@@ -1232,7 +1232,7 @@ def map_page():
     g.frame_src = bluemap.origin(url)
     args = request.args
     return render_template("karte.html", map_src=bluemap.view_url(url, args.get("welt"), args.get("x"), args.get("y"),
-                                                                    args.get("z")), map_url=url)
+                                                                    args.get("z")))
 
 
 def map_link(world, x, y, z):

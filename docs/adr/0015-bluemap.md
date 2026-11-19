@@ -14,7 +14,7 @@ moderators should get from a ticket straight to its place.
   optional, like the Discord link). Without an address there is no page and no menu entry.
 - **iframe, no proxy, no own viewer.** `/karte` ("Weltkarte" in the menu group Community) shows the map in an iframe.
   MCConnect does not proxy the tiles (thousands of requests per visit through the web app, plus a request forgery
-  risk) and does not render the map itself. A link opens the map directly in case it does not load in the frame.
+  risk) and does not render the map itself. The button "Im Vollbild öffnen" opens the map directly.
 - **Only https.** A page on https may not frame http (mixed content). The address must be `https://` without user
   name, password or `#fragment` (`database/bluemap.normalize_url`). Owners put BlueMap behind a reverse proxy with a
   certificate (Caddy, nginx). The proxy must not forbid framing (`X-Frame-Options`, `frame-ancestors`).
