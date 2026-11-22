@@ -79,7 +79,7 @@
     const params = new URLSearchParams(location.search);
     const state = {
       q: params.get("suche") || "",
-      sort: ["name", "last", "play"].includes(params.get("sortierung")) ? params.get("sortierung") : "name",
+      sort: ["name", "last", "play"].includes(params.get("sortierung")) ? params.get("sortierung") : "last",
       filter: filterButtons.some((b) => b.dataset.filter === params.get("filter")) ? params.get("filter") : "all",
     };
     search.value = state.q;
@@ -157,7 +157,7 @@
 
       const url = new URLSearchParams();
       if (state.q) url.set("suche", state.q);
-      if (state.sort !== "name") url.set("sortierung", state.sort);
+      if (state.sort !== "last") url.set("sortierung", state.sort);
       if (state.filter !== "all") url.set("filter", state.filter);
       history.replaceState(null, "", location.pathname + (url.toString() ? "?" + url : ""));
     }
